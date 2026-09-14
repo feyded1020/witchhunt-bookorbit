@@ -204,6 +204,13 @@ class CrossPointSettings {
   // Whether touch drives the non-reader screens at all. See touchUiControls.
   enum TOUCH_UI_CONTROLS { TOUCH_UI_OFF = 0, TOUCH_UI_ON = 1, TOUCH_UI_CONTROLS_COUNT };
 
+  // Whether a list-row tap activates immediately or first moves selection.
+  enum TOUCH_LIST_ACTIVATION {
+    TOUCH_LIST_SELECT_THEN_ACTIVATE = 0,
+    TOUCH_LIST_ACTIVATE_IMMEDIATELY = 1,
+    TOUCH_LIST_ACTIVATION_COUNT
+  };
+
   // How the reading surface responds to touch. Off leaves the page inert, so a
   // thumb resting on the panel can never turn a page (P3 in
   // docs/touch-input-migration-2026-08-14.md).
@@ -429,6 +436,7 @@ class CrossPointSettings {
   // with this off: HalGPIO synthesises them as BUTTON edges below this layer, so
   // turning touch navigation off cannot strand anyone in a menu.
   uint8_t touchUiControls = TOUCH_UI_ON;
+  uint8_t touchListActivation = TOUCH_LIST_SELECT_THEN_ACTIVATE;
 
   // Bumped whenever the SHIPPED gesture defaults change. A stored value below
   // this makes the loader ignore the file's gesture keys and keep the compiled

@@ -75,6 +75,39 @@ TEST(ListRowTap, RepeatedTapsOnTheSelectedRowKeepActivating) {
   EXPECT_EQ(Result::Activate, ListRowTap::apply(5, 10, selection));
 }
 
+TEST(ListRowTap, SelectThenActivatePreferenceKeepsFirstTapAsSelection) {
+  ListRowTap::ActivationState state;
+  EXPECT_EQ(Result::Selected, state.applyPreference(3, Result::Selected, false));
+  EXPECT_EQ(Result::Activate, state.applyPreference(3, Result::Activate, false));
+}
+
+TEST(ListRowTap, ImmediatePreferencePromotesSelectionToActivation) {
+  ListRowTap::ActivationState state;
+  EXPECT_EQ(Result::Activate, state.applyPreference(3, Result::Selected, true));
+  EXPECT_EQ(Result::Activate, state.applyPreference(3, Result::Activate, true));
+  EXPECT_EQ(Result::Rejected, state.applyPreference(3, Result::Rejected, true));
+}
+
+TEST(ListRowTap, InitiallySelectedRowStillRequiresTwoTaps) {
+  ListRowTap::ActivationState state;
+  EXPECT_EQ(Result::Selected, state.applyPreference(4, Result::Activate, false));
+  EXPECT_EQ(Result::Activate, state.applyPreference(4, Result::Activate, false));
+}
+
+TEST(ListRowTap, ChangingRowsRestartsTheTwoTapSequence) {
+  ListRowTap::ActivationState state;
+  EXPECT_EQ(Result::Selected, state.applyPreference(3, Result::Selected, false));
+  EXPECT_EQ(Result::Selected, state.applyPreference(7, Result::Selected, false));
+  EXPECT_EQ(Result::Activate, state.applyPreference(7, Result::Activate, false));
+}
+
+TEST(ListRowTap, ResetRequiresAFirstTapAgain) {
+  ListRowTap::ActivationState state;
+  EXPECT_EQ(Result::Selected, state.applyPreference(3, Result::Selected, false));
+  state.reset();
+  EXPECT_EQ(Result::Selected, state.applyPreference(3, Result::Activate, false));
+}
+
 // SettingsActivity compares in the BAND's frame and then shifts by one; StatusBarSettings
 // round-trips a uint8_t. Both hand apply() a plain int by reference, so the update has to be
 // visible to the caller — that is what lets those two adapt without duplicating the rule.

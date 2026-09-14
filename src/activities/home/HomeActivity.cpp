@@ -999,10 +999,8 @@ void HomeActivity::render(RenderLock&&) {
 // three covers, a carousel, and a menu that is a vertical row list in two themes and a
 // horizontal icon strip in the carousel).
 //
-// Point-then-confirm, the same rule ActivityManager::dispatchListTap() applies to every list:
-// the first tap moves the selection to the cover or menu entry under the finger, and only a tap
-// on the one already selected acts. Home is where that matters most — its entries open books and
-// launch whole activities, so a mis-tap is the most expensive thing a stray finger can do here.
+// Apply the same configurable selection/activation policy as other selectable touch surfaces.
+// This includes the carousel's horizontal icon row as well as covers and vertical menu rows.
 bool HomeActivity::handleHomeTouch() {
 #if !CP_TOUCH_UI
   // The TapTargets stubs report no targets and hit-test to -1 on a board with no digitiser, so
@@ -1046,7 +1044,10 @@ bool HomeActivity::handleHomeTouch() {
 
   // The whole selector is one range (covers then menu), so the comparison happens in that frame
   // and a tap on the menu correctly counts as "new" while a cover is selected, and vice versa.
-  switch (ListRowTap::apply(selector, recentsCount + menuCount, selectorIndex)) {
+    const auto tapResult = listTapActivation.applyPreference(
+      selector, ListRowTap::apply(selector, recentsCount + menuCount, selectorIndex),
+      SETTINGS.touchListActivation == CrossPointSettings::TOUCH_LIST_ACTIVATE_IMMEDIATELY);
+  switch (tapResult) {
     case ListRowTap::Result::Rejected:
       return true;
     case ListRowTap::Result::Selected:

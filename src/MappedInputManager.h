@@ -154,6 +154,9 @@ class MappedInputManager {
   // rather than GfxRenderer::Orientation so this header keeps its forward declaration; the
   // two enums are static_asserted to agree in GfxRenderer.cpp.
   bool wasScreenTappedIn(touchtransform::Orientation orientation, int& x, int& y) const;
+  // One-shot hardware press edge for stateful widget routing. Legacy list selection uses
+  // wasScreenTouchDown() below, whose deliberate delay avoids wasteful e-paper refreshes.
+  bool wasScreenTouchPressed(int& x, int& y) const;
   bool wasScreenTouchDown(int& x, int& y) const;
   bool peekScreenLongPressIn(touchtransform::Orientation orientation, int& x, int& y) const;
   // Ignore the rest of this contact — its continued hold and its release edge.

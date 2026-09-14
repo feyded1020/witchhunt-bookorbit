@@ -93,6 +93,9 @@ std::unique_ptr<Activity> createSelectorActivity(const SettingInfo& setting, Gfx
                                                                             : FontSelectionActivity::Target::EPUB;
     return std::make_unique<FontSelectionActivity>(renderer, mappedInput, target);
   }
+  if (setting.nameId == StrId::STR_FONT_FAMILY && setting.type == SettingType::ENUM) {
+    return std::make_unique<FontSelectionActivity>(renderer, mappedInput, setting);
+  }
 
   if (setting.type != SettingType::ENUM) return nullptr;
   return std::make_unique<EnumSelectionActivity>(renderer, mappedInput, setting);

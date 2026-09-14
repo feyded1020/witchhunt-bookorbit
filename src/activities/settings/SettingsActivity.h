@@ -5,6 +5,7 @@
 
 #include "SettingInfo.h"
 #include "activities/Activity.h"
+#include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
 class SettingsActivity final : public Activity {
@@ -29,6 +30,7 @@ class SettingsActivity final : public Activity {
 
   std::vector<SettingInfo::SubmenuData> submenuData;
   bool needsHalfRefresh = false;
+  ListViewState listView;
 
   void enterCategory(int categoryIndex);
   void toggleCurrentSetting();
@@ -43,6 +45,7 @@ class SettingsActivity final : public Activity {
   // tab, and render() hands drawList `selectedSettingIndex - 1`, so band row i is row i+1
   // here. Tapping cannot reach the tab row -- that is what the tab bar is for.
   ListRowTap::Result selectListRow(int index) override;
+  bool pageList(ListPageDirection direction) override;
   void loop() override;
   void render(RenderLock&&) override;
 };

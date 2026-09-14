@@ -415,7 +415,7 @@ void SettingsActivity::render(RenderLock&&) {
            contentRect.height -
                (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing * 2)},
       settingsCount, selectedSettingIndex - 1, [&settings](int index) { return settings[index].getTitle(); }, nullptr,
-      nullptr, [&settings](int i) { return settings[i].getDisplayValue(); }, true);
+      nullptr, [&settings](int i) { return settings[i].getDisplayValue(); }, true, &listView);
 
   // Draw help text
   const auto confirmLabel = (selectedSettingIndex == 0)
@@ -442,4 +442,25 @@ ListRowTap::Result SettingsActivity::selectListRow(const int index) {
   const auto result = ListRowTap::apply(index, settingsCount, selection);
   if (result != ListRowTap::Result::Rejected) selectedSettingIndex = selection + 1;
   return result;
+}
+
+bool SettingsActivity::pageList(const ListPageDirection direction) {
+  if (settingsCount <= 0) return false;
+
+  const int pageSize = listView.visibleRows > 0 ? listView.visibleRows : ButtonNavigator::defaultListPageSize;
+  const int current = std::max(0, selectedSettingIndex - 1);
+  int target = direction == ListPageDirection::Forward
+                   ? ButtonNavigator::nextPageIndex(current, settingsCount, pageSize)
+                   : ButtonNavigator::previousPageIndex(current, settingsCount, pageSize);
+  const auto selectable = [this](const int index) { return isListItemSelectable(index); };
+  if (!selectable(target)) {
+    target = direction == ListPageDirection::Forward
+                 ? ButtonNavigator::nextIndex(target, settingsCount, selectable)
+                 : ButtonNavigator::previousIndex(target, settingsCount, selectable);
+  }
+
+  selectedSettingIndex = target + 1;
+  listTapActivation.reset();
+  requestUpdate();
+  return true;
 }
