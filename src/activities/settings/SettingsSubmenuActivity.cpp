@@ -14,10 +14,8 @@
 #include "fontIds.h"
 
 void SettingsSubmenuActivity::onEnter() {
-  Activity::onEnter();
+  MenuListActivity::onEnter();
   needsHalfRefresh = true;
-  initMenuList();
-  requestUpdate();
 }
 
 void SettingsSubmenuActivity::onActionSelected(int index) {

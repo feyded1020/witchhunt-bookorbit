@@ -1,12 +1,11 @@
 #pragma once
+#include <array>
+#include <string>
 #include <vector>
 
-#include "Activity.h"
+#include "UiListActivity.h"
 #include "components/themes/BaseTheme.h"
 #include "settings/SettingInfo.h"
-#include "util/ButtonNavigator.h"
-
-struct Rect;
 
 // Base class for activities that display a scrollable list of SettingInfo items.
 // Provides common navigation, toggle/cycle logic, and drawList rendering.
@@ -64,18 +63,17 @@ struct Rect;
 // The base class provides:
 //   onEnter()  — wires up the selectable-predicate (skips separators) and requestUpdate().
 //   loop()     — handles Back (→ onBackPressed), Confirm (→ toggleCurrentItem), and nav.
-//   drawMenuList(rect) — calls GUI.drawList with SettingInfo-based title/value lambdas.
+//   drawMenuList(rect) — renders a virtualized FreeInkUI list of SettingInfo rows.
 //   getItemValueString(i) — override for custom per-item value display.
 //   onBackPressed()    — override to customise Back behaviour (default: finish()).
 //
-class MenuListActivity : public Activity {
+class MenuListActivity : public UiListActivity {
  protected:
   std::vector<SettingInfo> menuItems;
   std::vector<SettingInfo::SubmenuData> submenuData;
-  int selectedIndex = 0;
-  // Filled in by drawMenuList: how many rows fit on screen, which is the distance Left/Right jump.
+  int& selectedIndex;
+  // Retained for subclasses that draw a separate legacy list mode, such as weather search results.
   ListViewState listView;
-  ButtonNavigator buttonNavigator;
   bool submenusPrepared = false;
 
   // Call after building/rebuilding menuItems to wire up the selectable predicate.
@@ -94,7 +92,7 @@ class MenuListActivity : public Activity {
   // Toggle/cycle the currently selected item.  For ACTION items, delegates to onActionSelected().
   virtual void toggleCurrentItem();
 
-  // Draw the list into the given rect using GUI.drawList().
+  // Draw the FreeInkUI list into the given rect.
   void drawMenuList(const Rect& rect);
 
   // Override to provide custom value display for specific items.
@@ -111,12 +109,28 @@ class MenuListActivity : public Activity {
   // Override to persist changes or trigger side-effects.
   virtual void onSettingToggled(int /*index*/) {}
 
+  int listCount() const override { return static_cast<int>(menuItems.size()); }
+  void buildScreen(UiScreen& screen) override;
+  void activateIndex(int index) override;
+  void navigateButtons() override;
+  void onBackButton() override { onBackPressed(); }
+
  public:
-  using Activity::Activity;
+  MenuListActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput);
 
   void onEnter() override;
-  // Tap on a menu row -> move the selection there; ActivityManager synthesizes Confirm,
-  // which loop() turns into toggleCurrentItem(). Separators decline.
+  // Move the selection to a tapped menu row. Separators decline.
   ListRowTap::Result selectListRow(int index) override;
   void loop() override;
+
+ private:
+  void materializeListWindow();
+
+  static constexpr size_t LIST_WINDOW_CAPACITY = 24;
+  Rect listRect{};
+  std::array<std::string, LIST_WINDOW_CAPACITY> windowLabels;
+  std::array<std::string, LIST_WINDOW_CAPACITY> windowValues;
+  std::array<freeink::ui::ListItem, LIST_WINDOW_CAPACITY> windowItems;
+  uint16_t windowFirst = 0;
+  uint16_t windowCount = 0;
 };
