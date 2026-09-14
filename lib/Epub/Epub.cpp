@@ -52,6 +52,30 @@ ImageFormatDetector::Format detectCoverImageFormat(FsFile& imageFile, const uint
   return ImageFormatDetector::detect(header, readBytes);
 }
 
+bool coverImageComplete(FsFile& imageFile, ImageFormatDetector::Format format) {
+  const uint32_t size = imageFile.size();
+  if (format == ImageFormatDetector::Format::Jpeg) {
+    constexpr uint32_t TAIL_BYTES = 64;
+    const uint32_t tailSize = std::min(size, TAIL_BYTES);
+    if (tailSize < 2 || !imageFile.seek(size - tailSize)) return false;
+
+    uint8_t tail[TAIL_BYTES];
+    const int readBytes = imageFile.read(tail, tailSize);
+    for (int i = readBytes - 2; i >= 0; i--) {
+      if (tail[i] == 0xFF && tail[i + 1] == 0xD9) return true;
+    }
+    return false;
+  }
+
+  if (format == ImageFormatDetector::Format::Png) {
+    if (size < 12 || !imageFile.seek(size - 8)) return false;
+    uint8_t chunkType[4] = {};
+    return imageFile.read(chunkType, sizeof(chunkType)) == sizeof(chunkType) && memcmp(chunkType, "IEND", 4) == 0;
+  }
+
+  return format != ImageFormatDetector::Format::Unknown;
+}
+
 }  // namespace
 
 bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
@@ -1075,10 +1099,10 @@ bool Epub::coverImageCachedValidOnly() const {
     existing.close();
     return true;  // can't open to validate — assume valid, let the decode fail if needed
   }
-  const bool nonEmpty = existing.size() > 0;
   const auto fmt = detectCoverImageFormat(existing);
+  const bool complete = coverImageComplete(existing, fmt);
   existing.close();
-  return nonEmpty && fmt != ImageFormatDetector::Format::Unknown;
+  return complete;
 }
 
 bool Epub::coverImageCachedButUnsupported() const {
@@ -1113,13 +1137,14 @@ bool Epub::ensureCoverImageCached() const {
     FsFile existing;
     if (Storage.openFileForRead("EBP", coverCachePath, existing)) {
       const auto fmt = detectCoverImageFormat(existing);
+      const bool complete = coverImageComplete(existing, fmt);
       existing.close();
-      if (fmt != ImageFormatDetector::Format::Unknown) return true;
+      if (complete) return true;
     } else {
       existing.close();
       return true;  // can't open to validate — assume valid, let generateThumbBmp fail if needed
     }
-    LOG_ERR("EBP", "Cached cover.img has unsupported format, deleting: %s", coverCachePath.c_str());
+    LOG_ERR("EBP", "Cached cover.img is incomplete or unsupported, deleting: %s", coverCachePath.c_str());
     Storage.remove(coverCachePath.c_str());
   }
 

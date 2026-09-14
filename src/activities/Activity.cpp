@@ -13,6 +13,7 @@
 // only gap is between the transition and that render -- during which there is correctly
 // neither.
 void Activity::onEnter() {
+  listTapActivation.reset();
   ButtonHintStrip::invalidate();
   ListTouchBand::invalidate();
   TapTargets::homeCovers().invalidate();

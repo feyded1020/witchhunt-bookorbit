@@ -2,17 +2,16 @@
 
 #include <FileIndex.h>
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "../Activity.h"
+#include "../UiListActivity.h"
 #include "RecentBooksStore.h"
-#include "components/themes/BaseTheme.h"
-#include "util/ButtonNavigator.h"
 
-class FileBrowserActivity final : public Activity {
+class FileBrowserActivity final : public UiListActivity {
  public:
   // Books = standard reader browser; PickFirmware = filter to .bin only and return path via ActivityResult.
   enum class Mode { Books, PickFirmware };
@@ -29,14 +28,11 @@ class FileBrowserActivity final : public Activity {
   void doRemove(const std::string& fullPath, const std::string& entry, bool isDirectory);
   void doFlashFirmware(const std::string& fullPath);
 
-  ButtonNavigator buttonNavigator;
-
-  int selectorIndex = 0;
-  // Long file names wrap over up to three lines, so rows here are variable height: the list
-  // scrolls rather than paging, and its scroll position and on-screen row count live here between
-  // renders. drawList keeps both current; nothing resets them, because a selection above the
-  // window pulls the window back to it.
-  ListViewState listView{BaseTheme::maxWrappedTitleLines};
+  static constexpr size_t LIST_WINDOW_CAPACITY = 24;
+  std::array<std::string, LIST_WINDOW_CAPACITY> windowLabels;
+  std::array<freeink::ui::ListItem, LIST_WINDOW_CAPACITY> windowItems;
+  uint16_t windowFirst = 0;
+  uint16_t windowCount = 0;
 
   Mode mode = Mode::Books;
 
@@ -65,6 +61,9 @@ class FileBrowserActivity final : public Activity {
   void sortFileList();
   std::string getFileExtension(const std::string& name) const;
   void showBrowserOptionsMenu();
+  void activateSelected(bool longPress);
+  void resetNavigation(int selected = 0);
+  void materializeListWindow();
 
   // Backend-agnostic list access. Both backends present the same entry-name form
   // (a trailing '/' marks a directory) so render/navigation/selection code is
@@ -83,14 +82,20 @@ class FileBrowserActivity final : public Activity {
  public:
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
                                std::string focusName = {}, Mode mode = Mode::Books)
-      : Activity("FileBrowser", renderer, mappedInput),
+      : UiListActivity("FileBrowser", renderer, mappedInput),
         mode(mode),
         basepath(initialPath.empty() ? "/" : std::move(initialPath)),
         focusName(std::move(focusName)) {}
   void onEnter() override;
   void onExit() override;
-  // Tap on a list row -> move the selection there; ActivityManager then synthesizes Confirm.
-  ListRowTap::Result selectListRow(int index) override;
-  void loop() override;
-  void render(RenderLock&&) override;
+
+ private:
+  int listCount() const override;
+  void buildScreen(UiScreen& screen) override;
+  void activateIndex(int index) override;
+  bool handleCustomInput() override;
+  int indexForActionValue(int16_t value) const override { return static_cast<uint16_t>(value); }
+  void drawChrome() override;
+  void drawFooter() override;
+  void navigateButtons() override;
 };

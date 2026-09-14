@@ -25,8 +25,11 @@ class Activity {
 
   ActivityResultHandler resultHandler;
   ActivityResult result;
+  ListRowTap::ActivationState listTapActivation;
 
  public:
+  enum class ListPageDirection : uint8_t { Back, Forward };
+
   explicit Activity(std::string name, GfxRenderer& renderer, MappedInputManager& mappedInput)
       : name(std::move(name)), renderer(renderer), mappedInput(mappedInput), buttonEvents(globalButtonEvents()) {}
   virtual ~Activity() = default;
@@ -64,16 +67,20 @@ class Activity {
   // new row. See ListRowTap.h for the rule; most implementations are one call to
   // ListRowTap::apply().
   //
-  // Point-then-confirm: `Selected` means the highlight moved and the dispatcher only repaints,
-  // `Activate` means the finger landed on the row that was already selected and the dispatcher
-  // synthesizes a Confirm press on the screen's behalf. Synthesizing is the point -- a tap then
-  // runs the SAME handler the button does rather than a second copy of it that can drift, which
-  // is why this is a one-line hook and not a per-screen touch handler.
+  // `Selected` means the highlight moved; the dispatcher applies the user's tap preference and
+  // either repaints or arms the row for a second tap. `Activate` means the tapped row was already
+  // selected; it still requires a preceding tap in two-step mode because keyboard focus is not
+  // touch confirmation. Activation synthesizes Confirm so a tap runs the SAME handler the button
+  // does rather than a second copy that can drift.
   //
   // Screens whose list is not a plain recorded row band -- Home's covers and menu, RecentBooks'
   // cover grid -- consume the tap in their own loop() instead and leave this alone. They follow
   // the same two-step rule there.
   virtual ListRowTap::Result selectListRow(int /*index*/) { return ListRowTap::Result::Rejected; }
+
+  // Handle a touch page gesture without translating it into a physical button. Activities whose
+  // Left/Right buttons mean something other than list paging override this boundary.
+  virtual bool pageList(ListPageDirection /*direction*/) { return false; }
 
   // Return true while this activity owns the raw serial input stream (e.g. the
   // USB serial file-transfer activity reading a binary protocol). When true,

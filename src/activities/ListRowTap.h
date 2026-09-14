@@ -4,10 +4,11 @@
 
 // What a tap on a list row means, given where the selection already is.
 //
-// Point-then-confirm, not point-and-go: the first tap on a row MOVES the selection there and
-// stops; only a tap on the row that is already selected runs the action. The reader therefore
-// always sees the highlight land on their choice before anything happens, and a mis-tap costs
-// a second tap rather than an action to undo.
+// apply() implements the safer point-then-confirm rule: the first tap on a row MOVES the
+// selection there and stops; only a tap on the row that is already selected runs the action.
+// ActivationState applies the user's tap preference without confusing keyboard focus with a
+// preceding tap. In two-step mode the first tap always arms the row; only the next tap on that
+// same, still-selected row activates it.
 //
 // This replaces an earlier single-tap-activates design. The argument against two-step then was
 // that it cost two panel refreshes per action, but that measured the wrong thing: it was one
@@ -28,6 +29,31 @@ enum class Result : uint8_t {
   Selected,
   // The finger landed on the row that was already selected. Activate it.
   Activate,
+};
+
+class ActivationState {
+ public:
+  void reset() { armedIndex = -1; }
+
+  Result applyPreference(const int index, const Result result, const bool activateImmediately) {
+    if (result == Result::Rejected) {
+      reset();
+      return result;
+    }
+    if (activateImmediately) {
+      reset();
+      return Result::Activate;
+    }
+    if (result == Result::Selected || armedIndex != index) {
+      armedIndex = index;
+      return Result::Selected;
+    }
+    reset();
+    return Result::Activate;
+  }
+
+ private:
+  int armedIndex = -1;
 };
 
 // The standard body, so nineteen screens do not each re-derive the comparison. `selection` is

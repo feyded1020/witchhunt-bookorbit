@@ -1,73 +1,141 @@
 #include "FontSelectionActivity.h"
 
 #include <I18n.h>
+#include <Logging.h>
+#include <esp_heap_caps.h>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontGlobals.h"
 #include "components/UITheme.h"
+#include "fontIds.h"
+
+namespace fui = freeink::ui;
 
 void FontSelectionActivity::onEnter() {
-  Activity::onEnter();
-  fontCount = fontFamilyOptionCount();
-  selectedIndex =
-      static_cast<int>(target == Target::TXT ? txtFontFamilyDynamicGetter(nullptr) : fontFamilyDynamicGetter(nullptr));
+  const int fontCount = static_cast<int>(fontFamilyOptionCount()) + (overrideSetting ? 1 : 0);
+  int selectedIndex = overrideSetting ? static_cast<int>(overrideSetting->getEnumSelectedIndex())
+                                      : static_cast<int>(target == Target::TXT ? txtFontFamilyDynamicGetter(nullptr)
+                                                                               : fontFamilyDynamicGetter(nullptr));
   if (selectedIndex >= fontCount) selectedIndex = 0;
-  requestUpdate();
-}
 
-void FontSelectionActivity::onExit() { Activity::onExit(); }
-
-void FontSelectionActivity::loop() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    finish();
-    return;
+  rowLabels.clear();
+  rowItems.clear();
+  rowLabels.reserve(fontCount);
+  rowItems.reserve(fontCount);
+  for (int index = 0; index < fontCount; ++index) {
+    rowLabels.push_back(overrideSetting ? overrideSetting->getEnumOptionLabel(static_cast<uint8_t>(index))
+                                        : fontFamilyOptionLabel(static_cast<uint8_t>(index)));
+  }
+  for (int index = 0; index < fontCount; ++index) {
+    fui::ListItem item;
+    item.label = rowLabels[index].c_str();
+    if (index == selectedIndex) item.value = tr(STR_SELECTED);
+    item.actionValue = static_cast<int16_t>(index);
+    rowItems.push_back(item);
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    handleSelection();
-    return;
-  }
-
-  buttonNavigator.onNextList(selectedIndex, fontCount, [this] { requestUpdate(); });
-  buttonNavigator.onPreviousList(selectedIndex, fontCount, [this] { requestUpdate(); });
+  RenderLock lock(*this);
+  UiListActivity::onEnter();
+  nav.selected = selectedIndex;
+  updatePreviewFontLocked(selectedIndex);
 }
 
-void FontSelectionActivity::handleSelection() {
-  if (target == Target::TXT) {
-    txtFontFamilyDynamicSetter(nullptr, static_cast<uint8_t>(selectedIndex));
+void FontSelectionActivity::onExit() {
+  sdFontSystem.unload(renderer);
+  UiListActivity::onExit();
+}
+
+const char* FontSelectionActivity::headerTitle() const {
+  if (target == Target::TXT) return tr(STR_TXT_FONT_FAMILY);
+  return tr(STR_FONT_FAMILY);
+}
+
+uint8_t FontSelectionActivity::selectedFontSize() const {
+  return target == Target::TXT ? SETTINGS.txtFontSize : SETTINGS.fontSize;
+}
+
+int FontSelectionActivity::previewOptionIndex(const int index) const {
+  if (!overrideSetting) return index;
+  if (index == 0) return static_cast<int>(fontFamilyDynamicGetter(nullptr));
+  return index - 1;
+}
+
+void FontSelectionActivity::updatePreviewFont(const int index) {
+  if (index < 0 || index >= listCount()) return;
+
+  RenderLock lock(*this);
+  updatePreviewFontLocked(index);
+}
+
+void FontSelectionActivity::updatePreviewFontLocked(const int index) {
+  const int optionIndex = previewOptionIndex(index);
+  const uint32_t freeBefore = heap_caps_get_free_size(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+  const uint32_t largestBefore = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
+  int previewFontId = 0;
+  if (optionIndex < CrossPointSettings::BUILTIN_FONT_COUNT) {
+    sdFontSystem.unload(renderer);
+    previewFontId = CrossPointSettings::getBuiltinReaderFontId(static_cast<uint8_t>(optionIndex), selectedFontSize());
   } else {
-    fontFamilyDynamicSetter(nullptr, static_cast<uint8_t>(selectedIndex));
+    const auto& families = sdFontSystem.registry().getFamilies();
+    const size_t familyIndex = static_cast<size_t>(optionIndex - CrossPointSettings::BUILTIN_FONT_COUNT);
+    if (familyIndex < families.size()) {
+      const char* familyName = families[familyIndex].name.c_str();
+      sdFontSystem.ensureLoaded(renderer, familyName, selectedFontSize());
+      previewFontId = sdFontSystem.resolveFontId(familyName, selectedFontSize());
+    }
+  }
+  if (previewFontId == 0) {
+    previewFontId = CrossPointSettings::getBuiltinReaderFontId(CrossPointSettings::NOTOSANS, selectedFontSize());
+  }
+  uiTarget.setFont(fui::GfxRendererTarget::FONT_TITLE, previewFontId);
+
+  LOG_DBG("FPRV", "font=%d free=%lu->%lu largest=%lu->%lu", index, static_cast<unsigned long>(freeBefore),
+          static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT)),
+          static_cast<unsigned long>(largestBefore),
+          static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT)));
+}
+
+void FontSelectionActivity::onSelectionChanged(const int index) { updatePreviewFont(index); }
+
+void FontSelectionActivity::activateIndex(const int index) {
+  app.clearTapFlash();
+  nav.selected = index;
+  if (overrideSetting) {
+    overrideSetting->setEnumSelectedIndex(static_cast<uint8_t>(index));
+  } else if (target == Target::TXT) {
+    txtFontFamilyDynamicSetter(nullptr, static_cast<uint8_t>(index));
+  } else {
+    fontFamilyDynamicSetter(nullptr, static_cast<uint8_t>(index));
   }
   finish();
 }
 
-void FontSelectionActivity::render(RenderLock&&) {
-  renderer.clearScreen();
-
+void FontSelectionActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
+  screen.setContentMarginFromScreen(
+      fui::Insets{static_cast<int16_t>(contentRect.y + metrics.topPadding + metrics.headerHeight),
+                  static_cast<int16_t>(renderer.getScreenWidth() - (contentRect.x + contentRect.width)),
+                  static_cast<int16_t>(renderer.getScreenHeight() - (contentRect.y + contentRect.height)),
+                  static_cast<int16_t>(contentRect.x)});
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
-  const StrId headerStr = target == Target::TXT ? StrId::STR_TXT_FONT_FAMILY : StrId::STR_FONT_FAMILY;
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 I18N.get(headerStr));
+  fui::TextAreaProps preview;
+  preview.text = tr(STR_FONT_PREVIEW_SAMPLE);
+  preview.style = screen.theme().titleText;
+  preview.style.font = fui::GfxRendererTarget::FONT_TITLE;
+  preview.showCaret = false;
+  screen.textArea(preview, static_cast<int16_t>(screen.body().height * 30 / 100));
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = contentRect.height - contentTop - metrics.verticalSpacing;
-
-  const uint8_t activeIndex = static_cast<uint8_t>(target == Target::TXT ? txtFontFamilyDynamicGetter(nullptr)
-                                                                         : fontFamilyDynamicGetter(nullptr));
-  GUI.drawList(
-      renderer, Rect{contentRect.x, contentTop, contentRect.width, contentHeight}, fontCount, selectedIndex,
-      [](int index) { return fontFamilyOptionLabel(static_cast<uint8_t>(index)); }, nullptr, nullptr,
-      [activeIndex](int index) -> std::string { return index == activeIndex ? tr(STR_SELECTED) : ""; }, true);
-
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-
-  renderer.displayBuffer();
-}
-
-ListRowTap::Result FontSelectionActivity::selectListRow(const int index) {
-  return ListRowTap::apply(index, fontCount, selectedIndex);
+  fui::ListProps props;
+  props.items = rowItems.data();
+  props.count = static_cast<uint16_t>(rowItems.size());
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;
+  props.labelText = screen.theme().bodyText;
+  props.labelText.maxLines = 2;
+  syncListViewport(screen, props);
+  screen.list(props);
 }

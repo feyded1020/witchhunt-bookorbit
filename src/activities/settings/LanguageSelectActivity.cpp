@@ -8,76 +8,61 @@
 
 #include "I18nKeys.h"
 #include "MappedInputManager.h"
-#include "fontIds.h"
+#include "components/UITheme.h"
+
+namespace fui = freeink::ui;
+
+LanguageSelectActivity::LanguageSelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
+    : UiListActivity("LanguageSelect", renderer, mappedInput) {}
 
 void LanguageSelectActivity::onEnter() {
-  Activity::onEnter();
+  UiListActivity::onEnter();
 
   // Set current selection based on current language
   const auto currentLang = static_cast<uint8_t>(I18N.getLanguage());
   const auto* begin = std::begin(SORTED_LANGUAGE_INDICES);
   const auto* end = std::end(SORTED_LANGUAGE_INDICES);
   const auto* it = std::find(begin, end, currentLang);
-  selectedIndex = (it != end) ? std::distance(begin, it) : 0;
+  nav.selected = (it != end) ? static_cast<int>(std::distance(begin, it)) : 0;
 
-  requestUpdate();
+  for (int index = 0; index < totalItems; ++index) {
+    fui::ListItem item;
+    item.label = I18N.getLanguageName(static_cast<Language>(SORTED_LANGUAGE_INDICES[index]));
+    if (SORTED_LANGUAGE_INDICES[index] == currentLang) item.value = tr(STR_SELECTED);
+    item.actionValue = static_cast<int16_t>(index);
+    rowItems[index] = item;
+  }
 }
 
-void LanguageSelectActivity::onExit() { Activity::onExit(); }
+const char* LanguageSelectActivity::headerTitle() const { return tr(STR_LANGUAGE); }
 
-void LanguageSelectActivity::loop() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    onBack();
-    return;
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    handleSelection();
-    return;
-  }
-
-  // Handle navigation
-  buttonNavigator.onNextList(selectedIndex, totalItems, [this] { requestUpdate(); });
-  buttonNavigator.onPreviousList(selectedIndex, totalItems, [this] { requestUpdate(); });
-}
-
-void LanguageSelectActivity::handleSelection() {
+void LanguageSelectActivity::activateIndex(const int index) {
+  app.clearTapFlash();
+  nav.selected = index;
   {
     RenderLock lock(*this);
-    I18N.setLanguage(static_cast<Language>(SORTED_LANGUAGE_INDICES[selectedIndex]));
+    I18N.setLanguage(static_cast<Language>(SORTED_LANGUAGE_INDICES[index]));
   }
-
-  // Return to previous page
-  onBack();
+  finish();
 }
 
-void LanguageSelectActivity::render(RenderLock&&) {
-  renderer.clearScreen();
-
-  auto metrics = UITheme::getInstance().getMetrics();
+void LanguageSelectActivity::buildScreen(UiScreen& screen) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
+  screen.setContentMarginFromScreen(
+      fui::Insets{static_cast<int16_t>(contentRect.y + metrics.topPadding + metrics.headerHeight),
+                  static_cast<int16_t>(renderer.getScreenWidth() - (contentRect.x + contentRect.width)),
+                  static_cast<int16_t>(renderer.getScreenHeight() - (contentRect.y + contentRect.height)),
+                  static_cast<int16_t>(contentRect.x)});
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_LANGUAGE));
-
-  // Current language marker
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = contentRect.height - contentTop - metrics.verticalSpacing;
-  const auto currentLang = static_cast<uint8_t>(I18N.getLanguage());
-  GUI.drawList(
-      renderer, Rect{contentRect.x, contentTop, contentRect.width, contentHeight}, totalItems, selectedIndex,
-      [this](int index) { return I18N.getLanguageName(static_cast<Language>(SORTED_LANGUAGE_INDICES[index])); },
-      nullptr, nullptr,
-      [this, currentLang](int index) { return SORTED_LANGUAGE_INDICES[index] == currentLang ? tr(STR_SELECTED) : ""; },
-      true);
-
-  // Button hints
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-
-  renderer.displayBuffer();
-}
-
-ListRowTap::Result LanguageSelectActivity::selectListRow(const int index) {
-  return ListRowTap::apply(index, totalItems, selectedIndex);
+  fui::ListProps props;
+  props.items = rowItems;
+  props.count = totalItems;
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;
+  props.labelText = screen.theme().bodyText;
+  props.labelText.maxLines = 2;
+  syncListViewport(screen, props);
+  screen.list(props);
 }

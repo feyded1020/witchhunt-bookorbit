@@ -274,6 +274,15 @@ bool MappedInputManager::wasScreenTappedIn(const touchtransform::Orientation ori
   return true;
 }
 
+bool MappedInputManager::wasScreenTouchPressed(int& x, int& y) const {
+  if (!touchEventsEnabled_) return false;
+  float nx = 0.0f;
+  float ny = 0.0f;
+  if (!gpio.wasTouchDown(nx, ny)) return false;
+  renderer.tapToLogical(nx, ny, x, y);
+  return true;
+}
+
 bool MappedInputManager::wasScreenTouchDown(int& x, int& y) const {
   float nx = 0.0f;
   float ny = 0.0f;

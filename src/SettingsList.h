@@ -499,6 +499,12 @@ inline std::vector<SettingInfo> buildSettingsList() {
                                        StrId::STR_CAT_CONTROLS)
                          .withSubcategory(StrId::STR_TOUCH_UI_CONTROLS)
                          .requiring(SettingRequires::TouchPanel));
+  settings.push_back(
+      SettingInfo::Enum(StrId::STR_TOUCH_LIST_ACTIVATION, &CrossPointSettings::touchListActivation,
+                        {StrId::STR_TOUCH_LIST_SELECT_THEN_ACTIVATE, StrId::STR_TOUCH_LIST_ACTIVATE_IMMEDIATELY},
+                        "touchListAct", StrId::STR_CAT_CONTROLS)
+          .withSubcategory(StrId::STR_TOUCH_UI_CONTROLS)
+          .requiring(SettingRequires::TouchPanel));
   settings.push_back(SettingInfo::Enum(StrId::STR_TOUCH_READER_CONTROLS, &CrossPointSettings::touchReaderControls,
                                        {StrId::STR_TOUCH_READER_OFF, StrId::STR_TOUCH_READER_TAP,
                                         StrId::STR_TOUCH_READER_SWIPE, StrId::STR_TOUCH_READER_INVERTED},
