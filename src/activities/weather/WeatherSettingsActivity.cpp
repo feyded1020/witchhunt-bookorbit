@@ -217,6 +217,7 @@ void WeatherSettingsActivity::render(RenderLock&&) {
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
   if (showingSearchResults) {
+    closeRouting();
     GUI.drawHeader(renderer,
                    Rect(contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight),
                    tr(STR_WEATHER_SEARCH_RESULTS));
