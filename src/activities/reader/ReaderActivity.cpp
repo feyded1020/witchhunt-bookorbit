@@ -53,18 +53,21 @@ ReaderActivity::CoverExtractSession::~CoverExtractSession() {
     buf_ = nullptr;
   }
   if (dst_.isOpen()) dst_.close();
+  if (!destPath_.empty()) Storage.remove(destPath_.c_str());
   // reader_ destructor closes entry; zip_ destructor is harmless
 }
 
 bool ReaderActivity::CoverExtractSession::begin(const std::string& epubPath, const std::string& zipEntryPath,
                                                 const std::string& destPath) {
-  destPath_ = destPath;
+  finalPath_ = destPath;
+  destPath_ = destPath + ".part";
   zip_ = std::unique_ptr<ZipFile>(new ZipFile(epubPath));
   reader_ = std::unique_ptr<ZipFile::EntryReader>(new ZipFile::EntryReader(*zip_));
   if (!reader_->open(zipEntryPath.c_str())) {
     LOG_ERR("CEX", "Failed to open ZIP entry %s in %s", zipEntryPath.c_str(), epubPath.c_str());
     return false;
   }
+  Storage.remove(destPath_.c_str());
   if (!Storage.openFileForWrite("CEX", destPath_, dst_)) {
     LOG_ERR("CEX", "Failed to open dest %s for write", destPath_.c_str());
     return false;
@@ -110,13 +113,22 @@ ReaderActivity::CoverExtractSession::Status ReaderActivity::CoverExtractSession:
     LOG_ERR("CEX", "ZIP inflate error at %zu/%zu bytes", reader_->bytesProduced(), reader_->inflatedSize());
     dst_.close();
     Storage.remove(destPath_.c_str());
+    destPath_.clear();
     return Status::Error;
   }
   if (produced > 0) dst_.write(buf_, produced);
 
   if (done) {
     dst_.close();
-    LOG_DBG("CEX", "Extraction complete: %zu bytes -> %s", reader_->bytesProduced(), destPath_.c_str());
+    Storage.remove(finalPath_.c_str());
+    if (!Storage.rename(destPath_.c_str(), finalPath_.c_str())) {
+      LOG_ERR("CEX", "Failed to publish extracted cover %s", finalPath_.c_str());
+      Storage.remove(destPath_.c_str());
+      destPath_.clear();
+      return Status::Error;
+    }
+    destPath_.clear();
+    LOG_DBG("CEX", "Extraction complete: %zu bytes -> %s", reader_->bytesProduced(), finalPath_.c_str());
     return Status::Done;
   }
   return Status::Running;
@@ -134,15 +146,9 @@ std::unique_ptr<ReaderActivity::CoverExtractSession> ReaderActivity::beginCoverE
   Epub epub(bookPath, "/.crosspoint");
   if (!epub.loadForCover()) return nullptr;  // cover ref only, no full book.bin build
 
-  // If cover.img already exists and is a recognized image format, no extraction
-  // needed. Must match the decode side's validity check (coverImageCachedValidOnly,
-  // which also checks magic bytes) rather than a size-only check: a stale/corrupt
-  // cover.img (e.g. left by an interrupted earlier extraction) is non-empty but
-  // has no recognized format, so a size-only check here would treat it as
-  // "already cached" forever while generateThumbBmp() perpetually reports it
-  // invalid — a silent deadlock with no ERR log (observed as an EPUB whose cover
-  // renders fine in-book but never produces a home-screen thumbnail).
-  // openFileForWrite() truncates (O_TRUNC), so begin() below safely overwrites it.
+  // If cover.img already exists and is a complete recognized image, no extraction
+  // is needed. The validity check rejects interrupted files that have a valid header
+  // but no JPEG/PNG terminator, so they are regenerated instead of decoded repeatedly.
   const std::string coverImgPath = epub.getCoverImageCachePath();
   if (epub.coverImageCachedValidOnly()) return nullptr;  // already cached
 

@@ -71,7 +71,8 @@ class ReaderActivity final : public Activity {
    public:
     enum class Status { Running, Done, Error };
 
-    // Begin extracting zipEntryPath from epubPath into destPath.
+    // Begin extracting zipEntryPath from epubPath into a staging file. The completed
+    // file is atomically renamed to destPath so decoders never observe partial bytes.
     // Returns false if the entry cannot be opened.
     bool begin(const std::string& epubPath, const std::string& zipEntryPath, const std::string& destPath);
 
@@ -93,6 +94,7 @@ class ReaderActivity final : public Activity {
     std::unique_ptr<ZipFile> zip_;
     std::unique_ptr<ZipFile::EntryReader> reader_;
     FsFile dst_;
+    std::string finalPath_;
     std::string destPath_;
     uint8_t* buf_ = nullptr;
     size_t chunkBytes_ = 0;
