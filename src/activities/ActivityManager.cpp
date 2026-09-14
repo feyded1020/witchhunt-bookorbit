@@ -714,7 +714,7 @@ void ActivityManager::dispatchListTap() {
   // The screen resolves the tap against its current selection; the shared preference may promote
   // a newly selected row to activation. A rejected tap stays consumed because the finger landed
   // on a row this screen painted and nothing else should reinterpret it.
-    const auto tapResult = currentActivity->listTapActivation.applyPreference(
+  const auto tapResult = currentActivity->listTapActivation.applyPreference(
       index, currentActivity->selectListRow(index),
       SETTINGS.touchListActivation == CrossPointSettings::TOUCH_LIST_ACTIVATE_IMMEDIATELY);
   switch (tapResult) {

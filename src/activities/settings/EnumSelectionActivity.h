@@ -37,7 +37,7 @@ class EnumSelectionActivity final : public UiListActivity {
 
   EnumSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const SettingInfo& setting,
                         LabelOverrideFn labelOverride = nullptr, uint8_t overrideCount = 0)
-    : UiListActivity("EnumSelect", renderer, mappedInput),
+      : UiListActivity("EnumSelect", renderer, mappedInput),
         setting(setting),
         labelOverride(labelOverride),
         overrideCount(overrideCount) {}
@@ -47,10 +47,10 @@ class EnumSelectionActivity final : public UiListActivity {
  private:
   [[nodiscard]] uint8_t optionCount() const;
   [[nodiscard]] std::string optionLabel(uint8_t index) const;
-    int listCount() const override { return static_cast<int>(optionCount()); }
-    void buildScreen(UiScreen& screen) override;
-    void activateIndex(int index) override;
-    const char* headerTitle() const override;
+  int listCount() const override { return static_cast<int>(optionCount()); }
+  void buildScreen(UiScreen& screen) override;
+  void activateIndex(int index) override;
+  const char* headerTitle() const override;
 
   const SettingInfo& setting;
   LabelOverrideFn labelOverride;

@@ -1044,7 +1044,7 @@ bool HomeActivity::handleHomeTouch() {
 
   // The whole selector is one range (covers then menu), so the comparison happens in that frame
   // and a tap on the menu correctly counts as "new" while a cover is selected, and vice versa.
-    const auto tapResult = listTapActivation.applyPreference(
+  const auto tapResult = listTapActivation.applyPreference(
       selector, ListRowTap::apply(selector, recentsCount + menuCount, selectorIndex),
       SETTINGS.touchListActivation == CrossPointSettings::TOUCH_LIST_ACTIVATE_IMMEDIATELY);
   switch (tapResult) {
