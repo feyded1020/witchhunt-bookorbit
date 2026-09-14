@@ -161,3 +161,20 @@ TEST(SettingsGrouping, AnExistingHeadingIsNotDuplicated) {
   EXPECT_EQ(countSeparators(tab), 2) << "the hand-placed heading was repeated";
   EXPECT_EQ(strandedHeadings(tab), 0);
 }
+
+TEST(SettingsGrouping, ExtractedSubmenuRowsRemainFlatWhenPreparedAgain) {
+  std::vector<SettingInfo> tab;
+  tab.push_back(row(StrId::STR_GEST_SWIPE_LEFT, kSubmenu, StrId::STR_NONE_OPT));
+  tab.push_back(row(StrId::STR_GEST_SWIPE_RIGHT, kSubmenu, StrId::STR_NONE_OPT));
+  std::vector<SettingInfo::SubmenuData> submenus;
+  SettingInfo::prepareSubmenus(tab, submenus);
+
+  auto items = submenuItems(submenus, kSubmenu);
+  std::vector<SettingInfo::SubmenuData> nestedSubmenus;
+  SettingInfo::prepareSubmenus(items, nestedSubmenus);
+
+  EXPECT_TRUE(nestedSubmenus.empty()) << "opening a prepared submenu must not recreate itself";
+  ASSERT_EQ(items.size(), 2u);
+  EXPECT_EQ(items[0].nameId, StrId::STR_GEST_SWIPE_LEFT);
+  EXPECT_EQ(items[1].nameId, StrId::STR_GEST_SWIPE_RIGHT);
+}
