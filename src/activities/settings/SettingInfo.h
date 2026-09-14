@@ -428,14 +428,16 @@ inline void SettingInfo::prepareSubmenus(std::vector<SettingInfo>& items,
       continue;
     }
 
+    const StrId submenuId = item.submenu;
     auto it = std::find_if(preparedSubmenus.begin(), preparedSubmenus.end(),
-                           [&item](const SubmenuData& d) { return d.id == item.submenu; });
+                           [submenuId](const SubmenuData& d) { return d.id == submenuId; });
     if (it == preparedSubmenus.end()) {
-      preparedItems.push_back(SettingInfo::SubmenuEntry(item.submenu));
+      preparedItems.push_back(SettingInfo::SubmenuEntry(submenuId));
       placeholderAt.push_back(preparedItems.size() - 1);
-      preparedSubmenus.push_back({item.submenu, {}});
+      preparedSubmenus.push_back({submenuId, {}});
       it = preparedSubmenus.end() - 1;
     }
+    item.submenu = StrId::STR_NONE_OPT;
     it->items.push_back(std::move(item));
   }
 
