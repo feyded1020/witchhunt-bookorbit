@@ -742,6 +742,20 @@ bool ChapterHtmlSlimParser::heapAllowsImageHeaderRead() const {
   return ok;
 }
 
+bool ChapterHtmlSlimParser::recoverHeapForImageHeader() {
+  if (fontCachesReleasedForImageHeader) return false;
+  fontCachesReleasedForImageHeader = true;
+  const uint32_t freeBefore = ESP.getFreeHeap();
+  const uint32_t allocBefore = ESP.getMaxAllocHeap();
+  // Safe mid-parse: freeStyleMiniData() repoints each style at its stub and leaves the
+  // miss handler wired, so glyphs re-fault on demand. Metrics are re-read, not recomputed,
+  // so measurement values — and therefore the layout this build produces — are unchanged.
+  if (!renderer.releaseFontCaches()) return false;
+  LOG_DBG("EHP", "Released font caches for image header: free %u->%u, maxAlloc %u->%u", freeBefore, ESP.getFreeHeap(),
+          allocBefore, ESP.getMaxAllocHeap());
+  return true;
+}
+
 // flush the contents of partWordBuffer to currentTextBlock
 bool ChapterHtmlSlimParser::flushPartWordBuffer() {
   if (streamFailed) {
@@ -1690,7 +1704,8 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
               // Only reached when neither the tag nor the manifest could supply dimensions. On
               // refusal dimsOk stays false and the code below already falls through to
               // handleImageFallback(), so a tight heap degrades exactly this image and no other.
-              if (self->heapAllowsImageHeaderRead()) {
+              if (self->heapAllowsImageHeaderRead() ||
+                  (self->recoverHeapForImageHeader() && self->heapAllowsImageHeaderRead())) {
                 dimsOk = ImageDecoderFactory::getDimensionsFromZipEntry(self->epub->getPath(), resolvedPath, dims);
               } else {
                 // Latched, because the two ways of arriving at alt text are not the same thing.

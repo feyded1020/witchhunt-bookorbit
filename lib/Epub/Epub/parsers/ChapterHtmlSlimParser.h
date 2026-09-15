@@ -410,6 +410,8 @@ class ChapterHtmlSlimParser final : public Print {
   bool streamFailed = false;
   // Set when the heap gate refused an image-header read (see imageHeaderDegraded()).
   bool imageHeaderSkippedForHeap = false;
+  // Latches the one-shot font-cache release that recoverHeapForImageHeader() spends.
+  bool fontCachesReleasedForImageHeader = false;
   uint32_t streamStartTimeMs = 0;
 
   // Footnote link tracking
@@ -457,6 +459,12 @@ class ChapterHtmlSlimParser final : public Print {
   // the call site, never latched: the heap recovers between pages, and a single dip must not
   // disable images for the rest of the chapter (that result gets baked into the section cache).
   bool heapAllowsImageHeaderRead() const;
+  // Last resort before an image degrades to alt text: drop the rebuildable SD-font
+  // glyph caches, which are usually what is holding the contiguous space the header
+  // read needs. One shot per parse — once they are gone there is nothing left to
+  // reclaim, and re-releasing per image would only thrash the re-read. Returns true
+  // if caches were actually released, i.e. it is worth re-testing the gate.
+  bool recoverHeapForImageHeader();
   void startNewTextBlock(const BlockStyle& blockStyle);
   void clearSpentBlockHeadingStyle();
   bool heapAllowsTableRowLayout() const;

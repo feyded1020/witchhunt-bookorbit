@@ -188,6 +188,11 @@ class GfxRenderer {
   }
   void setFontCacheManager(FontCacheManager* m) { fontCacheManager_ = m; }
   FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
+  // Drop every rebuildable font cache (glyph metadata, bitmaps, kern) while leaving
+  // the fonts loaded and usable — everything faults back in on demand. Lets callers
+  // reclaim that space without taking a dependency on FontCacheManager themselves.
+  // Returns false when there is no cache manager to ask.
+  bool releaseFontCaches();
   bool isFontCacheScanning() const;
   const std::map<int, EpdFontFamily>& getFontMap() const { return fontMap; }
   // Each of these can retire an EpdFontData a cached scaled mask is keyed on, so

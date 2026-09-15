@@ -1,6 +1,7 @@
 #include "GfxRenderer.h"
 
 #include <BoardConfig.h>
+#include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <HalGPIO.h>
 #include <Logging.h>
@@ -61,6 +62,12 @@ void GfxRenderer::clearFontAccumulation() const {
   for (auto& [id, font] : sdCardFonts_) {
     font->clearAccumulation();
   }
+}
+
+bool GfxRenderer::releaseFontCaches() {
+  if (!fontCacheManager_) return false;
+  fontCacheManager_->clearCache();
+  return true;
 }
 
 void GfxRenderer::dropFontMetadata() const {

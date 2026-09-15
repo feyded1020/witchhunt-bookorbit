@@ -15,6 +15,7 @@
 //   line height        = 24 px, ascender = 18 px
 // Scaled variants multiply and truncate toward zero, mirroring the integer
 // snapping the device renderer applies.
+#include <Arduino.h>
 #include <EpdFontFamily.h>
 
 #include <cmath>
@@ -84,6 +85,16 @@ class GfxRenderer {
   int getKerning(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 0; }
   int getLineHeight(int) const { return 24; }
   int getLineHeightScaled(int, float scale) const { return static_cast<int>(24 * scale); }
+  // Test seam for the image-header heap recovery. 0 (the default) models a host build with
+  // no cache manager at all, so callers are told nothing was released. When set, this models
+  // the real thing — dropping the SD-font glyph caches frees heap — by reporting success and
+  // raising the simulated free heap to that figure.
+  uint32_t heapAfterFontCacheRelease = 0;
+  bool releaseFontCaches() {
+    if (heapAfterFontCacheRelease == 0) return false;
+    ESP.setFreeHeap(heapAfterFontCacheRelease);
+    return true;
+  }
   int getFontAscenderSize(int) const { return 18; }
   int getFontAscenderSizeScaled(int, float scale) const { return static_cast<int>(18 * scale); }
   int getTextHeight(int) const { return 24; }

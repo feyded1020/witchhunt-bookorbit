@@ -264,7 +264,8 @@ struct ImageHeapGateFixture : testing::Test {
     return path;
   }
 
-  bool buildAndReportDegraded(const std::string& bookPath, const std::string& cache) {
+  bool buildAndReportDegraded(const std::string& bookPath, const std::string& cache,
+                              uint32_t heapAfterFontCacheRelease = 0) {
     auto epub = std::make_shared<Epub>(bookPath, cache);
     EXPECT_TRUE(epub->load(true));
     Section::BuildParams params;
@@ -272,6 +273,7 @@ struct ImageHeapGateFixture : testing::Test {
     params.viewportHeight = 800;
     params.lineCompression = 1.0f;
     GfxRenderer renderer;
+    renderer.heapAfterFontCacheRelease = heapAfterFontCacheRelease;
     Section section(epub, 0, renderer);
     EXPECT_TRUE(section.createSectionFile(params, {}, /*skipEviction=*/true));
     return section.isImageHeaderDegraded();
@@ -288,6 +290,19 @@ TEST_F(ImageHeapGateFixture, HeapRefusalIsLatchedSoTheCacheCanBeDiscarded) {
   ESP.setFreeHeap(12 * 1024);
   EXPECT_TRUE(buildAndReportDegraded(book, (work / "lowheap").string()))
       << "a heap refusal must be latched, or the alt-text page is cached forever";
+}
+
+TEST_F(ImageHeapGateFixture, ReleasingFontCachesRecoversARefusedHeaderRead) {
+  const std::string book = makeBookWithUnresolvableImage();
+
+  // Same refusal as the latching test above, except this time there are font caches to
+  // reclaim. The retry must lift free heap back over the gate and let the read proceed, so
+  // the image is no longer given up for want of memory. It then fails on its own merits (the
+  // entry does not exist), which is not a heap refusal and so must not be latched — the
+  // inverse outcome of HeapRefusalIsLatchedSoTheCacheCanBeDiscarded, from the same start.
+  ESP.setFreeHeap(12 * 1024);
+  EXPECT_FALSE(buildAndReportDegraded(book, (work / "recovered").string(), /*heapAfterRelease=*/200 * 1024))
+      << "releasing the font caches must let the header read proceed instead of degrading the build";
 }
 
 TEST_F(ImageHeapGateFixture, AnImageThatSimplyCannotBeReadIsNotLatched) {
