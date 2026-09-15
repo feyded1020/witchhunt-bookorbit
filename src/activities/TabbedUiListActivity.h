@@ -65,7 +65,6 @@ class TabbedUiListActivity : public UiListActivity {
   bool handleButtons() override;
   void navigateButtons() override;
   ListRowTap::Result selectListRow(int index) override;
-  bool pageList(ListPageDirection direction) override;
 
  private:
   static void tabActionTrampoline(const freeink::ui::ActionEvent& event, void* user);

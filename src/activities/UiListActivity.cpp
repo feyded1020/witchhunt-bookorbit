@@ -38,11 +38,13 @@ void UiListActivity::rowActionTrampoline(const fui::ActionEvent& event, void* us
   self->onRowAction(index);
 }
 
+ListRowTap::Result UiListActivity::selectListRow(const int index) {
+  return ListRowTap::apply(index, listCount(), activeNav().selected);
+}
+
 void UiListActivity::onRowAction(const int index) {
-  auto& currentNav = activeNav();
   const auto result = listTapActivation.applyPreference(
-      index, ListRowTap::apply(index, listCount(), currentNav.selected),
-      SETTINGS.touchListActivation == CrossPointSettings::TOUCH_LIST_ACTIVATE_IMMEDIATELY);
+      index, selectListRow(index), SETTINGS.touchListActivation == CrossPointSettings::TOUCH_LIST_ACTIVATE_IMMEDIATELY);
   if (result == ListRowTap::Result::Rejected) return;
   if (result == ListRowTap::Result::Selected) {
     moveSelectionTo(index);

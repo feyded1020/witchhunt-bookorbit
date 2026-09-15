@@ -13,6 +13,11 @@ class UiListActivity : public Activity, protected UiAppHost {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  // What a tap on a row means. Overriding it here is what puts the FreeInkUI path and the
+  // legacy ListTouchBand path on the same rule: onRowAction() used to apply ListRowTap
+  // inline, so a subclass could override this (as MenuListActivity does, to decline
+  // separators) and never be consulted for a tap it actually receives.
+  ListRowTap::Result selectListRow(int index) override;
 
  protected:
   static constexpr freeink::ui::ActionId ACTION_ROW = 1;

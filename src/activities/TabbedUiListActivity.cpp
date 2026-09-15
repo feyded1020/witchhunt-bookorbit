@@ -124,24 +124,3 @@ ListRowTap::Result TabbedUiListActivity::selectListRow(const int index) {
   if (index >= 0 && index < listCount() && !isRowSelectable(index)) return ListRowTap::Result::Rejected;
   return ListRowTap::apply(index, listCount(), activeNav().selected);
 }
-
-bool TabbedUiListActivity::pageList(const ListPageDirection direction) {
-  const int count = listCount();
-  if (count <= 0) return false;
-
-  const int pageSize = activeNav().pageRowsFor(count);
-  const int current = std::max(0, activeNav().selected.load());
-  const auto selectable = [this](const int index) { return isRowSelectable(index); };
-  int target = direction == ListPageDirection::Forward ? ButtonNavigator::nextPageIndex(current, count, pageSize)
-                                                       : ButtonNavigator::previousPageIndex(current, count, pageSize);
-  if (!selectable(target)) {
-    target = direction == ListPageDirection::Forward ? ButtonNavigator::nextIndex(target, count, selectable)
-                                                     : ButtonNavigator::previousIndex(target, count, selectable);
-  }
-
-  activeNav().selected = target;
-  activeNav().follow(count);
-  listTapActivation.reset();
-  requestUpdate();
-  return true;
-}
