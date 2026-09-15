@@ -130,8 +130,8 @@ class ButtonNavigator final {
     onNextList(buttons, index, totalItems, onChange, pageSize);
     selectedIndex.store(index);
   }
-  void onPreviousList(const Buttons& buttons, std::atomic<int>& selectedIndex, int totalItems,
-                      const Callback& onChange, int pageSize = 0) {
+  void onPreviousList(const Buttons& buttons, std::atomic<int>& selectedIndex, int totalItems, const Callback& onChange,
+                      int pageSize = 0) {
     int index = selectedIndex.load();
     onPreviousList(buttons, index, totalItems, onChange, pageSize);
     selectedIndex.store(index);
