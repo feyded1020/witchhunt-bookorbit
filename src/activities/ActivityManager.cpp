@@ -799,24 +799,45 @@ static_assert(HalGPIO::INJECTED_LONG_PRESS_MS > ButtonEventManager::LONG_PRESS_M
 void ActivityManager::dispatchHintStripTap() {
   if (!mappedInput.hasTouch()) return;
 
-  // Nothing painted a strip on this screen, so there is nothing here a tap could mean.
+  // Nothing painted either strip on this screen, so there is nothing here a tap could mean.
   // Checked before touching the tap queue: the tap belongs to whoever else wants it.
-  if (!ButtonHintStrip::hasStrip()) return;
+  const bool hasBottom = ButtonHintStrip::hasStrip();
+  const bool hasSide = ButtonHintStrip::Side::hasStrip();
+  if (!hasBottom && !hasSide) return;
 
   // Deliberately runs AFTER currentActivity->loop(). wasScreenTapped() consumes, so giving
-  // the activity first refusal makes the strip a strict fallback: a screen that handles the
+  // the activity first refusal makes the strips a strict fallback: a screen that handles the
   // tap itself (reader page turns, and the list rows of phase 4b) has already claimed it and
   // this call finds nothing. The flip side is that on a hint-drawing screen a tap no one
   // claimed is consumed here even when it misses every box -- which is correct, since by
   // this point nothing else wanted it.
-  // Ask for the tap in the PORTRAIT frame, not the live one. Both drawButtonHints()
-  // implementations force Portrait for the duration of their draw, so that is the frame the
-  // recorded boxes live in; resolving the tap the same way makes the hit test correct in all
-  // four orientations rather than only while the screen happens to be portrait. The
+  // Ask for the tap in the PORTRAIT frame, not the live one. Both drawButtonHints() and
+  // drawSideButtonHints() force Portrait for the duration of their draw, so that is the frame
+  // the recorded boxes live in; resolving the tap the same way makes the hit test correct in
+  // all four orientations rather than only while the screen happens to be portrait. The
   // underlying transform has always taken orientation as a parameter -- only GfxRenderer's
   // convenience wrapper pinned it to the live value.
   int x = 0;
   int y = 0;
+
+  // Resolves a point against whichever strips are on screen and returns the raw hardware
+  // button index, or -1. ButtonHintStrip::hitTest already returns the raw index directly
+  // (mapLabels() emits its four labels in {BTN_BACK, BTN_CONFIRM, BTN_LEFT, BTN_RIGHT} order);
+  // the side strip's hitTest instead returns a 0/1 slot (its two boxes are independent rects,
+  // not a shared band -- see SideStrip), so that gets turned into BTN_UP/BTN_DOWN here via
+  // rawIndex(), the same fixed physical order mapHints() drew the boxes in.
+  const auto hitEitherStrip = [&](const int px, const int py) -> int {
+    if (hasBottom) {
+      const int hit = ButtonHintStrip::hitTest(px, py);
+      if (hit >= 0) return hit;
+    }
+    if (hasSide) {
+      const int side = ButtonHintStrip::Side::hitTest(px, py);
+      if (side == 0) return mappedInput.rawIndex(MappedInputManager::Button::Up);
+      if (side == 1) return mappedInput.rawIndex(MappedInputManager::Button::Down);
+    }
+    return -1;
+  };
 
   // A long tap on a box is a HOLD of the button it depicts, and it has to be tested before the
   // tap: the long press fires while the finger is still down, and the lift that follows would
@@ -831,7 +852,7 @@ void ActivityManager::dispatchHintStripTap() {
   // once the hold is known to be over a box, so a long press anywhere else still degrades into
   // the tap it would have been.
   if (mappedInput.peekScreenLongPressIn(touchtransform::Portrait, x, y)) {
-    const int held = ButtonHintStrip::hitTest(x, y);
+    const int held = hitEitherStrip(x, y);
     if (held >= 0) {
       mappedInput.suppressTouchContact();
       mappedInput.injectRawPress(static_cast<uint8_t>(held), /*longPress=*/true);
@@ -842,12 +863,9 @@ void ActivityManager::dispatchHintStripTap() {
 
   if (!mappedInput.wasScreenTappedIn(touchtransform::Portrait, x, y)) return;
 
-  const int hint = ButtonHintStrip::hitTest(x, y);
+  const int hint = hitEitherStrip(x, y);
   if (hint < 0) return;
 
-  // hitTest returns the raw hardware button index directly: mapLabels() emits the four
-  // labels in {BTN_BACK, BTN_CONFIRM, BTN_LEFT, BTN_RIGHT} order and permutes only the text,
-  // so box i is button i on every board and under every remapping.
   mappedInput.injectRawPress(static_cast<uint8_t>(hint));
   LOG_DBG("TCH", "Hint strip tap at (%d,%d) -> raw button %d", x, y, hint);
 }

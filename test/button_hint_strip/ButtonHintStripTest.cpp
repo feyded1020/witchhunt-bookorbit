@@ -166,4 +166,109 @@ TEST(ButtonHintStrip, AllInactiveCountsAsNoStrip) {
   ButtonHintStrip::invalidate();
 }
 
+using ButtonHintStrip::SideStrip;
+
+// Shaped like the X4 layout in LyraTheme::drawSideButtonHints: two 80x78 boxes stacked in one
+// column on the right edge, slot 0 (BTN_UP) above slot 1 (BTN_DOWN) with a 5px gap.
+SideStrip x4SideStrip() {
+  SideStrip s;
+  s.x[0] = 460;
+  s.y[0] = 345;
+  s.width[0] = 80;
+  s.height[0] = 78;
+  s.active[0] = true;
+  s.x[1] = 460;
+  s.y[1] = 345 + 78 + 5;
+  s.width[1] = 80;
+  s.height[1] = 78;
+  s.active[1] = true;
+  return s;
+}
+
+TEST(ButtonHintStripSide, HitsEachBoxAtItsCentre) {
+  const SideStrip s = x4SideStrip();
+  for (int i = 0; i < 2; ++i) {
+    const int x = s.x[i] + s.width[i] / 2;
+    const int y = s.y[i] + s.height[i] / 2;
+    EXPECT_EQ(i, ButtonHintStrip::Side::hitTestIn(s, x, y)) << "box " << i;
+  }
+}
+
+TEST(ButtonHintStripSide, BoundariesAreHalfOpen) {
+  const SideStrip s = x4SideStrip();
+  // First px of box 1 hits; the px one above its top edge (still inside the gap) does not.
+  EXPECT_EQ(1, ButtonHintStrip::Side::hitTestIn(s, s.x[1], s.y[1]));
+  EXPECT_EQ(-1, ButtonHintStrip::Side::hitTestIn(s, s.x[1], s.y[1] - 1));
+  EXPECT_EQ(-1, ButtonHintStrip::Side::hitTestIn(s, s.x[1], s.y[1] + s.height[1]));
+}
+
+// The gap between the two stacked boxes (X4's 5px spacer) must stay dead, unlike the bottom
+// strip whose tuned positions are deliberately allowed to overlap.
+TEST(ButtonHintStripSide, GapBetweenBoxesMisses) {
+  const SideStrip s = x4SideStrip();
+  const int gapY = s.y[0] + s.height[0] + 2;  // inside the 5px gap
+  EXPECT_EQ(-1, ButtonHintStrip::Side::hitTestIn(s, s.x[0] + s.width[0] / 2, gapY));
+}
+
+// An inactive box (one side hint with no label, e.g. Left/Right bound to Up/Down instead in
+// landscape) must not swallow taps meant for its still-active neighbour.
+TEST(ButtonHintStripSide, InactiveBoxIsNotTappable) {
+  SideStrip s = x4SideStrip();
+  s.active[0] = false;
+  EXPECT_EQ(-1, ButtonHintStrip::Side::hitTestIn(s, s.x[0] + s.width[0] / 2, s.y[0] + s.height[0] / 2));
+  EXPECT_EQ(1, ButtonHintStrip::Side::hitTestIn(s, s.x[1] + s.width[1] / 2, s.y[1] + s.height[1] / 2));
+}
+
+TEST(ButtonHintStripSide, DefaultStripSwallowsNothing) {
+  const SideStrip s;
+  EXPECT_EQ(-1, ButtonHintStrip::Side::hitTestIn(s, 0, 0));
+  EXPECT_EQ(-1, ButtonHintStrip::Side::hitTestIn(s, 460, 400));
+}
+
+// The shared-state path: record/hasStrip/hitTest through the Side seqlock, independent of the
+// bottom strip's.
+TEST(ButtonHintStripSide, RecordThenHitTestThroughSharedState) {
+  ButtonHintStrip::Side::invalidate();
+  EXPECT_FALSE(ButtonHintStrip::Side::hasStrip());
+  EXPECT_EQ(-1, ButtonHintStrip::Side::hitTest(460, 350));
+
+  const SideStrip s = x4SideStrip();
+  ButtonHintStrip::Side::record(s);
+  EXPECT_TRUE(ButtonHintStrip::Side::hasStrip());
+  EXPECT_EQ(0, ButtonHintStrip::Side::hitTest(s.x[0] + 1, s.y[0] + 1));
+  EXPECT_EQ(1, ButtonHintStrip::Side::hitTest(s.x[1] + 1, s.y[1] + 1));
+
+  ButtonHintStrip::Side::invalidate();
+  EXPECT_FALSE(ButtonHintStrip::Side::hasStrip());
+  EXPECT_EQ(-1, ButtonHintStrip::Side::hitTest(s.x[0] + 1, s.y[0] + 1));
+}
+
+// Recording one strip must not disturb the other: a reader screen paints both the bottom strip
+// and the side hints every frame, and each is published through its own seqlock precisely so
+// one's write can never tear the other's read.
+TEST(ButtonHintStripSide, IndependentOfBottomStrip) {
+  ButtonHintStrip::invalidate();
+  ButtonHintStrip::Side::invalidate();
+
+  ButtonHintStrip::record(x4Strip());
+  ButtonHintStrip::Side::record(x4SideStrip());
+  EXPECT_TRUE(ButtonHintStrip::hasStrip());
+  EXPECT_TRUE(ButtonHintStrip::Side::hasStrip());
+
+  ButtonHintStrip::invalidate();
+  EXPECT_FALSE(ButtonHintStrip::hasStrip());
+  EXPECT_TRUE(ButtonHintStrip::Side::hasStrip());  // untouched by the bottom strip's invalidate
+
+  ButtonHintStrip::Side::invalidate();
+}
+
+TEST(ButtonHintStripSide, AllInactiveCountsAsNoStrip) {
+  SideStrip s = x4SideStrip();
+  s.active[0] = false;
+  s.active[1] = false;
+  ButtonHintStrip::Side::record(s);
+  EXPECT_FALSE(ButtonHintStrip::Side::hasStrip());
+  ButtonHintStrip::Side::invalidate();
+}
+
 }  // namespace

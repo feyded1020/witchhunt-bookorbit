@@ -552,6 +552,23 @@ void LyraTheme::drawSideButtonHints(GfxRenderer& renderer, const char* upBtn, co
   if (gpio.deviceIsX3()) {
     // X3 layout: Up on left side, Down on right side, positioned higher
     constexpr int x3ButtonY = 155;
+    const int rightX = screenWidth - buttonWidth;
+
+    // Publish geometry for touch, in the same un-mirrored logical coordinates roundedRect()
+    // mirrors from -- see LyraTheme::drawButtonHints for why the strip is recorded un-inverted
+    // even when the draw itself flips for PortraitInverted.
+    ButtonHintStrip::SideStrip strip;
+    strip.x[0] = buttonMargin;
+    strip.y[0] = x3ButtonY;
+    strip.width[0] = buttonWidth;
+    strip.height[0] = buttonHeight;
+    strip.active[0] = upBtn != nullptr && upBtn[0] != '\0';
+    strip.x[1] = rightX;
+    strip.y[1] = x3ButtonY;
+    strip.width[1] = buttonWidth;
+    strip.height[1] = buttonHeight;
+    strip.active[1] = downBtn != nullptr && downBtn[0] != '\0';
+    ButtonHintStrip::Side::record(strip);
 
     if (upBtn != nullptr && upBtn[0] != '\0') {
       roundedRect(buttonMargin, x3ButtonY, buttonWidth, buttonHeight, false, true, false, true);
@@ -560,7 +577,6 @@ void LyraTheme::drawSideButtonHints(GfxRenderer& renderer, const char* upBtn, co
     }
 
     if (downBtn != nullptr && downBtn[0] != '\0') {
-      const int rightX = screenWidth - buttonWidth;
       roundedRect(rightX, x3ButtonY, buttonWidth, buttonHeight, true, false, true, false);
       const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, downBtn);
       textCW(rightX, x3ButtonY + (buttonHeight + textWidth) / 2, downBtn);
@@ -569,6 +585,19 @@ void LyraTheme::drawSideButtonHints(GfxRenderer& renderer, const char* upBtn, co
     // X4 layout: Both buttons stacked on right side
     const char* labels[] = {upBtn, downBtn};
     const int x = screenWidth - buttonWidth;
+
+    ButtonHintStrip::SideStrip strip;
+    strip.x[0] = x;
+    strip.y[0] = topHintButtonY;
+    strip.width[0] = buttonWidth;
+    strip.height[0] = buttonHeight;
+    strip.active[0] = upBtn != nullptr && upBtn[0] != '\0';
+    strip.x[1] = x;
+    strip.y[1] = topHintButtonY + buttonHeight + 5;
+    strip.width[1] = buttonWidth;
+    strip.height[1] = buttonHeight;
+    strip.active[1] = downBtn != nullptr && downBtn[0] != '\0';
+    ButtonHintStrip::Side::record(strip);
 
     if (upBtn != nullptr && upBtn[0] != '\0') {
       roundedRect(x, topHintButtonY, buttonWidth, buttonHeight, true, false, true, false);

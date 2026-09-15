@@ -15,6 +15,7 @@
 void Activity::onEnter() {
   listTapActivation.reset();
   ButtonHintStrip::invalidate();
+  ButtonHintStrip::Side::invalidate();
   ListTouchBand::invalidate();
   TapTargets::homeCovers().invalidate();
   TapTargets::homeMenu().invalidate();
@@ -25,6 +26,7 @@ void Activity::onEnter() {
 
 void Activity::onExit() {
   ButtonHintStrip::invalidate();
+  ButtonHintStrip::Side::invalidate();
   ListTouchBand::invalidate();
   TapTargets::homeCovers().invalidate();
   TapTargets::homeMenu().invalidate();
