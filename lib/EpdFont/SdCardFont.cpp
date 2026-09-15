@@ -1523,84 +1523,95 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   readOrder = nullptr;
 
   uint32_t totalBitmapSize = 0;
+  bool bitmapsFromMmap = false;
 
   if (!metadataOnly) {
-    // Full render prewarm always reads bitmap data for every glyph in the
-    // mini set. The metadata-pass file open above only covered cps that
-    // needed metadata reads — open the file now if it isn't already.
-    if (!file) {
-      if (!Storage.openFileForRead("SDCF", filePath_, file)) {
-        LOG_ERR("SDCF", "Failed to reopen .cpfont for bitmap prewarm (style %u)", styleIdx);
-        delete[] mappings;
-        freeStyleMiniData(s);
-        return static_cast<int>(cpCount);
-      }
-    }
-
     // Compute total bitmap size
     for (uint32_t i = 0; i < validCount; i++) {
       totalBitmapSize += s.miniGlyphs[i].dataLength;
     }
 
-    // Recorded before the allocation, because the retry in prewarm() needs it precisely when
-    // that allocation fails. Rounded up — see the field comment.
-    if (validCount > 0) s.measuredBytesPerGlyph = (totalBitmapSize + validCount - 1) / validCount;
-
-    s.miniBitmap = new (std::nothrow) uint8_t[totalBitmapSize > 0 ? totalBitmapSize : 1];
-    if (!s.miniBitmap) {
-      LOG_ERR("SDCF", "Failed to allocate mini bitmap (%u bytes) for style %u", totalBitmapSize, styleIdx);
-      file.close();
-      delete[] mappings;
-      freeStyleMiniData(s);
-      // Not a glyph count: this is one contiguous block, so it can fail with plenty of free
-      // heap. Let the caller retry with fewer glyphs instead of losing the whole style.
-      return PREWARM_ARENA_TOO_LARGE;
-    }
-
-    // Allocate a fresh readOrder covering all validCount glyphs, sorted by
-    // bitmap file offset for sequential I/O.
-    uint32_t* bitmapOrder = new (std::nothrow) uint32_t[validCount];
-    if (!bitmapOrder) {
-      LOG_ERR("SDCF", "Failed to allocate bitmap read order for style %u", styleIdx);
-      file.close();
-      delete[] mappings;
-      freeStyleMiniData(s);
-      return static_cast<int>(cpCount);
-    }
-    for (uint32_t i = 0; i < validCount; i++) bitmapOrder[i] = i;
-    std::sort(bitmapOrder, bitmapOrder + validCount,
-              [&](uint32_t a, uint32_t b) { return s.miniGlyphs[a].dataOffset < s.miniGlyphs[b].dataOffset; });
-
-    uint32_t miniBitmapOffset = 0;
-    uint32_t lastBitmapEnd = UINT32_MAX;
-    for (uint32_t i = 0; i < validCount; i++) {
-      uint32_t mapIdx = bitmapOrder[i];
-      EpdGlyph& glyph = s.miniGlyphs[mapIdx];
-
-      if (glyph.dataLength == 0) {
-        glyph.dataOffset = miniBitmapOffset;
-        continue;
+    // Flash-mmap fast path: the whole .cpfont is already mapped, and glyph
+    // bitmaps are raw bytes with no alignment requirement — the same property
+    // that licenses the kern-matrix fast path in buildMiniKernMatrix(). Keep
+    // each glyph's dataOffset exactly as read from the file and point miniData
+    // at the mapped bitmap section, so the per-page arena is never allocated
+    // and no bitmap byte is read from SD. Skipped for pure-SD fonts (mmap
+    // unavailable), which keep the copy-into-arena path below.
+    if (mmapDataBase_) {
+      bitmapsFromMmap = true;
+    } else {
+      // The metadata pass above only opened the file for cps that needed a
+      // metadata read — open it now if it isn't already.
+      if (!file) {
+        if (!Storage.openFileForRead("SDCF", filePath_, file)) {
+          LOG_ERR("SDCF", "Failed to reopen .cpfont for bitmap prewarm (style %u)", styleIdx);
+          delete[] mappings;
+          freeStyleMiniData(s);
+          return static_cast<int>(cpCount);
+        }
       }
 
-      uint32_t fileOff = s.bitmapFileOffset + glyph.dataOffset;
-      if (fileOff != lastBitmapEnd) {
-        file.seekSet(fileOff);
-        seekCount++;
-      }
-      if (file.read(s.miniBitmap + miniBitmapOffset, glyph.dataLength) != static_cast<int>(glyph.dataLength)) {
-        LOG_ERR("SDCF", "Prewarm: short bitmap read (style %u)", styleIdx);
+      // Recorded before the allocation, because the retry in prewarm() needs it precisely when
+      // that allocation fails. Rounded up — see the field comment.
+      if (validCount > 0) s.measuredBytesPerGlyph = (totalBitmapSize + validCount - 1) / validCount;
+
+      s.miniBitmap = new (std::nothrow) uint8_t[totalBitmapSize > 0 ? totalBitmapSize : 1];
+      if (!s.miniBitmap) {
+        LOG_ERR("SDCF", "Failed to allocate mini bitmap (%u bytes) for style %u", totalBitmapSize, styleIdx);
         file.close();
-        delete[] bitmapOrder;
+        delete[] mappings;
+        freeStyleMiniData(s);
+        // Not a glyph count: this is one contiguous block, so it can fail with plenty of free
+        // heap. Let the caller retry with fewer glyphs instead of losing the whole style.
+        return PREWARM_ARENA_TOO_LARGE;
+      }
+
+      // Allocate a fresh readOrder covering all validCount glyphs, sorted by
+      // bitmap file offset for sequential I/O.
+      uint32_t* bitmapOrder = new (std::nothrow) uint32_t[validCount];
+      if (!bitmapOrder) {
+        LOG_ERR("SDCF", "Failed to allocate bitmap read order for style %u", styleIdx);
+        file.close();
         delete[] mappings;
         freeStyleMiniData(s);
         return static_cast<int>(cpCount);
       }
-      lastBitmapEnd = fileOff + glyph.dataLength;
+      for (uint32_t i = 0; i < validCount; i++) bitmapOrder[i] = i;
+      std::sort(bitmapOrder, bitmapOrder + validCount,
+                [&](uint32_t a, uint32_t b) { return s.miniGlyphs[a].dataOffset < s.miniGlyphs[b].dataOffset; });
 
-      glyph.dataOffset = miniBitmapOffset;
-      miniBitmapOffset += glyph.dataLength;
+      uint32_t miniBitmapOffset = 0;
+      uint32_t lastBitmapEnd = UINT32_MAX;
+      for (uint32_t i = 0; i < validCount; i++) {
+        uint32_t mapIdx = bitmapOrder[i];
+        EpdGlyph& glyph = s.miniGlyphs[mapIdx];
+
+        if (glyph.dataLength == 0) {
+          glyph.dataOffset = miniBitmapOffset;
+          continue;
+        }
+
+        uint32_t fileOff = s.bitmapFileOffset + glyph.dataOffset;
+        if (fileOff != lastBitmapEnd) {
+          file.seekSet(fileOff);
+          seekCount++;
+        }
+        if (file.read(s.miniBitmap + miniBitmapOffset, glyph.dataLength) != static_cast<int>(glyph.dataLength)) {
+          LOG_ERR("SDCF", "Prewarm: short bitmap read (style %u)", styleIdx);
+          file.close();
+          delete[] bitmapOrder;
+          delete[] mappings;
+          freeStyleMiniData(s);
+          return static_cast<int>(cpCount);
+        }
+        lastBitmapEnd = fileOff + glyph.dataLength;
+
+        glyph.dataOffset = miniBitmapOffset;
+        miniBitmapOffset += glyph.dataLength;
+      }
+      delete[] bitmapOrder;
     }
-    delete[] bitmapOrder;
   }
 
   uint32_t sdTime = millis() - sdStart;
@@ -1624,7 +1635,10 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
     if (loadStyleKernLigatureData(s)) {
       // Reuse the file handle from the bitmap pass to avoid a redundant
       // Storage.openFileForRead() inside buildMiniKernMatrix (fix A).
-      if (!file) {
+      // Mmap fonts need no handle at all: buildMiniKernMatrix reads the matrix
+      // straight from the mapping and never touches `file`, and the bitmap pass
+      // above no longer opens one — so don't open it just to pass it in.
+      if (!file && !mmapDataBase_) {
         if (!Storage.openFileForRead("SDCF", filePath_, file)) {
           LOG_ERR("SDCF", "Failed to open .cpfont for kern matrix (style %u)", styleIdx);
         } else {
@@ -1644,7 +1658,11 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
 
   // Populate miniData and swap
   memset(&s.miniData, 0, sizeof(s.miniData));
-  s.miniData.bitmap = s.miniBitmap;
+  // On the mmap fast path miniBitmap stays null and each glyph's dataOffset is
+  // still relative to the font's bitmap section, so the base is that section in
+  // the flash mapping. EpdFontData::bitmap is a const pointer and built-in fonts
+  // already point it at flash rodata, so the draw path is unchanged.
+  s.miniData.bitmap = bitmapsFromMmap ? (mmapDataBase_ + s.bitmapFileOffset) : s.miniBitmap;
   s.miniData.glyph = s.miniGlyphs;
   s.miniData.intervals = s.miniIntervals;
   s.miniData.intervalCount = s.miniIntervalCount;
