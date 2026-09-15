@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 // What a tap on a list row means, given where the selection already is.
@@ -67,6 +68,17 @@ inline Result apply(const int index, const int count, int& selection) {
   if (index == selection) return Result::Activate;
   selection = index;
   return Result::Selected;
+}
+
+// Same, for a selection that lives in freeink::ui::ListNav, whose `selected` the SDK made a
+// std::atomic<int> (upstream d78c3b2) because input and render reach it from different tasks.
+// An atomic converts to int but will not bind to the int& above, and every screen that keeps its
+// selection in the nav would otherwise repeat the same load/apply/store.
+inline Result apply(const int index, const int count, std::atomic<int>& selection) {
+  int current = selection.load();
+  const Result result = apply(index, count, current);
+  if (result == Result::Selected) selection.store(current);
+  return result;
 }
 
 }  // namespace ListRowTap

@@ -21,4 +21,4 @@
 [submodule "freeink-sdk"]
 	path = freeink-sdk
 	url = https://github.com/jpirnay/freeink-sdk.git
-	branch = feature/gray16-canvas
+	branch = resync/upstream-main-2026-09-15
