@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <vector>
 
@@ -105,6 +106,36 @@ class ButtonNavigator final {
                   int pageSize = 0);
   void onPreviousList(const Buttons& buttons, int& selectedIndex, int totalItems, const Callback& onChange,
                       int pageSize = 0);
+
+  // Same again, for a selection that lives in freeink::ui::ListNav.
+  //
+  // The SDK made ListNav::selected a std::atomic<int> (upstream d78c3b2, "thread-safe navigation
+  // with async input handling"): input and render now touch it from different tasks. An atomic
+  // converts to int but cannot bind to the int& these take, and the fix at each call site would be
+  // the same three lines -- load, navigate, store. It is written once here instead, so a list that
+  // keeps its selection in the nav reads exactly like one that keeps its own int.
+  void onNextList(std::atomic<int>& selectedIndex, int totalItems, const Callback& onChange, int pageSize = 0) {
+    int index = selectedIndex.load();
+    onNextList(index, totalItems, onChange, pageSize);
+    selectedIndex.store(index);
+  }
+  void onPreviousList(std::atomic<int>& selectedIndex, int totalItems, const Callback& onChange, int pageSize = 0) {
+    int index = selectedIndex.load();
+    onPreviousList(index, totalItems, onChange, pageSize);
+    selectedIndex.store(index);
+  }
+  void onNextList(const Buttons& buttons, std::atomic<int>& selectedIndex, int totalItems, const Callback& onChange,
+                  int pageSize = 0) {
+    int index = selectedIndex.load();
+    onNextList(buttons, index, totalItems, onChange, pageSize);
+    selectedIndex.store(index);
+  }
+  void onPreviousList(const Buttons& buttons, std::atomic<int>& selectedIndex, int totalItems,
+                      const Callback& onChange, int pageSize = 0) {
+    int index = selectedIndex.load();
+    onPreviousList(buttons, index, totalItems, onChange, pageSize);
+    selectedIndex.store(index);
+  }
 
   // Resolved through MappedInputManager::buttonFor on every call, so a list navigates by what the
   // reader sees rather than by which edge of the panel a button happens to sit on: in landscape

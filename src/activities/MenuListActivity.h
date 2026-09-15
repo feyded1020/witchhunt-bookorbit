@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -71,7 +72,7 @@ class MenuListActivity : public UiListActivity {
  protected:
   std::vector<SettingInfo> menuItems;
   std::vector<SettingInfo::SubmenuData> submenuData;
-  int& selectedIndex;
+  std::atomic<int>& selectedIndex;
   // Retained for subclasses that draw a separate legacy list mode, such as weather search results.
   ListViewState listView;
   bool submenusPrepared = false;
