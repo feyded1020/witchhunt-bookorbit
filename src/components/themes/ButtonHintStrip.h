@@ -37,6 +37,23 @@ struct Strip {
   bool active[4] = {false, false, false, false};
 };
 
+// Same idea for the two side hints (BTN_UP, BTN_DOWN), drawSideButtonHints() rather than
+// drawButtonHints(). Kept as a separate small strip rather than folded into Strip above: the
+// side boxes are independent rects (X3 sits them side by side at one y, X4 stacks them in one
+// column), so there is no shared y/height/width band to factor out the way the bottom strip
+// has.
+//
+// Slot 0 is BTN_UP, slot 1 is BTN_DOWN -- the fixed physical order MappedInputManager::mapHints()
+// hands to drawSideButtonHints() regardless of orientation, and the side buttons are not
+// remappable -- so, like Strip, a hit needs no further mapping beyond that fixed slot order.
+struct SideStrip {
+  int x[2] = {0, 0};
+  int y[2] = {0, 0};
+  int width[2] = {0, 0};
+  int height[2] = {0, 0};
+  bool active[2] = {false, false};
+};
+
 // Published across tasks: drawButtonHints() runs on the render task, the hit test on the
 // loop task. A seqlock rather than a bare valid flag, because a half-written Strip would be
 // hit-tested against a mix of two screens' geometry. Writes are frequent and reads rare, so
@@ -105,6 +122,62 @@ inline int hitTest(const int px, const int py) {
   return hitTestIn(s, px, py);
 }
 
+// Same seqlock scheme as above, published/consumed independently of the bottom strip so a
+// screen carrying both (the common case) does not have one draw's write torn by the other's.
+namespace Side {
+namespace detail {
+inline SideStrip& storage() {
+  static SideStrip s;
+  return s;
+}
+inline std::atomic<uint32_t>& seq() {
+  static std::atomic<uint32_t> s{0};
+  return s;
+}
+}  // namespace detail
+
+// Called by drawSideButtonHints() with the geometry it just painted.
+inline void record(const SideStrip& in) {
+  auto& seq = detail::seq();
+  seq.fetch_add(1, std::memory_order_acq_rel);
+  detail::storage() = in;
+  seq.fetch_add(1, std::memory_order_release);
+}
+
+inline void invalidate() { record(SideStrip{}); }
+
+inline bool snapshot(SideStrip& out) {
+  auto& seq = detail::seq();
+  const uint32_t before = seq.load(std::memory_order_acquire);
+  if (before == 0 || (before & 1u) != 0) return false;
+  out = detail::storage();
+  return seq.load(std::memory_order_acquire) == before;
+}
+
+inline bool hasStrip() {
+  SideStrip s;
+  if (!snapshot(s)) return false;
+  return s.active[0] || s.active[1];
+}
+
+// Returns 0 (BTN_UP) or 1 (BTN_DOWN) for the box containing the point, or -1 for a miss.
+inline int hitTestIn(const SideStrip& s, const int px, const int py) {
+  for (int i = 0; i < 2; ++i) {
+    if (!s.active[i]) continue;
+    if (px < s.x[i] || px >= s.x[i] + s.width[i]) continue;
+    if (py < s.y[i] || py >= s.y[i] + s.height[i]) continue;
+    return i;
+  }
+  return -1;
+}
+
+inline int hitTest(const int px, const int py) {
+  SideStrip s;
+  if (!snapshot(s)) return -1;
+  return hitTestIn(s, px, py);
+}
+}  // namespace Side
+
 #else  // !CP_TOUCH_UI
 
 // Strip itself stays defined above: the themes still PAINT the hint strip on a
@@ -116,6 +189,15 @@ inline bool snapshot(Strip&) { return false; }
 inline bool hasStrip() { return false; }
 inline int hitTestIn(const Strip&, int, int) { return -1; }
 inline int hitTest(int, int) { return -1; }
+
+namespace Side {
+inline void record(const SideStrip&) {}
+inline void invalidate() {}
+inline bool snapshot(SideStrip&) { return false; }
+inline bool hasStrip() { return false; }
+inline int hitTestIn(const SideStrip&, int, int) { return -1; }
+inline int hitTest(int, int) { return -1; }
+}  // namespace Side
 
 #endif  // CP_TOUCH_UI
 

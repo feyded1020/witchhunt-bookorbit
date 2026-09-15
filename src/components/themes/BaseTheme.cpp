@@ -267,9 +267,26 @@ void BaseTheme::drawSideButtonHints(GfxRenderer& renderer, const char* upBtn, co
   if (gpio.deviceIsX3()) {
     // X3 layout: Up on left side, Down on right side, positioned higher
     constexpr int x3ButtonY = 155;
+    const int leftX = buttonMargin;
+    const int rightX = screenWidth - buttonMargin - buttonWidth;
+
+    // Publish geometry for touch, in the same un-mirrored logical coordinates rect() mirrors
+    // from -- see BaseTheme::drawButtonHints for why the strip is recorded un-inverted even
+    // when the draw itself flips for PortraitInverted.
+    ButtonHintStrip::SideStrip strip;
+    strip.x[0] = leftX;
+    strip.y[0] = x3ButtonY;
+    strip.width[0] = buttonWidth;
+    strip.height[0] = buttonHeight;
+    strip.active[0] = upBtn != nullptr && upBtn[0] != '\0';
+    strip.x[1] = rightX;
+    strip.y[1] = x3ButtonY;
+    strip.width[1] = buttonWidth;
+    strip.height[1] = buttonHeight;
+    strip.active[1] = downBtn != nullptr && downBtn[0] != '\0';
+    ButtonHintStrip::Side::record(strip);
 
     if (upBtn != nullptr && upBtn[0] != '\0') {
-      const int leftX = buttonMargin;
       rect(leftX, x3ButtonY, buttonWidth, buttonHeight);
       const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, upBtn);
       const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
@@ -277,7 +294,6 @@ void BaseTheme::drawSideButtonHints(GfxRenderer& renderer, const char* upBtn, co
     }
 
     if (downBtn != nullptr && downBtn[0] != '\0') {
-      const int rightX = screenWidth - buttonMargin - buttonWidth;
       rect(rightX, x3ButtonY, buttonWidth, buttonHeight);
       const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, downBtn);
       const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
@@ -288,6 +304,19 @@ void BaseTheme::drawSideButtonHints(GfxRenderer& renderer, const char* upBtn, co
     constexpr int topButtonY = 345;
     const char* labels[] = {upBtn, downBtn};
     const int x = screenWidth - buttonMargin - buttonWidth;
+
+    ButtonHintStrip::SideStrip strip;
+    strip.x[0] = x;
+    strip.y[0] = topButtonY;
+    strip.width[0] = buttonWidth;
+    strip.height[0] = buttonHeight;
+    strip.active[0] = upBtn != nullptr && upBtn[0] != '\0';
+    strip.x[1] = x;
+    strip.y[1] = topButtonY + buttonHeight;
+    strip.width[1] = buttonWidth;
+    strip.height[1] = buttonHeight;
+    strip.active[1] = downBtn != nullptr && downBtn[0] != '\0';
+    ButtonHintStrip::Side::record(strip);
 
     if (upBtn != nullptr && upBtn[0] != '\0') {
       line(x, topButtonY, x + buttonWidth - 1, topButtonY);
