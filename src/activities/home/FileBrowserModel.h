@@ -64,14 +64,16 @@ class FileBrowserModel {
   // At or above this many entries, the folder moves to the SD-backed index.
   static constexpr size_t INDEX_THRESHOLD = 64;
 
-  // Filter for both the in-RAM enumeration and the index build/staleness scan, so the two can
-  // never disagree about what the folder contains.
+  // What the browser lists, in the mode it was opened in. Both the in-RAM enumeration and the
+  // index build/staleness scan go through these, so the two backends cannot disagree about
+  // what the folder contains.
   //
-  // FileIndex::AcceptFn is a bare function pointer with no user data, so this cannot see
-  // `mode` and answers for Books. A PickFirmware folder therefore only gets the right filter
-  // while it stays under INDEX_THRESHOLD -- pre-existing, and left alone here so the split
-  // changes no behaviour.
-  static bool accept(const char* name, bool isDir);
+  // One function per mode rather than one taking a Mode, because FileIndex::AcceptFn is a bare
+  // function pointer with no user data: indexFilter() hands over the one that matches.
+  static bool acceptForBooks(const char* name, bool isDir);
+  static bool acceptForFirmware(const char* name, bool isDir);
+  [[nodiscard]] bool acceptEntry(const char* name, bool isDir) const;
+  [[nodiscard]] FileIndex::AcceptFn indexFilter() const;
 
   void openIndexIfLarge();
   bool indexEntryAt(size_t displayIndex, FileIndex::Entry& out);

@@ -11,6 +11,21 @@
 
 namespace {
 
+// The part of the filter that does not depend on what the browser is picking: a hidden entry and
+// the FAT volume-information folder are never listed, whatever the mode.
+bool isListableName(const char* name) {
+  if (!SETTINGS.showHiddenFiles && name[0] == '.') return false;
+  return strcmp(name, "System Volume Information") != 0;
+}
+
+// The file types the reader can open.
+bool isReadableBook(const std::string_view filename) {
+  return FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
+         FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
+         FsHelpers::hasBmpExtension(filename) || FsHelpers::hasJpgExtension(filename) ||
+         FsHelpers::hasPngExtension(filename);
+}
+
 std::string fileExtension(const std::string& name) {
   const char* dot = strrchr(name.c_str(), '.');
   if (!dot || dot == name.c_str() || name.back() == '/') {
@@ -37,34 +52,23 @@ void FileBrowserModel::load() {
   char name[500];
   for (auto file = root.openNextFile(); file; file = root.openNextFile()) {
     file.getName(name, sizeof(name));
-    if ((!SETTINGS.showHiddenFiles && name[0] == '.') || strcmp(name, "System Volume Information") == 0) {
+    const bool isDir = file.isDirectory();
+    if (!acceptEntry(name, isDir)) {
       file.close();
       continue;
     }
 
-    if (file.isDirectory()) {
+    if (isDir) {
       files.emplace_back(std::string(name) + "/");
       fileSizes.push_back(0);      // directories have size 0
       fileDateTimes.push_back(0);  // will use default date
     } else {
-      std::string_view filename{name};
-      bool shouldAdd = false;
-      if (mode == Mode::PickFirmware) {
-        shouldAdd = FsHelpers::checkFileExtension(filename, ".bin");
-      } else {
-        shouldAdd = FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-                    FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-                    FsHelpers::hasBmpExtension(filename) || FsHelpers::hasJpgExtension(filename) ||
-                    FsHelpers::hasPngExtension(filename);
-      }
-      if (shouldAdd) {
-        files.emplace_back(filename);
-        fileSizes.push_back(static_cast<uint32_t>(file.fileSize()));
-        uint16_t fdate = 0, ftime = 0;
-        file.getModifyDateTime(&fdate, &ftime);
-        uint32_t combined = (static_cast<uint32_t>(fdate) << 16) | ftime;
-        fileDateTimes.push_back(combined);
-      }
+      files.emplace_back(name);
+      fileSizes.push_back(static_cast<uint32_t>(file.fileSize()));
+      uint16_t fdate = 0, ftime = 0;
+      file.getModifyDateTime(&fdate, &ftime);
+      uint32_t combined = (static_cast<uint32_t>(fdate) << 16) | ftime;
+      fileDateTimes.push_back(combined);
     }
     file.close();
   }
@@ -79,17 +83,24 @@ void FileBrowserModel::load() {
   }
 }
 
-bool FileBrowserModel::accept(const char* name, const bool isDir) {
-  if (!SETTINGS.showHiddenFiles && name[0] == '.') return false;
-  if (strcmp(name, "System Volume Information") == 0) return false;
-  if (isDir) return true;  // all dirs accepted
+bool FileBrowserModel::acceptForBooks(const char* name, const bool isDir) {
+  if (!isListableName(name)) return false;
+  if (isDir) return true;  // every folder is worth descending into
+  return isReadableBook(std::string_view{name});
+}
 
-  // File: check extension
-  std::string_view filename{name};
-  return FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-         FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-         FsHelpers::hasBmpExtension(filename) || FsHelpers::hasJpgExtension(filename) ||
-         FsHelpers::hasPngExtension(filename);
+bool FileBrowserModel::acceptForFirmware(const char* name, const bool isDir) {
+  if (!isListableName(name)) return false;
+  if (isDir) return true;
+  return FsHelpers::checkFileExtension(std::string_view{name}, ".bin");
+}
+
+bool FileBrowserModel::acceptEntry(const char* name, const bool isDir) const {
+  return mode == Mode::PickFirmware ? acceptForFirmware(name, isDir) : acceptForBooks(name, isDir);
+}
+
+FileIndex::AcceptFn FileBrowserModel::indexFilter() const {
+  return mode == Mode::PickFirmware ? &acceptForFirmware : &acceptForBooks;
 }
 
 void FileBrowserModel::openIndexIfLarge() {
@@ -100,7 +111,7 @@ void FileBrowserModel::openIndexIfLarge() {
 
   fileIndex = std::make_unique<FileIndex>();
   const FileIndex::SortMode indexSortMode = static_cast<FileIndex::SortMode>(sortMode);
-  if (!fileIndex->open(basepath.c_str(), indexSortMode, accept)) {
+  if (!fileIndex->open(basepath.c_str(), indexSortMode, indexFilter())) {
     LOG_ERR("FBR", "FileIndex build failed for %s, falling back to in-RAM sort", basepath.c_str());
     fileIndex = nullptr;
   }
