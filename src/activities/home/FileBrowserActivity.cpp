@@ -272,9 +272,13 @@ bool FileBrowserActivity::handleCustomInput() {
       }
       if (ev.type == ButtonEventManager::PressType::Short || ev.type == ButtonEventManager::PressType::Long) {
         if (basepath != "/") {
+          while (basepath.size() > 1 && basepath.back() == '/') basepath.pop_back();
           const std::string oldPath = basepath;
           basepath.replace(basepath.find_last_of('/'), std::string::npos, "");
           if (basepath.empty()) basepath = "/";
+          // The rows are about to be replaced. Any contact still queued was aimed at the folder
+          // we are leaving, and the list it would land in is a different one.
+          mappedInput.flushTouchEvents();
           loadFiles();
           const auto pos = oldPath.find_last_of('/');
           const std::string dirName = oldPath.substr(pos + 1) + "/";
@@ -364,6 +368,8 @@ void FileBrowserActivity::activateSelected(const bool longPress) {
     if (longPress) return;
     if (basepath.back() != '/') basepath += "/";
     basepath += entry.substr(0, entry.length() - 1);
+    // As in the Back branch: drop contacts aimed at the folder we are leaving.
+    mappedInput.flushTouchEvents();
     loadFiles();
     resetNavigation();
     requestUpdate();
@@ -447,11 +453,13 @@ void FileBrowserActivity::pageSelection(const int direction) {
 std::string getFileName(std::string filename) {
   filename = utf8NfcNorm(std::move(filename));
   if (filename.back() == '/') {
+    // Bracketed unconditionally. This used to skip the brackets when the theme reported
+    // showsFileIcons(), on the assumption that a folder icon carried the distinction -- but
+    // buildScreen() below fills in nothing but `label` and `actionValue`, so no row in this
+    // browser has ever had an icon, and under Lyra (the one theme that answers true) folders
+    // were left indistinguishable from files.
     filename.pop_back();
-    if (!UITheme::getInstance().getTheme().showsFileIcons()) {
-      return "[" + filename + "]";
-    }
-    return filename;
+    return "[" + filename + "]";
   }
   if (SETTINGS.showFileExtensions) {
     return filename;

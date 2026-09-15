@@ -94,6 +94,15 @@ class FileBrowserActivity final : public UiListActivity {
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
   bool handleCustomInput() override;
+  // Back and Confirm belong to handleCustomInput() alone, which classifies them through
+  // ButtonEventManager because this screen means different things by a short and a long press
+  // (Back: up one folder vs. leave the browser; Confirm: open vs. sync-then-open). The base
+  // implementation acts on the raw press-down EDGE, which arrives a tick before the Short event
+  // that the same physical press later produces -- so leaving it in place ran BOTH handlers for
+  // one press: Confirm entered a folder on the press and then activated row 0 of the folder it
+  // had just entered on the release, and Back finished the activity before the short-press
+  // up-one-folder branch could ever be reached.
+  bool handleButtons() override { return false; }
   int indexForActionValue(int16_t value) const override { return static_cast<uint16_t>(value); }
   void drawChrome() override;
   void drawFooter() override;
