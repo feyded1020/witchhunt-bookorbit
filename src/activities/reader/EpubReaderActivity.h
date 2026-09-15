@@ -412,6 +412,11 @@ class EpubReaderActivity final : public Activity {
   // writes and battery for a cache it never finishes. After BG_BUILD_MAX_PREEMPTIONS the
   // target is abandoned to Background-C and the cursor moves on. Reset per target.
   uint8_t backgroundPreemptCount_ = 0;
+  // Consecutive completed background builds thrown away because heap forced them to degrade.
+  // Unlike backgroundPreemptCount_ this is NOT reset per target: it is counting evidence that
+  // this book cannot be pre-built at all, so it has to survive the cursor moving on. Cleared by
+  // the first background build that completes cleanly. See BG_BUILD_MAX_DISCARDED_RUNS.
+  uint8_t backgroundDiscardedRuns_ = 0;
   // One-shot Background-A re-arm latch (see serviceBackgroundWork): the (spine, page)
   // whose pre-render was already retried after the deferred AA released its memory.
   // Bounds retries to one per displayed page so an image-only next page (which can

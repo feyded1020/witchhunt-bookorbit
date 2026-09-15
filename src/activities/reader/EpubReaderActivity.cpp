@@ -239,6 +239,19 @@ constexpr uint32_t BG_BUILD_BUDGET_MS = 40;
 #define BG_BUILD_LOOKAHEAD_PAGES 50
 #endif
 
+// Consecutive background builds discarded for want of heap before B stops pre-building this
+// book. Some books simply do not fit a background build: B works with the secondary framebuffer
+// borrowed, which is exactly when the largest free block is smallest, so every spine truncates
+// and is thrown away. Measured on a 154-page PDF conversion (~60 KB of XHTML per spine plus a
+// full-page scan): runs=132, completes=8 — each failure costing ~600 ms of parse and a 55-62 KB
+// partial section file streamed to SD and then deleted. Nothing is lost by stopping: those
+// builds were all discarded anyway, and the foreground path rebuilds each section cleanly with
+// the buffer released. Re-armed by anything that rebuilds the activity (reopening the book) or
+// by the next background build that does complete.
+#ifndef BG_BUILD_MAX_DISCARDED_RUNS
+#define BG_BUILD_MAX_DISCARDED_RUNS 3
+#endif
+
 // Foreground in-place section build (the "keep the secondary buffer" path). When heap is
 // ample we build the new section WITHOUT releasing the secondary framebuffer, so the chapter's
 // first page keeps a valid fast-refresh baseline and avoids the baseline-resetting half-
@@ -1338,6 +1351,12 @@ void EpubReaderActivity::stepBackgroundSectionBuild() {
   // Only gate at a section boundary (state==Probe, no build in flight) so a section in progress is
   // never abandoned mid-build; the runway shrinks as the reader advances, re-opening the window.
   if (backgroundBuildState_ == BackgroundBuildState::Probe) {
+    // This book has proved it cannot be pre-built in the background. Gated here, at a section
+    // boundary with no build in flight, for the same reason as the page budget below: a section
+    // already in progress must never be abandoned holding the borrowed buffer.
+    if (backgroundDiscardedRuns_ >= BG_BUILD_MAX_DISCARDED_RUNS) {
+      return;
+    }
     const int currentTailPages = (section && section->pageCount > 0)
                                      ? std::max(0, static_cast<int>(section->pageCount) - 1 - section->currentPage)
                                      : 0;
@@ -1585,7 +1604,13 @@ void EpubReaderActivity::stepBackgroundSectionBuild() {
           LOG_INF("ERS", "Background build spine=%d %s; discarding for foreground rebuild", targetSpine, reason);
           backgroundSection_->clearCache();
           backgroundSection_.reset();
+          if (backgroundDiscardedRuns_ < BG_BUILD_MAX_DISCARDED_RUNS) ++backgroundDiscardedRuns_;
+          if (backgroundDiscardedRuns_ >= BG_BUILD_MAX_DISCARDED_RUNS) {
+            LOG_INF("ERS", "Background pre-build off for this book: %u builds discarded in a row (foreground rebuilds)",
+                    backgroundDiscardedRuns_);
+          }
         } else {
+          backgroundDiscardedRuns_ = 0;
 #if DEBUG_BACKGROUND_WORK
           bgCounters_.bCompletes++;
 #endif
