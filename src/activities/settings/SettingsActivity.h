@@ -1,15 +1,18 @@
 #pragma once
 #include <I18n.h>
 
+#include <array>
+#include <string>
 #include <vector>
 
 #include "SettingInfo.h"
 #include "activities/Activity.h"
-#include "components/themes/BaseTheme.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
-class SettingsActivity final : public Activity {
+class SettingsActivity final : public Activity, protected UiAppHost {
   ButtonNavigator buttonNavigator;
+  freeink::ui::ListNav listNav;
 
   int selectedCategoryIndex = 0;  // Currently selected category
   int selectedSettingIndex = 0;
@@ -30,20 +33,34 @@ class SettingsActivity final : public Activity {
 
   std::vector<SettingInfo::SubmenuData> submenuData;
   bool needsHalfRefresh = false;
-  ListViewState listView;
 
   void enterCategory(int categoryIndex);
   void toggleCurrentSetting();
   [[nodiscard]] bool isListItemSelectable(int settingIdx) const;
+  void syncListSelection();
+
+  static constexpr freeink::ui::ActionId ACTION_ROW = 1;
+  static constexpr freeink::ui::ActionId ACTION_TAB = 2;
+  static constexpr size_t LIST_WINDOW_CAPACITY = 24;
+  std::array<std::string, LIST_WINDOW_CAPACITY> windowLabels;
+  std::array<std::string, LIST_WINDOW_CAPACITY> windowValues;
+  std::array<freeink::ui::ListItem, LIST_WINDOW_CAPACITY> windowItems;
+  uint16_t windowFirst = 0;
+  uint16_t windowCount = 0;
+
+  static void settingsScreen(UiScreen& screen, void* user);
+  static void onTabEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  void buildSettingsScreen(UiScreen& screen);
+  void materializeListWindow();
+  void handleRowTouch(int index);
 
  public:
   explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Settings", renderer, mappedInput) {}
+      : Activity("Settings", renderer, mappedInput), UiAppHost(renderer) {}
   void onEnter() override;
   void onExit() override;
-  // Tap on a settings row. NOTE the +1: index 0 of selectedSettingIndex is the category
-  // tab, and render() hands drawList `selectedSettingIndex - 1`, so band row i is row i+1
-  // here. Tapping cannot reach the tab row -- that is what the tab bar is for.
+  // Index 0 of selectedSettingIndex is the category tab, so list row i maps to i + 1.
   ListRowTap::Result selectListRow(int index) override;
   bool pageList(ListPageDirection direction) override;
   void loop() override;
