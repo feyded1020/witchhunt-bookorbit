@@ -22,6 +22,11 @@ void UiListActivity::onEnter() {
   requestUpdate();
 }
 
+void UiListActivity::onExit() {
+  closeRouting();
+  Activity::onExit();
+}
+
 void UiListActivity::screenTrampoline(UiScreen& screen, void* user) {
   static_cast<UiListActivity*>(user)->buildScreen(screen);
 }

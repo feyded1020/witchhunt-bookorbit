@@ -7,6 +7,10 @@
 class UiListActivity : public Activity, protected UiAppHost {
  public:
   void onEnter() override;
+  // Stops touch routing before the activity goes away. Every screen here builds its UI in
+  // onEnter() (resetUi() re-arms routing), so closing it on the way out is always right --
+  // and doing it here means a subclass cannot forget. Two did it by hand; the rest did not.
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
 
