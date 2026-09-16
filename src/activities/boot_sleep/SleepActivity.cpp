@@ -875,22 +875,52 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
   if (!hasGreyscale) {
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   } else {
-    // Fire the BW scrub without waiting: the waveform runs on the controller's own RAM,
-    // so the LSB draw below (CPU/SD-only work) overlaps it. copyGrayscaleLsbBuffers()
-    // drains the pending finish before its SPI plane write.
-    renderer.triggerDisplayAsync(HalDisplay::HALF_REFRESH);
-    bitmap.rewindToData();
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-    renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
-    drawOverlay();
+    // Absolute planes for the BMP sleep screen follow crosspoint-reader PR
+    // #3469 (Bryan O'Sullivan / @bos), including its boundary: preserved-
+    // background and transparent-overlay sleep screens stay differential.
+    //
+    // Absolute planes carry every pixel instead of masking grey over the B/W
+    // base; on the UC8279 X3 that runs the long XTH4 waveform, which is what
+    // clears the vertical banding a dithered image shows under the short nudge.
+    //
+    // It costs the overlap below. An absolute pass needs its base settled
+    // before the planes land -- both X3 drivers report asyncBase=false -- and
+    // beginAbsoluteGrayPass() does that base push itself, blocking. The
+    // differential path keeps the async scrub.
+    const bool panelHasAbsolute = renderer.supportsAbsoluteGrayPlanes();
+    const bool absolutePass = panelHasAbsolute && renderer.beginAbsoluteGrayPass();
+    LOG_DBG("SLP", "Grayscale planes: %s",
+            absolutePass ? "absolute"
+                         : (panelHasAbsolute ? "differential (panel declined the absolute pass)"
+                                             : "differential (panel has no absolute encoding)"));
+    if (!absolutePass) {
+      // Fire the BW scrub without waiting: the waveform runs on the controller's own RAM,
+      // so the LSB draw below (CPU/SD-only work) overlaps it. copyGrayscaleLsbBuffers()
+      // drains the pending finish before its SPI plane write.
+      renderer.triggerDisplayAsync(HalDisplay::HALF_REFRESH);
+    }
+
+    // A differential plane starts empty and lets the B/W base supply black and
+    // white. An absolute plane carries the whole frame, so it starts white --
+    // a clear bit is no longer "leave as is" -- and the overlay goes in as
+    // ordinary BW, which is already the right bits when white is 11 and black
+    // 00 across the pair.
+    const auto renderPlane = [&](const GfxRenderer::RenderMode mode) {
+      bitmap.rewindToData();
+      renderer.clearScreen(absolutePass ? 0xFF : 0x00);
+      renderer.setRenderMode(mode);
+      renderer.setAbsoluteGrayPlanes(absolutePass);
+      renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
+      // setRenderMode(BW) also clears the absolute flag, hence re-arming it per
+      // plane above.
+      if (absolutePass) renderer.setRenderMode(GfxRenderer::BW);
+      drawOverlay();
+    };
+
+    renderPlane(GfxRenderer::GRAYSCALE_LSB);
     renderer.copyGrayscaleLsbBuffers();
 
-    bitmap.rewindToData();
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
-    drawOverlay();
+    renderPlane(GfxRenderer::GRAYSCALE_MSB);
     renderer.copyGrayscaleMsbBuffers();
 
     renderer.displayGrayBuffer();
