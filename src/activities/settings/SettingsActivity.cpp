@@ -301,6 +301,17 @@ void SettingsActivity::activateIndex(const int index) {
   setting.toggleValue();
   CrossPointSettings::normalizeDependentSettings(SETTINGS);
   SETTINGS.saveToFile();
+  // Repaint: nothing else will. Every other way this list changes asks for an
+  // update -- moveSelectionTo(), the swipe handler, routeListTouch() -- but the
+  // Confirm path in UiListActivity::handleButtons() calls activateIndex() and
+  // returns, so an inline toggle would change and persist the value while the
+  // row kept showing the old one until some later event forced a render.
+  // MenuListActivity::toggleCurrentItem() does this too, which is why the
+  // submenus were never affected.
+  //
+  // Whole-screen rather than the one row on purpose: normalizeDependentSettings()
+  // may have changed other rows' values as well.
+  requestUpdate();
 }
 
 void SettingsActivity::materializeListWindow() {
