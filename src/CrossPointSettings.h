@@ -48,16 +48,6 @@ class CrossPointSettings {
     QUICK_RESUME_SLEEP_SCREEN_COUNT
   };
 
-  // Status bar enum - legacy
-  enum STATUS_BAR_MODE {
-    NONE = 0,
-    NO_PROGRESS = 1,
-    FULL = 2,
-    BOOK_PROGRESS_BAR = 3,
-    ONLY_BOOK_PROGRESS_BAR = 4,
-    CHAPTER_PROGRESS_BAR = 5,
-    STATUS_BAR_MODE_COUNT
-  };
   enum STATUS_BAR_PROGRESS_BAR {
     BOOK_PROGRESS = 0,
     CHAPTER_PROGRESS = 1,
@@ -92,17 +82,6 @@ class CrossPointSettings {
     INVERTED = 2,       // 480x800 logical coordinates, inverted
     LANDSCAPE_CCW = 3,  // 800x480 logical coordinates, native panel orientation
     ORIENTATION_COUNT
-  };
-
-  // Front button layout options (legacy)
-  // Default: Back, Confirm, Left, Right
-  // Swapped: Left, Right, Back, Confirm
-  enum FRONT_BUTTON_LAYOUT {
-    BACK_CONFIRM_LEFT_RIGHT = 0,
-    LEFT_RIGHT_BACK_CONFIRM = 1,
-    LEFT_BACK_CONFIRM_RIGHT = 2,
-    BACK_CONFIRM_RIGHT_LEFT = 3,
-    FRONT_BUTTON_LAYOUT_COUNT
   };
 
   // Front button hardware identifiers (for remapping)
@@ -156,26 +135,6 @@ class CrossPointSettings {
     RIGHT_ALIGN = 3,
     BOOK_STYLE = 4,
     PARAGRAPH_ALIGNMENT_COUNT
-  };
-
-  // Auto-sleep timeout options (in minutes)
-  enum SLEEP_TIMEOUT {
-    SLEEP_1_MIN = 0,
-    SLEEP_5_MIN = 1,
-    SLEEP_10_MIN = 2,
-    SLEEP_15_MIN = 3,
-    SLEEP_30_MIN = 4,
-    SLEEP_TIMEOUT_COUNT
-  };
-
-  // E-ink refresh frequency (pages between full refreshes)
-  enum REFRESH_FREQUENCY {
-    REFRESH_1 = 0,
-    REFRESH_5 = 1,
-    REFRESH_10 = 2,
-    REFRESH_15 = 3,
-    REFRESH_30 = 4,
-    REFRESH_FREQUENCY_COUNT
   };
 
   // Hide battery percentage
@@ -284,15 +243,12 @@ class CrossPointSettings {
   // Quick Resume on Timeout: keep current page on display with a moon icon when sleeping by timeout,
   // and on wake restore the page directly (skipping the boot screen).
   uint8_t quickResumeSleepScreen = QUICK_RESUME_NEVER;
-  // Status bar settings (statusBar, statusBarProgressBar, statusBarProgressBarThickness retained for migration only)
-  uint8_t statusBar = FULL;
+  // Status bar settings
   uint8_t statusBarChapterPageCount = 1;
   // Printed ("physical") page number from the book's page-list. Drawn in parentheses to the left of
   // the device page counter when both share a location; otherwise on its own. Default on.
   uint8_t statusBarPrintedPage = 1;
   uint8_t statusBarBookProgressPercentage = 1;
-  uint8_t statusBarProgressBar = HIDE_PROGRESS;
-  uint8_t statusBarProgressBarThickness = PROGRESS_BAR_NORMAL;
   uint8_t statusBarUpperProgressBar = HIDE_PROGRESS;
   uint8_t statusBarUpperProgressBarThickness = PROGRESS_BAR_NORMAL;
   uint8_t statusBarLowerProgressBar = HIDE_PROGRESS;
@@ -319,8 +275,6 @@ class CrossPointSettings {
   // EPUB reading orientation settings
   // 0 = portrait (default), 1 = landscape clockwise, 2 = inverted, 3 = landscape counter-clockwise
   uint8_t orientation = PORTRAIT;
-  // Button layouts (front layout retained for migration only)
-  uint8_t frontButtonLayout = BACK_CONFIRM_LEFT_RIGHT;
   // Front button remap (logical -> hardware)
   // Used by MappedInputManager to translate logical buttons into physical front buttons.
   uint8_t frontButtonBack = FRONT_HW_BACK;
@@ -343,12 +297,9 @@ class CrossPointSettings {
   uint8_t txtFontSize = MEDIUM;
   uint8_t lineSpacing = NORMAL;
   uint8_t paragraphAlignment = JUSTIFIED;
-  // Legacy enum fields — kept for JSON migration only; not used at runtime.
-  uint8_t sleepTimeout = SLEEP_10_MIN;
-  uint8_t refreshFrequency = REFRESH_15;
-  // Auto-sleep timeout in minutes (0 = never sleep, 1–60). Replaces sleepTimeout enum.
+  // Auto-sleep timeout in minutes (0 = never sleep, 1-60).
   uint8_t sleepTimeoutMinutes = 10;
-  // Full-refresh frequency in pages (0 = never full-refresh, 1–60). Replaces refreshFrequency enum.
+  // Full-refresh frequency in pages (0 = never full-refresh, 1-60).
   uint8_t refreshFrequencyPages = 15;
   // Perform a half refresh on the page immediately following an EPUB page that displayed images.
   uint8_t halfRefreshAfterImagePage = 1;
