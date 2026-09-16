@@ -2,6 +2,7 @@
 
 #include <I18nKeys.h>
 
+#include <functional>
 #include <string>
 
 #include "MappedInputManager.h"
@@ -23,6 +24,14 @@ class SliderPickerActivity : public Activity {
     // Label used instead of the numeric value when value == minValue.
     // Empty string = show numeric value even at min.
     std::string zeroLabel;
+    // Applied as the value moves, so a setting the reader can SEE is judged by looking at it
+    // rather than by reading a number and guessing. Empty for settings with nothing to show
+    // (a sleep timeout has no preview).
+    //
+    // The picker never persists what it previews: the caller still applies-and-saves on
+    // confirm, and undoes the preview on cancel. Keeping it that way is what makes Back a
+    // real cancel rather than a save of whatever the value happened to be.
+    std::function<void(int)> onPreview;
   };
 
   explicit SliderPickerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, Config config)

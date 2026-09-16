@@ -40,9 +40,11 @@ void SliderPickerActivity::onEnter() {
 void SliderPickerActivity::onExit() { Activity::onExit(); }
 
 void SliderPickerActivity::adjustValue(const int delta) {
+  const int before = value;
   value += delta;
   if (value < cfg.minValue) value = cfg.minValue;
   if (value > cfg.maxValue) value = cfg.maxValue;
+  if (value != before && cfg.onPreview) cfg.onPreview(value);
   requestUpdate();
 }
 
@@ -53,6 +55,9 @@ void SliderPickerActivity::setValue(const int newValue) {
   // refreshes far faster than the panel can retire them.
   if (clamped == value) return;
   value = clamped;
+  // Inside the no-change guard on purpose: a drag reports on every loop pass, and previewing
+  // the same value again would drive the hardware at the polling rate for no visible gain.
+  if (cfg.onPreview) cfg.onPreview(value);
   requestUpdate();
 }
 
