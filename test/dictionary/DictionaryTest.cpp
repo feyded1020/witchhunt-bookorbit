@@ -157,7 +157,13 @@ TEST_F(DictionaryTest, ResolveBasePathRejectsEscapesAndMissingFolders) {
   provision("plain", "Alpha");
   std::string base;
   EXPECT_TRUE(DictionaryRegistry::resolveBasePath("Alpha", base));
-  EXPECT_EQ(base, (kDictRoot / "Alpha" / "plain").string());
+  // generic_string(), not string(): resolveBasePath() joins with '/' on every
+  // platform because it builds SD/FAT paths, but fs::path::operator/ inserts
+  // the host's preferred separator, which is '\' on Windows. string() would
+  // therefore expect "sdroot\dictionaries\Alpha\plain" and fail there while
+  // passing on Linux. generic_string() always renders '/', so the expectation
+  // matches what the firmware actually produces.
+  EXPECT_EQ(base, (kDictRoot / "Alpha" / "plain").generic_string());
 
   // The folder name comes out of the settings JSON, so a crafted value must not
   // be able to walk out of the dictionary roots.
