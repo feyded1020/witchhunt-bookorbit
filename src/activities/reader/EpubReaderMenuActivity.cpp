@@ -638,6 +638,10 @@ const char* EpubReaderMenuActivity::tabLabel(const int slot) const {
   return I18N.get(tabLabels[static_cast<size_t>(visibleTabs[slot])]);
 }
 
+// Adapted from CrossInk's icon-tab reader menu at commit 60cc4da5 (MIT):
+// https://github.com/uxjulia/crossink -- the icon-above-label tab design and the per-tab glyphs
+// paintTabIcon() draws. The shared tab composition and touch routing this builds on moved to
+// TabbedUiListActivity, which carries the rest of that credit.
 void EpubReaderMenuActivity::customizeTabBar(UiScreen& screen, fui::TabBarProps& props) {
   // This menu labels its tabs with an icon above the word, so it wants the smaller text and an
   // icon painter; the settings screen takes the plain text default.

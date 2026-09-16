@@ -55,8 +55,10 @@ void TabbedUiListActivity::buildTabBar(UiScreen& screen) {
   // changes tabs or acts on a row. This is the one piece of styling that is not decoration, so
   // it is set here rather than left to customizeTabBar().
   //
-  // Adapted from CrossInk's FreeInkUI tab composition at commit cd4b122e (MIT):
-  // https://github.com/uxjulia/crossink
+  // Adapted from CrossInk (MIT): https://github.com/uxjulia/crossink -- the FreeInkUI tab
+  // composition and touch tab routing at commit cd4b122e, which the settings screen and the
+  // reader menu had each taken a copy of; this class is those two copies merged. The reader
+  // menu's icon-tab treatment (commit 60cc4da5) stays with it, in customizeTabBar().
   const bool onTabs = tabsFocused();
   fui::StyleSet tabStyles;
   tabStyles.explicitlySet = true;
