@@ -74,40 +74,6 @@ bool OpdsServerStore::loadFromFile() {
     return true;
   }
 
-  // No opds.json found — attempt one-time migration from the legacy single-server
-  // fields in CrossPointSettings (opdsServerUrl/opdsUsername/opdsPassword).
-  if (migrateFromSettings()) {
-    LOG_DBG("OPS", "Migrated legacy OPDS settings");
-    return true;
-  }
-
-  return false;
-}
-
-bool OpdsServerStore::migrateFromSettings() {
-  if (strlen(SETTINGS.opdsServerUrl) == 0) {
-    return false;
-  }
-
-  OpdsServer server;
-  server.name = "OPDS Server";
-  server.url = SETTINGS.opdsServerUrl;
-  server.username = SETTINGS.opdsUsername;
-  server.password = SETTINGS.opdsPassword;
-  servers.push_back(std::move(server));
-
-  if (saveToFile()) {
-    // Clear legacy fields so migration won't run again on next boot
-    SETTINGS.opdsServerUrl[0] = '\0';
-    SETTINGS.opdsUsername[0] = '\0';
-    SETTINGS.opdsPassword[0] = '\0';
-    SETTINGS.saveToFile();
-    LOG_DBG("OPS", "Migrated single-server OPDS config to opds.json");
-    return true;
-  }
-
-  // Save failed — roll back in-memory state so we don't have a partial migration
-  servers.clear();
   return false;
 }
 

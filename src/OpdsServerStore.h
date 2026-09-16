@@ -63,7 +63,6 @@ class OpdsServerStore {
    * Migrate from legacy single-server settings in CrossPointSettings.
    * Called once during first load if no opds.json exists.
    */
-  bool migrateFromSettings();
 };
 
 #define OPDS_STORE OpdsServerStore::getInstance()
