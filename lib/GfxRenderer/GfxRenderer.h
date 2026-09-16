@@ -37,6 +37,9 @@ class GfxRenderer {
 
   HalDisplay& display;
   std::atomic<int> renderMode;
+  // Selects the absolute plane encoding for the grayscale passes; see
+  // setAbsoluteGrayPlanes(). Cleared whenever the mode returns to BW.
+  std::atomic<bool> absoluteGrayPlanes;
   std::atomic<int> orientation;
   // Mirrors `orientation` except across the themes' transient hint-strip flips. See setOrientation.
   std::atomic<int> heldOrientation;
@@ -167,6 +170,7 @@ class GfxRenderer {
   explicit GfxRenderer(HalDisplay& halDisplay)
       : display(halDisplay),
         renderMode(static_cast<int>(BW)),
+        absoluteGrayPlanes(false),
         orientation(static_cast<int>(Portrait)),
         heldOrientation(static_cast<int>(Portrait)),
         fadingFix(false),
@@ -485,9 +489,39 @@ class GfxRenderer {
 
   // Grayscale functions
   void setRenderMode(const RenderMode mode) {
+    // Absolute planes are a property of one grayscale pass, not of the renderer.
+    // Returning to BW ends that pass, so the flag cannot outlive it and leak
+    // into an unrelated draw.
+    if (mode == BW) absoluteGrayPlanes.store(false, std::memory_order_relaxed);
     this->renderMode.store(static_cast<int>(mode), std::memory_order_relaxed);
   }
   RenderMode getRenderMode() const { return static_cast<RenderMode>(renderMode.load(std::memory_order_relaxed)); }
+
+  // Switch the GRAYSCALE_LSB / GRAYSCALE_MSB passes from differential masks to
+  // ABSOLUTE planes, for panels that report supportsAbsoluteGrayPlanes().
+  // The encoding below is Bryan O'Sullivan's, from crosspoint-reader PR #3469;
+  // see HalDisplay::supportsAbsoluteGrayPlanes() for what is his and what differs.
+  //
+  // Differential (the default): a plane bit is set only for a grey pixel, and
+  // the B/W base supplies black and white — (LSB,MSB) is 00 black/white,
+  // 11 dark, 01 light. Clear bits mean "leave this pixel as the base drew it".
+  //
+  // Absolute: the planes carry the whole image, so every pixel must be written
+  // — (LSB,MSB) is 00 black, 10 dark, 01 light, 11 white. A clear bit is no
+  // longer "leave as is", so anything the image does not cover has to be drawn
+  // white rather than left at zero, and 1-bit overlays (button hints) must be
+  // drawn into the planes too. Because white is 11 in both planes and black is
+  // 00, ordinary BW drawing produces exactly the right bits for such an
+  // overlay: set the mode back to BW and draw it normally.
+  //
+  // This affects drawBitmap() only. Glyph anti-aliasing and the reader's page
+  // passes keep the differential encoding and the short nudge that suits them.
+  void setAbsoluteGrayPlanes(const bool on) { absoluteGrayPlanes.store(on, std::memory_order_relaxed); }
+  bool getAbsoluteGrayPlanes() const { return absoluteGrayPlanes.load(std::memory_order_relaxed); }
+
+  // Passthroughs for the absolute-plane pass; see HalDisplay for the contract.
+  bool supportsAbsoluteGrayPlanes() const;
+  bool beginAbsoluteGrayPass(HalDisplay::RefreshMode fallback = HalDisplay::HALF_REFRESH) const;
 
   // Text darkness control:
   //   0 = Normal, 1 = Dark, 2 = Extra Dark, 3 = Maximum.

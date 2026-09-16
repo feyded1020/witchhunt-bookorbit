@@ -125,6 +125,41 @@ class HalDisplay {
   void cleanupGrayscaleWithPreviousBuffer();
 
   void displayGrayBuffer(bool turnOffScreen = false);
+
+  // Ported from crosspoint-reader PR #3469 ("fix: vertical banding on X3
+  // grayscale images", Bryan O'Sullivan / @bos). The diagnosis, the plane
+  // encoding and the measurements are his: on a UC8279 X3 the checkerboard
+  // column banding drops from 3.5-4.7% of the black-to-white range to 0.9%, and
+  // the 8-gate-line period disappears. He also established that reshaping or
+  // lengthening the nudge does not help -- only the long waveform does.
+  //
+  // The implementation differs. He added a supportsAbsoluteGrayPlanes() bool and
+  // threaded a factoryMode flag through; our SDK already carries the generalized
+  // GrayscaleMode / GrayscaleEncoding contract (Free-Ink/freeink-sdk#94 and #95,
+  // also his, already merged into our submodule), so this selects
+  // GrayscaleMode::Absolute instead.
+  //
+  // True when the panel accepts ABSOLUTE grayscale planes: planes that carry
+  // every pixel, background included, instead of a differential mask layered
+  // over the B/W base. The two encodings are not interchangeable — see
+  // GfxRenderer::setAbsoluteGrayPlanes() for the bit patterns.
+  //
+  // On the X3 this selects the stock XTH4 waveform in place of the short AA
+  // nudge. The nudge is what exposes the panel's 8-gate-line drive
+  // nonuniformity as vertical banding on dithered grey images; the long,
+  // DC-balanced XTH4 drive does not. It costs about a second per refresh
+  // against the nudge's tenth, so it belongs on images, not on page turns.
+  bool supportsAbsoluteGrayPlanes() const;
+
+  // Open an absolute grayscale pass and push the framebuffer as its B/W base.
+  // Returns false when the panel cannot run one, leaving the caller on the
+  // ordinary differential flow — so callers need one branch, not two.
+  //
+  // Planes staged after this must cover the full panel height or the driver
+  // abandons the pass; displayGrayBuffer() then runs the absolute waveform and
+  // asks the controller for a clean B/W refresh next.
+  bool beginAbsoluteGrayPass(RefreshMode fallback = HALF_REFRESH, bool turnOffScreen = false);
+
   // True when the panel can show a B/W base and its grayscale planes as ONE
   // waveform. Where it can, the two-push flow (base, then a grey overlay) is
   // not merely slower but wrong: a self-normalizing grey column expects the

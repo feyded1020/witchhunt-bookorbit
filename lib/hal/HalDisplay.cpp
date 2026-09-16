@@ -402,6 +402,24 @@ void HalDisplay::cleanupGrayscaleWithPreviousBuffer() {
 
 bool HalDisplay::supportsGrayFrame() const { return einkDisplay.supportsGrayFrame(); }
 
+bool HalDisplay::supportsAbsoluteGrayPlanes() const {
+  return einkDisplay.grayscaleCapabilities(freeink::GrayscaleMode::Absolute).supported();
+}
+
+bool HalDisplay::beginAbsoluteGrayPass(const RefreshMode fallback, const bool turnOffScreen) {
+  HalSpiBus::Lock spiLock;
+  // The base push happens inside the SDK call, so record the mode the way every
+  // other display path does — otherwise the next page summary reports whatever
+  // the previous B/W push used. See the note on displayGrayscaleFrame().
+  if (!einkDisplay.displayGrayscaleBase(freeink::GrayscaleMode::Absolute, convertRefreshMode(fallback),
+                                        turnOffScreen)) {
+    return false;
+  }
+  lastRefreshMode = fallback;
+  lastDisplayModeByte = refreshModeToByte(fallback);
+  return true;
+}
+
 void HalDisplay::displayGrayscaleFrame(const RefreshMode refreshMode, const bool turnOffScreen) {
   HalSpiBus::Lock spiLock;
   einkDisplay.displayGrayscaleFrame(convertRefreshMode(refreshMode), turnOffScreen);
