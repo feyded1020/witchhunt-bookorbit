@@ -4508,6 +4508,10 @@ void EpubReaderActivity::renderContents(RenderLock& lock, std::unique_ptr<Page> 
   backgroundAGlyph_ = '-';
 #endif
   publishPageLinkTargets(*page, orientedMarginLeft, contentTop);
+  // Snapshot the page the status bar last reported BEFORE renderStatusBar()
+  // overwrites it: further down it is the only way left to tell a page turn from
+  // a clock or battery tick that redrew the page already on the panel.
+  const int statusBarPageBeforeRender = lastStatusBarPage;
   renderStatusBar();
   if (showTruncatedSectionHintThisRender) {
     const int hintX = orientedMarginLeft + 4;
@@ -4562,6 +4566,23 @@ void EpubReaderActivity::renderContents(RenderLock& lock, std::unique_ptr<Page> 
   } else if (forceHalfRefreshThisPage) {
     pageRefreshMode = HalDisplay::HALF_REFRESH;
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+  } else if (statusBarPageBeforeRender >= 0 && section && section->currentPage + 1 == statusBarPageBeforeRender) {
+    // Same page as the one already on the panel: this render was a status-bar
+    // tick (clock minute or battery step), not a page turn.
+    //
+    // refreshFrequencyPages is a GHOSTING BUDGET DENOMINATED IN PAGES -- the
+    // setting, its label and the counter all say pages. Letting a tick spend
+    // from it drains the budget once a minute whether or not anyone is reading,
+    // so on an idle reader the ghost-clearing HALF fires on a schedule set by
+    // the clock rather than by page turns: ~2s of full-screen flash caused by a
+    // digit changing. Device-traced on an X4 2026-09-16, counter 10 -> 9 -> 8
+    // across three consecutive minutes with no page turns.
+    //
+    // The tick still costs a FAST refresh of the whole frame, which is not
+    // free -- a no-diff FAST accumulates speckle on X3 (see the
+    // lastStatusBar* field comment). What it must not do is bill that to the
+    // page budget.
+    pageRefreshMode = HalDisplay::FAST_REFRESH;
   } else {
     pageRefreshMode = ReaderUtils::nextRefreshCycleMode(pagesUntilFullRefresh);
   }
