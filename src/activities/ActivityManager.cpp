@@ -145,7 +145,6 @@ void ActivityManager::renderTaskLoop() {
       ListTouchBand::invalidate();
       TapTargets::homeCovers().invalidate();
       TapTargets::homeMenu().invalidate();
-      TapTargets::tabBar().invalidate();
       // readerLinks is deliberately NOT cleared here. The reader has render passes that do not
       // put a page on screen -- above all the pre-render, which draws the NEXT page into the
       // frame buffer while the current one is still displayed -- and clearing per pass would

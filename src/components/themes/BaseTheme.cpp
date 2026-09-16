@@ -14,7 +14,6 @@
 
 #include "I18n.h"
 #include "RecentBooksStore.h"
-#include "components/ListLayout.h"
 #include "components/UITheme.h"
 #include "components/themes/ButtonHintLayout.h"
 #include "components/themes/ListTouchBand.h"
@@ -372,141 +371,11 @@ void BaseTheme::drawListOverflowArrows(const GfxRenderer& renderer, const Rect r
   }
 }
 
-// Variable-height rows: a title too long for one line is wrapped over up to
-// view.maxTitleLines lines and its row grows by one line height per extra line. Shared by every
-// theme — see BaseTheme::wrappedListStyle() for the per-theme look.
-void BaseTheme::drawWrappedList(const GfxRenderer& renderer, const Rect rect, const int itemCount,
-                                const int selectedIndex, const std::function<std::string(int index)>& rowTitle,
-                                const std::function<UIIcon(int index)>& rowIcon, ListViewState& view) const {
-  const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-  const WrappedListStyle style = wrappedListStyle();
-  const int baseRowHeight = metrics.listRowHeight;
-  if (itemCount <= 0 || rect.height < baseRowHeight || rowTitle == nullptr) {
-    view.visibleRows = 0;
-    ListTouchBand::invalidate();
-    return;
-  }
-
-  const int maxLines = std::min(view.maxTitleLines, maxWrappedTitleLines);
-  const int lineStep = renderer.getLineHeight(UI_10_FONT_ID);
-
-  // Reserve the scroll bar strip unconditionally. Whether the list scrolls depends on the wrapped
-  // row heights, which depend on the text width, which would depend on the bar — reserving first
-  // breaks that circle, and the bar is still only DRAWN when the rows really do not all fit.
-  const int contentWidth = rect.width - (style.scrollBarWidth + style.scrollBarRightOffset);
-  const int iconGap = (rowIcon != nullptr && style.iconSize > 0) ? style.iconSize + style.hPadding : 0;
-  const int textX = rect.x + metrics.contentSidePadding + style.hPadding + iconGap;
-  const int textWidth = contentWidth - metrics.contentSidePadding * 2 - style.hPadding * 2 - iconGap;
-  if (textWidth <= 0) {
-    view.visibleRows = 0;
-    ListTouchBand::invalidate();
-    return;
-  }
-
-  // Separators keep the plain row height; only real titles can grow.
-  const auto rowHeightFor = [&](const int index) {
-    const std::string title = rowTitle(index);
-    if (UITheme::isSeparatorTitle(title)) return baseRowHeight;
-    const int lines = static_cast<int>(renderer.wrappedText(UI_10_FONT_ID, title.c_str(), textWidth, maxLines).size());
-    return baseRowHeight + (lines > 1 ? (lines - 1) * lineStep : 0);
-  };
-
-  const ListLayout::Window window =
-      ListLayout::computeWindow(itemCount, selectedIndex, rect.height, view.firstVisible, rowHeightFor);
-  view.visibleRows = window.count;
-  if (window.count <= 0) {
-    ListTouchBand::invalidate();
-    return;
-  }
-
-  // Scroll position: how far the window's top row is through the rows that can be a top row.
-  if (window.count < itemCount) {
-    if (style.scrollBarWidth > 0) {
-      const int barHeight = std::max(8, rect.height * window.count / itemCount);
-      const int barY = rect.y + ((rect.height - barHeight) * window.first) / (itemCount - window.count);
-      const int barX = rect.x + rect.width - style.scrollBarRightOffset;
-      renderer.drawLine(barX, rect.y, barX, rect.y + rect.height, true);
-      renderer.fillRect(barX - style.scrollBarWidth, barY, style.scrollBarWidth, barHeight, true);
-    } else {
-      drawListOverflowArrows(renderer, rect);
-    }
-  }
-
-  // Publish the rows for touch as they are painted. Recorded from the same values the draw
-  // uses, so a tap target cannot drift from the row it is under; built up here rather than in
-  // a second pass because deciding selectability needs rowTitle(index), which on an SD-backed
-  // list reads from the card.
-  ListTouchBand::Builder touchBand;
-  touchBand.begin(rect.x, rect.width, window.first);
-
-  for (int row = 0; row < window.count; row++) {
-    const int index = window.first + row;
-    const int rowY = rect.y + window.top[row];
-    const int rowHeight = window.height[row];
-
-    std::string title = rowTitle(index);
-    if (UITheme::isSeparatorTitle(title)) {
-      touchBand.addRow(rowY, rowHeight, /*selectable=*/false);
-      title = UITheme::stripSeparatorTitle(title);
-      drawListSeparator(
-          renderer,
-          Rect{rect.x + metrics.contentSidePadding, rowY, contentWidth - metrics.contentSidePadding * 2, rowHeight},
-          textX, textWidth, title);
-      continue;
-    }
-
-    touchBand.addRow(rowY, rowHeight, /*selectable=*/true);
-
-    const bool selected = (index == selectedIndex);
-    if (selected) {
-      const int selX = style.fullWidthSelection ? rect.x : rect.x + metrics.contentSidePadding;
-      const int selWidth = style.fullWidthSelection ? rect.width : contentWidth - metrics.contentSidePadding * 2;
-      if (style.cornerRadius > 0) {
-        renderer.fillRoundedRect(selX, rowY, selWidth, rowHeight, style.cornerRadius,
-                                 style.selectionIsBlack ? Color::Black : Color::LightGray);
-      } else {
-        renderer.fillRect(selX, rowY, selWidth, rowHeight);
-      }
-    }
-    // Only a black fill needs the text knocked out of it; a light-gray one keeps black text.
-    const bool textBlack = !(selected && style.selectionIsBlack);
-
-    int lineY = rowY + style.titleTextOffsetY;
-    for (const auto& line : renderer.wrappedText(UI_10_FONT_ID, title.c_str(), textWidth, maxLines)) {
-      renderer.drawText(UI_10_FONT_ID, textX, lineY, line.c_str(), textBlack);
-      lineY += lineStep;
-    }
-
-    if (iconGap > 0) {
-      // Aligned with the first line, not the middle of a grown row, so icons stay on one baseline.
-      const uint8_t* iconBitmap = rowIconBitmap(rowIcon(index), style.iconSize);
-      if (iconBitmap != nullptr) {
-        const int iconX = rect.x + metrics.contentSidePadding + style.hPadding;
-        const int iconY = rowY + (baseRowHeight - style.iconSize) / 2;
-        if (textBlack) {
-          renderer.drawIcon(iconBitmap, iconX, iconY, style.iconSize, style.iconSize);
-        } else {
-          renderer.drawIconInverted(iconBitmap, iconX, iconY, style.iconSize, style.iconSize);
-        }
-      }
-    }
-  }
-
-  touchBand.commit();
-}
-
 void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                          const std::function<std::string(int index)>& rowTitle,
                          const std::function<std::string(int index)>& rowSubtitle,
                          const std::function<UIIcon(int index)>& rowIcon,
-                         const std::function<std::string(int index)>& rowValue, bool highlightValue,
-                         ListViewState* view) const {
-  // Wrapping only covers title (+ icon) rows: a subtitle or a value column has its own fixed
-  // geometry inside the row, so those lists stay on the classic fixed-height path.
-  if (view != nullptr && view->wraps() && rowSubtitle == nullptr && rowValue == nullptr) {
-    drawWrappedList(renderer, rect, itemCount, selectedIndex, rowTitle, rowIcon, *view);
-    return;
-  }
+                         const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
   int rowHeight =
       (rowSubtitle != nullptr) ? BaseMetrics::values.listWithSubtitleRowHeight : BaseMetrics::values.listRowHeight;
   int pageItems = rect.height / rowHeight;
@@ -516,9 +385,6 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   // four rows were dead. Clamping here costs blank space at the foot of an over-tall list
   // instead, and keeps "every painted row is a tappable row" true on any future panel.
   pageItems = std::min(pageItems, ListTouchBand::kMaxRows);
-  // A fixed-height list still reports its page size, so Left/Right page by what is really on
-  // screen rather than by a guess.
-  if (view != nullptr) view->visibleRows = std::min(pageItems, itemCount);
   if (pageItems <= 0 || itemCount <= 0 || rowTitle == nullptr) {
     ListTouchBand::invalidate();
     return;
@@ -541,7 +407,7 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   }
   // Draw all items
   const auto pageStartIndex = selectedIndex / pageItems * pageItems;
-  // See drawWrappedList: the rows are published for touch as they are painted, from the same
+  // The rows are published for touch as they are painted, from the same
   // values the draw uses. The row rect is the full `rect.width` rather than `contentWidth`,
   // which stops 5 px short for the scroll strip -- the selection fill already spans the full
   // width here, so that is what a finger sees as the row.
@@ -664,48 +530,6 @@ void BaseTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char
     renderer.drawText(UI_12_FONT_ID, rect.x + BaseMetrics::values.contentSidePadding, rect.y, truncatedLabel.c_str(),
                       true, EpdFontFamily::REGULAR);
   }
-}
-
-void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const std::vector<TabInfo>& tabs,
-                           bool selected) const {
-  constexpr int underlineHeight = 2;  // Height of selection underline
-  constexpr int underlineGap = 4;     // Gap between text and underline
-
-  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-
-  int currentX = rect.x + BaseMetrics::values.contentSidePadding;
-
-  // Published for touch as they are painted, from the same currentX the labels
-  // use — the three themes pad and space their tabs differently, so re-deriving
-  // this in the activity would be a second copy of the layout rule.
-  TapTargets::Recorder::Builder touchTabs;
-  int tabIndex = 0;
-
-  for (const auto& tab : tabs) {
-    const int textWidth =
-        renderer.getTextWidth(UI_12_FONT_ID, tab.label, tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-    // Each target spans the whole advance to the next tab, so the gap between
-    // two labels belongs to the one on its left rather than being a dead strip.
-    // Full band height, because a tab is a small target and the bar is thin.
-    const int advance = textWidth + BaseMetrics::values.tabSpacing;
-    touchTabs.add(currentX, rect.y, advance, rect.height, tabIndex++);
-
-    // Draw underline for selected tab
-    if (tab.selected) {
-      if (selected) {
-        renderer.fillRect(currentX - 3, rect.y, textWidth + 6, lineHeight + underlineGap);
-      } else {
-        renderer.fillRect(currentX, rect.y + lineHeight + underlineGap, textWidth, underlineHeight);
-      }
-    }
-
-    // Draw tab label
-    renderer.drawText(UI_12_FONT_ID, currentX, rect.y, tab.label, !(tab.selected && selected),
-                      tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-
-    currentX += advance;
-  }
-  TapTargets::tabBar().record(touchTabs);
 }
 
 // Draw the "Recent Book" cover card on the home screen

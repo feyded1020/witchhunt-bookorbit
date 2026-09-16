@@ -73,8 +73,6 @@ class MenuListActivity : public UiListActivity {
   std::vector<SettingInfo> menuItems;
   std::vector<SettingInfo::SubmenuData> submenuData;
   std::atomic<int>& selectedIndex;
-  // Retained for subclasses that draw a separate legacy list mode, such as weather search results.
-  ListViewState listView;
   bool submenusPrepared = false;
 
   // Call after building/rebuilding menuItems to wire up the selectable predicate.

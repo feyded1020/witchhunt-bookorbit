@@ -249,68 +249,11 @@ void LyraTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char
   renderer.drawLine(rect.x, rect.y + rect.height - 1, rect.x + rect.width - 1, rect.y + rect.height - 1, true);
 }
 
-void LyraTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
-                           bool selected) const {
-  int currentX = rect.x + LyraMetrics::values.contentSidePadding;
-
-  if (selected) {
-    renderer.fillRectDither(rect.x, rect.y, rect.width, rect.height, Color::LightGray);
-  }
-
-  // Published for touch as they are painted — see BaseTheme::drawTabBar.
-  TapTargets::Recorder::Builder touchTabs;
-  int tabIndex = 0;
-
-  for (const auto& tab : tabs) {
-    const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, tab.label, EpdFontFamily::REGULAR);
-    const int advance = textWidth + LyraMetrics::values.tabSpacing + 2 * hPaddingInSelection;
-    touchTabs.add(currentX, rect.y, advance, rect.height, tabIndex++);
-
-    if (tab.selected) {
-      if (selected) {
-        renderer.fillRoundedRect(currentX, rect.y + 1, textWidth + 2 * hPaddingInSelection, rect.height - 4,
-                                 cornerRadius, Color::Black);
-      } else {
-        renderer.fillRectDither(currentX, rect.y, textWidth + 2 * hPaddingInSelection, rect.height - 3,
-                                Color::LightGray);
-        renderer.drawLine(currentX, rect.y + rect.height - 3, currentX + textWidth + 2 * hPaddingInSelection,
-                          rect.y + rect.height - 3, 2, true);
-      }
-    }
-
-    renderer.drawText(UI_10_FONT_ID, currentX + hPaddingInSelection, rect.y + 6, tab.label, !(tab.selected && selected),
-                      EpdFontFamily::REGULAR);
-
-    currentX += advance;
-  }
-  TapTargets::tabBar().record(touchTabs);
-
-  renderer.drawLine(rect.x, rect.y + rect.height - 1, rect.x + rect.width - 1, rect.y + rect.height - 1, true);
-}
-
-BaseTheme::WrappedListStyle LyraTheme::wrappedListStyle() const {
-  WrappedListStyle style;
-  style.hPadding = hPaddingInSelection;
-  style.iconSize = listIconSize;
-  style.titleTextOffsetY = 7;  // matches the single-line rows drawn by drawList below
-  style.cornerRadius = cornerRadius;
-  style.scrollBarWidth = LyraMetrics::values.scrollBarWidth;
-  style.scrollBarRightOffset = LyraMetrics::values.scrollBarRightOffset;
-  style.selectionIsBlack = false;  // light-gray pill, text stays black
-  style.fullWidthSelection = false;
-  return style;
-}
-
 void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                          const std::function<std::string(int index)>& rowTitle,
                          const std::function<std::string(int index)>& rowSubtitle,
                          const std::function<UIIcon(int index)>& rowIcon,
-                         const std::function<std::string(int index)>& rowValue, bool highlightValue,
-                         ListViewState* view) const {
-  if (view != nullptr && view->wraps() && rowSubtitle == nullptr && rowValue == nullptr) {
-    drawWrappedList(renderer, rect, itemCount, selectedIndex, rowTitle, rowIcon, *view);
-    return;
-  }
+                         const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
   int rowHeight =
       (rowSubtitle != nullptr) ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
   int pageItems = rect.height / rowHeight;
@@ -320,7 +263,6 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   // four rows were dead. Clamping here costs blank space at the foot of an over-tall list
   // instead, and keeps "every painted row is a tappable row" true on any future panel.
   pageItems = std::min(pageItems, ListTouchBand::kMaxRows);
-  if (view != nullptr) view->visibleRows = std::min(pageItems, itemCount);
   if (pageItems <= 0 || itemCount <= 0 || rowTitle == nullptr) {
     ListTouchBand::invalidate();
     return;

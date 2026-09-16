@@ -52,13 +52,11 @@ class LyraTheme : public BaseTheme {
   void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const override;
   void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
                      const char* rightLabel = nullptr) const override;
-  void drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
-                  bool selected) const override;
   void drawList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                 const std::function<std::string(int index)>& rowTitle,
                 const std::function<std::string(int index)>& rowSubtitle,
                 const std::function<UIIcon(int index)>& rowIcon, const std::function<std::string(int index)>& rowValue,
-                bool highlightValue, ListViewState* view) const override;
+                bool highlightValue) const override;
   void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                        const char* btn4) const override;
   void drawSideButtonHints(GfxRenderer& renderer, const char* upBtn, const char* downBtn) const override;
@@ -80,9 +78,6 @@ class LyraTheme : public BaseTheme {
   bool showsFileIcons() const override { return true; }
 
  protected:
-  WrappedListStyle wrappedListStyle() const override;
-  const uint8_t* rowIconBitmap(UIIcon icon, int size) const override { return iconForName(icon, size); }
-
   static int getRecentBookProgressPercent(const RecentBook& book);
   static const uint8_t* iconForName(UIIcon icon, int size);
 };
