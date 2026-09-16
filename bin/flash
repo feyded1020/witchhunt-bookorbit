@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+#
+# Flash the firmware that is ALREADY built, without going through PlatformIO.
+#
+# `pio run -t upload` spends a minute or two re-scanning the project and the
+# library dependency graph before it reaches esptool. That is wasted whenever
+# the binary has not changed -- most often when a long build finished while the
+# device was asleep, the upload failed for want of a port, and all you want is
+# to power the device on and push the same image again.
+#
+# This calls esptool directly on the artifacts already in .pio/build/<env>, so
+# it starts writing immediately.
+#
+#   ./bin/flash                 flash env "default", waiting for the device
+#   ./bin/flash -e x4pro        flash another environment
+#   ./bin/flash -p COM6         name the port instead of auto-detecting
+#   ./bin/flash -a              app only; leave bootloader/partitions alone
+#   ./bin/flash -w 0            do not wait; fail at once if the device is absent
+#   ./bin/flash -n              print the esptool command and exit
+#
+# The port may also be set once via the FLASH_PORT environment variable.
+#
+# NOTE: it writes the same four images at the same four offsets as a PlatformIO
+# upload, which deliberately leaves the gap at 0x9000 alone -- that is the NVS
+# partition, where settings live. Do NOT "simplify" this by flashing
+# firmware.factory.bin at 0x0: that image spans 0x0-0x10000 and pads the NVS
+# window with 0xFF, so it would wipe the user's settings on every flash.
+
+set -euo pipefail
+
+ENV_NAME="default"
+PORT="${FLASH_PORT:-}"
+APP_ONLY=0
+DRY_RUN=0
+WAIT_SECONDS=120
+
+usage() {
+  sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -e|--environment) ENV_NAME="${2:?-e needs an environment name}"; shift 2 ;;
+    -p|--port)        PORT="${2:?-p needs a port}"; shift 2 ;;
+    -w|--wait)        WAIT_SECONDS="${2:?-w needs a number of seconds}"; shift 2 ;;
+    -a|--app-only)    APP_ONLY=1; shift ;;
+    -n|--dry-run)     DRY_RUN=1; shift ;;
+    -h|--help)        usage 0 ;;
+    *) echo "flash: unknown argument '$1'" >&2; usage 1 ;;
+  esac
+done
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_DIR="${REPO_ROOT}/.pio/build/${ENV_NAME}"
+
+# PlatformIO's core directory holds both esptool and the framework blob. The
+# local config pins it to C:/pio on Windows to stay under the command-line
+# length limit, so honour that before falling back to the default location.
+if [[ -n "${PLATFORMIO_CORE_DIR:-}" ]]; then
+  PIO_CORE="${PLATFORMIO_CORE_DIR}"
+elif [[ -d "/c/pio" ]]; then
+  PIO_CORE="/c/pio"
+else
+  PIO_CORE="${HOME}/.platformio"
+fi
+
+ESPTOOL=""
+for candidate in "${PIO_CORE}/penv/Scripts/esptool.exe" "${PIO_CORE}/penv/bin/esptool"; do
+  [[ -x "${candidate}" ]] && ESPTOOL="${candidate}" && break
+done
+if [[ -z "${ESPTOOL}" ]]; then
+  echo "flash: no esptool under ${PIO_CORE}/penv -- is PlatformIO installed?" >&2
+  exit 1
+fi
+
+APP="${BUILD_DIR}/firmware.bin"
+if [[ ! -f "${APP}" ]]; then
+  echo "flash: ${APP} does not exist." >&2
+  echo "       Nothing has been built for environment '${ENV_NAME}' yet; run a normal build first." >&2
+  exit 1
+fi
+
+# This tool exists to skip the build, so it has to say plainly what it is about
+# to write -- otherwise a stale image gets flashed and debugged as a live one.
+AGE_MIN=$(( ( $(date +%s) - $(stat -c %Y "${APP}") ) / 60 ))
+echo "flash: ${ENV_NAME} firmware.bin, built ${AGE_MIN} min ago ($(stat -c %y "${APP}" | cut -d. -f1))"
+if [[ -n "$(find "${REPO_ROOT}/src" "${REPO_ROOT}/lib" -name '*.cpp' -o -name '*.h' -newer "${APP}" 2>/dev/null | head -n1)" ]]; then
+  echo "flash: WARNING - sources under src/ or lib/ are newer than this binary." >&2
+  echo "flash:           You are about to flash a build that predates your edits." >&2
+fi
+
+ARGS=(--chip esp32c3 --baud 921600 --before default-reset --after hard-reset)
+[[ -n "${PORT}" ]] && ARGS+=(--port "${PORT}")
+
+# Same offsets a PlatformIO upload uses, verified against firmware.factory.bin:
+# bootloader 0x0, partition table 0x8000, otadata 0xe000, app 0x10000.
+IMAGES=(0x10000 "${APP}")
+if [[ "${APP_ONLY}" -eq 0 ]]; then
+  BOOT_APP0="$(ls "${PIO_CORE}"/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin 2>/dev/null | head -n1 || true)"
+  if [[ -z "${BOOT_APP0}" ]]; then
+    echo "flash: boot_app0.bin not found in the framework package; flashing the app only." >&2
+  else
+    IMAGES=(0x0 "${BUILD_DIR}/bootloader.bin"
+            0x8000 "${BUILD_DIR}/partitions.bin"
+            0xe000 "${BOOT_APP0}"
+            0x10000 "${APP}")
+  fi
+fi
+
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+  printf '%q ' "${ESPTOOL}" "${ARGS[@]}" write-flash --flash-mode dio --flash-size 16MB "${IMAGES[@]}"
+  printf '\n'
+  exit 0
+fi
+
+# Retry rather than fail: the whole point is that the device is usually asleep
+# when you get here. Start the script, then wake the device -- it goes as soon
+# as the port appears.
+DEADLINE=$(( $(date +%s) + WAIT_SECONDS ))
+ATTEMPT=0
+while true; do
+  ATTEMPT=$(( ATTEMPT + 1 ))
+  if "${ESPTOOL}" "${ARGS[@]}" write-flash --flash-mode dio --flash-size 16MB "${IMAGES[@]}"; then
+    echo "flash: done."
+    exit 0
+  fi
+  if [[ $(date +%s) -ge ${DEADLINE} ]]; then
+    echo "flash: giving up after ${ATTEMPT} attempt(s)." >&2
+    echo "flash: if the device is awake and still not found, check the port with 'pio device list'." >&2
+    exit 1
+  fi
+  echo "flash: device not ready -- power it on; retrying (attempt ${ATTEMPT}, $(( DEADLINE - $(date +%s) ))s left)..." >&2
+  sleep 3
+done
