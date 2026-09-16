@@ -1,18 +1,11 @@
 #include <gtest/gtest.h>
 
-#include "components/ListLayout.h"
 #include "components/themes/ListTouchBand.h"
 
 namespace {
 
 using ListTouchBand::Band;
 using ListTouchBand::Builder;
-
-// The band header states its row cap independently so it stays free of every include, so the
-// two have to be checked against each other somewhere. The direction matters: the band is a
-// CAPACITY and may be larger, but it must never be smaller than the window a wrapped list can
-// paint, or that list would draw rows the band cannot record and they would answer no tap.
-static_assert(ListLayout::kMaxRows <= ListTouchBand::kMaxRows, "ListLayout's window must fit in a ListTouchBand::Band");
 
 // What BaseTheme::drawList records on a plain X4 settings page: 30px rows filling a 480px
 // content band that starts 60px down, first item on the page is index 0.

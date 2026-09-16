@@ -15,7 +15,7 @@
 // it cannot express a wrapped list at all, where rows are not a uniform step.
 //
 // Recorded by the `drawList` implementations (BaseTheme, LyraTheme) and by the shared
-// `drawWrappedList`, so every caller of GUI.drawList gets a tappable list without being
+// drawList itself, so every caller of GUI.drawList gets a tappable list without being
 // touched. That is the whole point: there are 23 direct callers plus MenuListActivity's 8
 // subclasses, and none of them should have to know the arithmetic.
 //
@@ -48,7 +48,7 @@ namespace ListTouchBand {
 // space at its foot, which is a visible mistake rather than a silently dead row.
 //
 // Stated here rather than included so this header stays free of everything (it is hit-tested on
-// the host); ListTouchBandTest's static_assert keeps it at or above ListLayout's window.
+// the host).
 inline constexpr int kMaxRows = 64;
 
 struct Band {

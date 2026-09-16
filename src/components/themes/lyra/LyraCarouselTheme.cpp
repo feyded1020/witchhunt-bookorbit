@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "RecentBooksStore.h"
+#include "components/BookProgressPresentation.h"
 #include "components/UITheme.h"
 #include "components/icons/book.h"
 #include "components/icons/book24.h"
@@ -554,9 +555,9 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
 
     // Progress + pace-based ETA as a badge in the centre cover's top-right corner,
     // e.g. "62% · ~45m". The large centre cover has room to carry it overlaid.
-    const int centerProgress = UITheme::getBookProgressPercent(recentBooks[centerIdx]);
-    UITheme::drawCoverProgressBadge(renderer, Rect{centerX, centerTileY, kCenterCoverMaxW, kCenterCoverMaxH},
-                                    recentBooks[centerIdx], centerProgress);
+    const int centerProgress = BookProgressPresentation::readPercent(recentBooks[centerIdx]);
+    BookProgressPresentation::drawBadge(renderer, Rect{centerX, centerTileY, kCenterCoverMaxW, kCenterCoverMaxH},
+                                        recentBooks[centerIdx], centerProgress);
 
     // Dots — centred over the cover tile, count = actual book count
     const int dotsY = centerTileY + kCenterCoverMaxH + 8;
@@ -680,28 +681,11 @@ void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int but
   TapTargets::homeMenu().record(menuTargets);
 }
 
-// ---------------------------------------------------------------------------
-// List — solid black highlight, inverted text and icons on selected row
-// ---------------------------------------------------------------------------
-BaseTheme::WrappedListStyle LyraCarouselTheme::wrappedListStyle() const {
-  WrappedListStyle style = LyraTheme::wrappedListStyle();
-  style.cornerRadius = kCornerRadius;
-  style.scrollBarWidth = LyraCarouselMetrics::values.scrollBarWidth;
-  style.scrollBarRightOffset = LyraCarouselMetrics::values.scrollBarRightOffset;
-  style.selectionIsBlack = true;  // solid black bar, text and icon inverted
-  return style;
-}
-
 void LyraCarouselTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                                  const std::function<std::string(int index)>& rowTitle,
                                  const std::function<std::string(int index)>& rowSubtitle,
                                  const std::function<UIIcon(int index)>& rowIcon,
-                                 const std::function<std::string(int index)>& rowValue, bool highlightValue,
-                                 ListViewState* view) const {
-  if (view != nullptr && view->wraps() && rowSubtitle == nullptr && rowValue == nullptr) {
-    drawWrappedList(renderer, rect, itemCount, selectedIndex, rowTitle, rowIcon, *view);
-    return;
-  }
+                                 const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
   constexpr int hPad = 8;
   constexpr int listIconSz = 24;
   constexpr int mainMenuIconSz = 32;
@@ -712,7 +696,6 @@ void LyraCarouselTheme::drawList(const GfxRenderer& renderer, Rect rect, int ite
                                                  : LyraCarouselMetrics::values.listRowHeight;
   // Never paint more rows than the touch band can register — see BaseTheme::drawList.
   const int pageItems = std::min(rect.height / rowHeight, ListTouchBand::kMaxRows);
-  if (view != nullptr) view->visibleRows = std::min(pageItems, itemCount);
   if (pageItems <= 0 || itemCount <= 0 || rowTitle == nullptr) {
     ListTouchBand::invalidate();
     return;
@@ -820,40 +803,4 @@ void LyraCarouselTheme::drawList(const GfxRenderer& renderer, Rect rect, int ite
   }
 
   touchBand.commit();
-}
-
-// ---------------------------------------------------------------------------
-// Tab bar — solid black background + solid black active tab, inverted text
-// ---------------------------------------------------------------------------
-void LyraCarouselTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
-                                   bool selected) const {
-  constexpr int hPad = 8;
-  int currentX = rect.x + LyraCarouselMetrics::values.contentSidePadding;
-
-  // Published for touch as they are painted — see BaseTheme::drawTabBar.
-  TapTargets::Recorder::Builder touchTabs;
-  int tabIndex = 0;
-
-  for (const auto& tab : tabs) {
-    const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, tab.label, EpdFontFamily::REGULAR);
-    const int advance = textWidth + LyraCarouselMetrics::values.tabSpacing + 2 * hPad;
-    touchTabs.add(currentX, rect.y, advance, rect.height, tabIndex++);
-
-    if (tab.selected) {
-      if (selected) {
-        renderer.fillRoundedRect(currentX, rect.y + 1, textWidth + 2 * hPad, rect.height - 4, kCornerRadius,
-                                 Color::Black);
-      } else {
-        renderer.drawRoundedRect(currentX, rect.y, textWidth + 2 * hPad, rect.height - 3, 1, kCornerRadius, true);
-      }
-    }
-
-    renderer.drawText(UI_10_FONT_ID, currentX + hPad, rect.y + 6, tab.label, !(tab.selected && selected),
-                      EpdFontFamily::REGULAR);
-
-    currentX += advance;
-  }
-  TapTargets::tabBar().record(touchTabs);
-
-  renderer.drawLine(rect.x, rect.y + rect.height - 1, rect.x + rect.width - 1, rect.y + rect.height - 1, true);
 }
