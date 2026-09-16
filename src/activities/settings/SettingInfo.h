@@ -48,6 +48,12 @@ enum class SettingRequires : uint8_t {
   // A touch controller that reports more than one contact (GT911). Pinch and
   // rotation can never fire without it. Sub-capability of TouchPanel.
   MultiTouchPanel,
+  // The panel fades in direct sunlight unless powered down between refreshes,
+  // so the compensation is worth its cost here. Recorded per board
+  // (BoardProfile::panelFadesInSunlight) because it is a property of the glass
+  // and the enclosure: boards around the same controllers differ, so there is
+  // nothing to derive it from and nothing to probe.
+  SunlightFadingPanel,
 };
 
 enum class SettingAction {

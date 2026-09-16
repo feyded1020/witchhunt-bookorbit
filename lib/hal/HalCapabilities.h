@@ -78,6 +78,14 @@ inline bool hasSelectableGrayscaleLut() {
   return BoardConfig::ACTIVE.displayController != BoardConfig::DisplayController::SSD1677;
 }
 
+// The panel visibly fades in direct sunlight unless it is powered down between
+// refreshes, so the "sunlight fading fix" is worth offering here.
+//
+// Recorded per board rather than derived: it is a property of the glass and the
+// enclosure, not of the controller, and it is not something the firmware can
+// probe. Mirrors SettingRequires::SunlightFadingPanel.
+inline bool panelFadesInSunlight() { return BoardConfig::ACTIVE.panelFadesInSunlight; }
+
 // --- Input / chrome ----------------------------------------------------------
 
 // A touch panel is present. Thin alias over the SDK predicate so call sites read
