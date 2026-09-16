@@ -29,66 +29,6 @@ namespace {
 constexpr size_t MAX_PASSWORD_LENGTH = 64;
 }  // namespace
 
-// Convert legacy settings.
-void applyLegacyStatusBarSettings(CrossPointSettings& settings) {
-  switch (static_cast<CrossPointSettings::STATUS_BAR_MODE>(settings.statusBar)) {
-    case CrossPointSettings::NONE:
-      settings.statusBarChapterPageCount = 0;
-      settings.statusBarBookProgressPercentage = 0;
-      settings.statusBarProgressBar = CrossPointSettings::HIDE_PROGRESS;
-      settings.statusBarLowerProgressBar = CrossPointSettings::HIDE_PROGRESS;
-      settings.statusBarTitle = CrossPointSettings::HIDE_TITLE;
-      settings.statusBarBattery = 0;
-      break;
-    case CrossPointSettings::NO_PROGRESS:
-      settings.statusBarChapterPageCount = 0;
-      settings.statusBarBookProgressPercentage = 0;
-      settings.statusBarProgressBar = CrossPointSettings::HIDE_PROGRESS;
-      settings.statusBarLowerProgressBar = CrossPointSettings::HIDE_PROGRESS;
-      settings.statusBarTitle = CrossPointSettings::CHAPTER_TITLE;
-      settings.statusBarBattery = 1;
-      break;
-    case CrossPointSettings::BOOK_PROGRESS_BAR:
-      settings.statusBarChapterPageCount = 1;
-      settings.statusBarBookProgressPercentage = 0;
-      settings.statusBarProgressBar = CrossPointSettings::BOOK_PROGRESS;
-      settings.statusBarLowerProgressBar = CrossPointSettings::BOOK_PROGRESS;
-      settings.statusBarTitle = CrossPointSettings::CHAPTER_TITLE;
-      settings.statusBarBattery = 1;
-      break;
-    case CrossPointSettings::ONLY_BOOK_PROGRESS_BAR:
-      settings.statusBarChapterPageCount = 1;
-      settings.statusBarBookProgressPercentage = 0;
-      settings.statusBarProgressBar = CrossPointSettings::BOOK_PROGRESS;
-      settings.statusBarLowerProgressBar = CrossPointSettings::BOOK_PROGRESS;
-      settings.statusBarTitle = CrossPointSettings::HIDE_TITLE;
-      settings.statusBarBattery = 0;
-      break;
-    case CrossPointSettings::CHAPTER_PROGRESS_BAR:
-      settings.statusBarChapterPageCount = 0;
-      settings.statusBarBookProgressPercentage = 1;
-      settings.statusBarProgressBar = CrossPointSettings::CHAPTER_PROGRESS;
-      settings.statusBarLowerProgressBar = CrossPointSettings::CHAPTER_PROGRESS;
-      settings.statusBarTitle = CrossPointSettings::CHAPTER_TITLE;
-      settings.statusBarBattery = 1;
-      break;
-    case CrossPointSettings::FULL:
-    default:
-      settings.statusBarChapterPageCount = 1;
-      settings.statusBarBookProgressPercentage = 1;
-      settings.statusBarProgressBar = CrossPointSettings::HIDE_PROGRESS;
-      settings.statusBarLowerProgressBar = CrossPointSettings::HIDE_PROGRESS;
-      settings.statusBarTitle = CrossPointSettings::CHAPTER_TITLE;
-      settings.statusBarBattery = 1;
-      break;
-  }
-
-  settings.statusBarUpperProgressBar = CrossPointSettings::HIDE_PROGRESS;
-  settings.statusBarUpperProgressBarThickness = CrossPointSettings::PROGRESS_BAR_NORMAL;
-  settings.statusBarLowerProgressBarThickness = settings.statusBarProgressBarThickness;
-  settings.statusBarItemsPosition = CrossPointSettings::STATUS_BAR_ITEMS_BOTTOM;
-}
-
 // ---- CrossPointState ----
 
 bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
@@ -267,59 +207,6 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   }
 
   auto clamp = [](uint8_t val, uint8_t maxVal, uint8_t def) -> uint8_t { return val < maxVal ? val : def; };
-
-  // Legacy migration: if statusBarChapterPageCount is absent this is a pre-refactor settings file.
-  // Populate s with migrated values now so the generic loop below picks them up as defaults and clamps them.
-  if (doc["statusBarChapterPageCount"].isNull()) {
-    s.statusBar = clamp(doc["statusBar"] | s.statusBar, CrossPointSettings::STATUS_BAR_MODE_COUNT, s.statusBar);
-    applyLegacyStatusBarSettings(s);
-    if (needsResave) *needsResave = true;
-  }
-
-  auto migrateMissingStatusSetting = [&doc, &needsResave, &clamp](const char* newKey, uint8_t& value,
-                                                                  const char* legacyKey, uint8_t defaultValue,
-                                                                  uint8_t count) {
-    if (!doc[newKey].isNull()) {
-      return;
-    }
-    value = clamp(doc[legacyKey] | defaultValue, count, defaultValue);
-    if (needsResave) *needsResave = true;
-  };
-
-  migrateMissingStatusSetting("statusBarUpperProgressBar", s.statusBarUpperProgressBar, "statusBarUpperProgressBar",
-                              CrossPointSettings::HIDE_PROGRESS, CrossPointSettings::STATUS_BAR_PROGRESS_BAR_COUNT);
-  migrateMissingStatusSetting("statusBarUpperProgressBarThickness", s.statusBarUpperProgressBarThickness,
-                              "statusBarUpperProgressBarThickness", CrossPointSettings::PROGRESS_BAR_NORMAL,
-                              CrossPointSettings::STATUS_BAR_PROGRESS_BAR_THICKNESS_COUNT);
-  migrateMissingStatusSetting("statusBarLowerProgressBar", s.statusBarLowerProgressBar, "statusBarProgressBar",
-                              s.statusBarProgressBar, CrossPointSettings::STATUS_BAR_PROGRESS_BAR_COUNT);
-  migrateMissingStatusSetting("statusBarLowerProgressBarThickness", s.statusBarLowerProgressBarThickness,
-                              "statusBarProgressBarThickness", s.statusBarProgressBarThickness,
-                              CrossPointSettings::STATUS_BAR_PROGRESS_BAR_THICKNESS_COUNT);
-  migrateMissingStatusSetting("statusBarItemsPosition", s.statusBarItemsPosition, "statusBarItemsPosition",
-                              CrossPointSettings::STATUS_BAR_ITEMS_BOTTOM,
-                              CrossPointSettings::STATUS_BAR_ITEMS_POSITION_COUNT);
-
-  // Migrate legacy sleepTimeout enum → sleepTimeoutMinutes (minutes, 0=never).
-  if (doc["sleepTimeoutMinutes"].isNull()) {
-    static const uint8_t kSleepMinutes[] = {1, 5, 10, 15, 30};
-    const uint8_t legacyIdx = clamp(doc["sleepTimeout"] | (uint8_t)CrossPointSettings::SLEEP_10_MIN,
-                                    CrossPointSettings::SLEEP_TIMEOUT_COUNT, CrossPointSettings::SLEEP_10_MIN);
-    s.sleepTimeoutMinutes = kSleepMinutes[legacyIdx];
-    if (needsResave) *needsResave = true;
-  }
-  // No else: a file that already carries the key is read (and range-checked) by the generic loop,
-  // because the row declares where it is stored. Only the migration is special here.
-
-  // Migrate legacy refreshFrequency enum → refreshFrequencyPages (pages, 0=never).
-  if (doc["refreshFrequencyPages"].isNull()) {
-    static const uint8_t kRefreshPages[] = {1, 5, 10, 15, 30};
-    const uint8_t legacyIdx = clamp(doc["refreshFrequency"] | (uint8_t)CrossPointSettings::REFRESH_15,
-                                    CrossPointSettings::REFRESH_FREQUENCY_COUNT, CrossPointSettings::REFRESH_15);
-    s.refreshFrequencyPages = kRefreshPages[legacyIdx];
-    if (needsResave) *needsResave = true;
-  }
-  // As above: only the legacy migration needs saying here.
 
   const auto settings = getSettingsList();
   // Gesture keys written against an older generation of the shipped defaults are
