@@ -378,10 +378,6 @@ class CrossPointSettings {
     const uint8_t step = edgeMargin <= EDGE_MARGIN_LARGE ? edgeMargin : EDGE_MARGIN_NARROW;
     return step * EDGE_MARGIN_STEP_PX;
   }
-  // OPDS browser settings
-  char opdsServerUrl[128] = "";
-  char opdsUsername[64] = "";
-  char opdsPassword[64] = "";
   // OPDS download destination folder ("" = SD root). Global; edited from the
   // OPDS server list. Persisted via a category-less SettingInfo::String in
   // SettingsList.h, so it stays out of the on-device Settings screen.
@@ -419,8 +415,6 @@ class CrossPointSettings {
   // Show a placeholder for large images (>800×600 source pixels) instead of decoding immediately.
   // The user can press OK on the placeholder page to decode the image on demand.
   uint8_t largeImagePlaceholder = 1;
-  // Dithering mode for decoded images (EPUB/JPG/PNG)
-  uint8_t imageDithering = IMAGE_DITHER_BAYER;
   // Tilt-based page turning (X3 only — requires QMI8658 IMU)
   uint8_t tiltPageTurn = 0;
   // Action when the computed tilt value crosses the positive threshold.

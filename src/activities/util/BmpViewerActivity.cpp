@@ -92,9 +92,7 @@ BmpViewerActivity::BmpViewerActivity(GfxRenderer& renderer, MappedInputManager& 
       filePath(std::move(path))
 #ifdef ENABLE_IMAGE_DITHERING_EXTENSION
       ,
-      imageDitherMode(normalizeImageDitherModeValue(SETTINGS.imageDithering)),
-      initialImageDitherMode(imageDitherMode),
-      imageDitherSettingsDirty(false) {
+      imageDitherMode(normalizeImageDitherModeValue(CrossPointSettings::IMAGE_DITHER_BAYER)) {
 }
 #else
 {
@@ -119,9 +117,6 @@ void BmpViewerActivity::onEnter() {
 }
 
 void BmpViewerActivity::onExit() {
-#ifdef ENABLE_IMAGE_DITHERING_EXTENSION
-  saveDitherSettingsIfNeeded();
-#endif
   Activity::onExit();
   ReaderUtils::enforceExitFullRefresh(renderer);
 }
@@ -313,23 +308,10 @@ StrId BmpViewerActivity::getCurrentDitherModeLabel() const {
 
 void BmpViewerActivity::cycleDitherMode() {
   imageDitherMode = (imageDitherMode + 1) % CrossPointSettings::IMAGE_DITHERING_COUNT;
-  SETTINGS.imageDithering = imageDitherMode;
-  imageDitherSettingsDirty = (imageDitherMode != initialImageDitherMode);
 
   if (!renderCurrentImage()) {
     renderError(tr(STR_COULD_NOT_RENDER_IMAGE));
   }
-}
-
-void BmpViewerActivity::saveDitherSettingsIfNeeded() {
-  if (!imageDitherSettingsDirty) {
-    return;
-  }
-
-  SETTINGS.imageDithering = imageDitherMode;
-  SETTINGS.saveToFile();
-  initialImageDitherMode = imageDitherMode;
-  imageDitherSettingsDirty = false;
 }
 #endif
 

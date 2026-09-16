@@ -20,9 +20,11 @@ class BmpViewerActivity final : public Activity {
  private:
   std::string filePath;
 #ifdef ENABLE_IMAGE_DITHERING_EXTENSION
+  // Per-session, like grayscaleDisplay below. It used to be held in
+  // CrossPointSettings::imageDithering and "saved" — but that field had no
+  // registry row and no serializer line, so every save wrote nothing and every
+  // boot reset it. Keeping it here says what it has always actually done.
   uint8_t imageDitherMode;
-  uint8_t initialImageDitherMode;
-  bool imageDitherSettingsDirty;
 #endif
   // Per-session toggle: monochrome (1-bit Atkinson, single decode) vs grayscale (4-level dither, multipass).
   // Not persisted — defaults to grayscale every time the viewer opens.
@@ -37,7 +39,6 @@ class BmpViewerActivity final : public Activity {
 #ifdef ENABLE_IMAGE_DITHERING_EXTENSION
   void cycleDitherMode();
   StrId getCurrentDitherModeLabel() const;
-  void saveDitherSettingsIfNeeded();
 #endif
   void renderError(const char* message);
   void setAsSleepScreen();

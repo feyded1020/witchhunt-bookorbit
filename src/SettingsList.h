@@ -1,6 +1,7 @@
 #pragma once
 
 #include <BoardConfig.h>
+#include <HalCapabilities.h>
 #include <HalFrontlight.h>
 #include <HalGPIO.h>
 #include <I18n.h>
@@ -218,8 +219,12 @@ inline std::vector<SettingInfo> buildSettingsList() {
                                          StrId::STR_CAT_DISPLAY)
                          .withSubmenu(StrId::STR_MENU_DISP_REFRESH)
                          .withSubcategory(StrId::STR_MENU_DISP_REFRESH));
+  // Offered only where the panel actually fades. It is not free when enabled: it forces
+  // turnOffScreen on every refresh on every path, which costs panel power-sequencing time per
+  // page. A board whose glass does not fade would pay that for nothing.
   settings.push_back(SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
-                                         StrId::STR_CAT_DISPLAY));
+                                         StrId::STR_CAT_DISPLAY)
+                         .requiring(SettingRequires::SunlightFadingPanel));
 
   // --- Reading light (boards with a PWM frontlight/backlight) ---
   // Grouped in a submenu so the Display tab stays one screen on boards that
@@ -703,6 +708,8 @@ inline std::vector<SettingInfo> getSettingsList() {
         return Frontlight.present() && Frontlight.hasColorTemperature();
       case SettingRequires::MultiTouchPanel:
         return gpio.hasTouch() && gpio.supportsMultiTouch();
+      case SettingRequires::SunlightFadingPanel:
+        return HalCapabilities::panelFadesInSunlight();
     }
     return true;
   };

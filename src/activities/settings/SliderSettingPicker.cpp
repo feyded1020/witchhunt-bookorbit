@@ -10,6 +10,35 @@
 #include "SettingsList.h"
 
 namespace SliderSetting {
+namespace {
+
+// Was the light already lit when the current preview opened?
+//
+// Previewing a brightness or a warmth needs a lit panel -- there is nothing to look at
+// otherwise -- so the preview lights it. That is a change to the light's ON state, which the
+// slider does not own: the switch does. Both endings put it back, so opening the brightness
+// slider on a dark panel never leaves the light on behind the reader's back.
+//
+// One slot rather than a member: the activity stack is modal, so exactly one picker exists at
+// a time, and configFor() is called once per opening.
+bool previewLitBefore = false;
+
+// Light the panel if needed so there is something to judge, then drive the level.
+void previewFrontlight(const bool warmth, const int value) {
+  if (!Frontlight.isOn()) Frontlight.setOn(true);
+  if (warmth) {
+    Frontlight.setWarmth(static_cast<uint8_t>(value));
+  } else {
+    Frontlight.setBrightness(static_cast<uint8_t>(value));
+  }
+}
+
+// Undo whatever the preview lit, once the value itself has been settled either way.
+void endFrontlightPreview() {
+  if (!previewLitBefore) Frontlight.setOn(false);
+}
+
+}  // namespace
 
 bool configFor(const SettingAction action, SliderPickerActivity::Config& cfg) {
   switch (action) {
@@ -54,7 +83,9 @@ bool configFor(const SettingAction action, SliderPickerActivity::Config& cfg) {
              .maxValue = 100,
              .initialValue = SETTINGS.frontlightBrightness,
              .suffix = "%",
-             .zeroLabel = ""};
+             .zeroLabel = "",
+             .onPreview = [](const int v) { previewFrontlight(/*warmth=*/false, v); }};
+      previewLitBefore = Frontlight.isOn();
       return true;
     case SettingAction::FrontlightWarmthPicker:
       // 0 = fully cool, 100 = fully warm. Total brightness is held constant
@@ -65,7 +96,9 @@ bool configFor(const SettingAction action, SliderPickerActivity::Config& cfg) {
              .maxValue = 100,
              .initialValue = SETTINGS.frontlightWarmth,
              .suffix = "%",
-             .zeroLabel = ""};
+             .zeroLabel = "",
+             .onPreview = [](const int v) { previewFrontlight(/*warmth=*/true, v); }};
+      previewLitBefore = Frontlight.isOn();
       return true;
     default:
       return false;
@@ -100,9 +133,27 @@ void apply(const SettingAction action, const uint8_t value) {
   switch (action) {
     case SettingAction::FrontlightBrightnessPicker:
       Frontlight.setBrightness(value);
+      endFrontlightPreview();
       break;
     case SettingAction::FrontlightWarmthPicker:
       Frontlight.setWarmth(value);
+      endFrontlightPreview();
+      break;
+    default:
+      break;
+  }
+}
+
+void cancel(const SettingAction action) {
+  switch (action) {
+    case SettingAction::FrontlightBrightnessPicker:
+    case SettingAction::FrontlightWarmthPicker:
+      // SETTINGS still holds the old levels: apply() is the only writer, and the preview
+      // deliberately drove the hardware without touching them. So re-driving from SETTINGS IS
+      // the restore -- there is no separate "value before" to remember.
+      Frontlight.setBrightness(SETTINGS.frontlightBrightness);
+      Frontlight.setWarmth(SETTINGS.frontlightWarmth);
+      endFrontlightPreview();
       break;
     default:
       break;

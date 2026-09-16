@@ -181,6 +181,15 @@ EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
 // SilentRestart.h definitions. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
 RTC_NOINIT_ATTR uint32_t silentRebootTarget;
+// Whether the light was actually lit when a silent reboot was armed.
+//
+// A silent reboot is the firmware's own decision, so the device must come back looking
+// exactly as it left -- and "was the light on" is a question only the hardware can answer.
+// SETTINGS.frontlightOn cannot: JsonSettingsIO saves it as a stored PREFERENCE that
+// deliberately survives a trip to a board with no light, so after a wake that left the light
+// off (Restore Light on Wake disabled) it still reads 1 while the panel is dark. Reading it
+// on the silent path turned the light on unasked at the next maintenance reboot.
+RTC_NOINIT_ATTR uint32_t silentRebootLightOn;
 RTC_NOINIT_ATTR uint32_t heapRecoveryRestartLatch;
 // Single-shot latch for the boot-time heap integrity recovery restart.
 // Prevents an infinite reset loop if the heap is still corrupt after one clean restart.
@@ -234,13 +243,20 @@ enum class BootResume : uint8_t {
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
 
+// Arms the RTC flags setup() reads back after a silent reboot. Single entry point so a new
+// restart target cannot forget to capture the live light state along with the destination.
+static void armSilentReboot(const uint32_t target) {
+  silentRebootTarget = target;
+  silentRebootLightOn = Frontlight.isOn() ? 1u : 0u;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
+}
+
 void silentRestart() {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
   // ESP.restart() bypasses activity onExit(), so flush any in-flight reading
   // session manually — otherwise a heap-defrag reboot mid-read loses the session.
   globalReadingSessionTracker().end();
-  silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  armSilentReboot(SILENT_REBOOT_TARGET_HOME);
   LOG_DBG("MAIN", "Silent restart (target=home)");
   delay(50);
   ESP.restart();
@@ -249,8 +265,7 @@ void silentRestart() {
 void silentRestartToReader() {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
   globalReadingSessionTracker().end();
-  silentRebootTarget = SILENT_REBOOT_TARGET_READER;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  armSilentReboot(SILENT_REBOOT_TARGET_READER);
   LOG_DBG("MAIN", "Silent restart (target=reader)");
   delay(50);
   ESP.restart();
@@ -259,8 +274,7 @@ void silentRestartToReader() {
 void silentRestartToClockSettings() {
   if (deepSleepInProgress) return;
   globalReadingSessionTracker().end();
-  silentRebootTarget = SILENT_REBOOT_TARGET_CLOCK_SETTINGS;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  armSilentReboot(SILENT_REBOOT_TARGET_CLOCK_SETTINGS);
   LOG_DBG("MAIN", "Silent restart (target=clock-settings)");
   delay(50);
   ESP.restart();
@@ -269,8 +283,7 @@ void silentRestartToClockSettings() {
 void silentRestartToKOReaderSettings() {
   if (deepSleepInProgress) return;
   globalReadingSessionTracker().end();
-  silentRebootTarget = SILENT_REBOOT_TARGET_KOREADER_SETTINGS;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  armSilentReboot(SILENT_REBOOT_TARGET_KOREADER_SETTINGS);
   LOG_DBG("MAIN", "Silent restart (target=koreader-settings)");
   delay(50);
   ESP.restart();
@@ -284,8 +297,7 @@ bool trySilentRestartToReaderForHeapRecovery() {
   }
   heapRecoveryRestartLatch = HEAP_RECOVERY_RESTART_LATCH_MAGIC;
   globalReadingSessionTracker().end();
-  silentRebootTarget = SILENT_REBOOT_TARGET_READER;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  armSilentReboot(SILENT_REBOOT_TARGET_READER);
   LOG_ERR("MAIN", "Silent restart (target=reader, heap recovery)");
   delay(50);
   ESP.restart();
@@ -298,8 +310,7 @@ bool trySilentRestartToReaderForHeapRecovery() {
 // heap-defrag reboot.
 static void silentRestartToSleep(bool fromTimeout) {
   globalReadingSessionTracker().end();
-  silentRebootTarget = fromTimeout ? SILENT_REBOOT_TARGET_SLEEP_TIMEOUT : SILENT_REBOOT_TARGET_SLEEP;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  armSilentReboot(fromTimeout ? SILENT_REBOOT_TARGET_SLEEP_TIMEOUT : SILENT_REBOOT_TARGET_SLEEP);
   LOG_INF("MAIN", "Silent restart (target=sleep, framebuffers released, fromTimeout=%d)", fromTimeout ? 1 : 0);
   delay(50);
   ESP.restart();
@@ -308,8 +319,7 @@ static void silentRestartToSleep(bool fromTimeout) {
 void restartToHomeAfterStorageHandoff() {
   if (deepSleepInProgress) return;  // sleeping supersedes the storage-handoff reboot
   globalReadingSessionTracker().end();
-  silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  armSilentReboot(SILENT_REBOOT_TARGET_HOME);
   LOG_DBG("MAIN", "Restart after storage handoff (target=home)");
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
@@ -324,8 +334,7 @@ void armSerialTransferReboot() {
   // (the C3 hardware reset that fires when a host opens the USB serial port),
   // setup() routes straight back into the serial-transfer activity. Re-armed on
   // every entry into that activity (setup() read-and-clears the magic).
-  silentRebootTarget = SILENT_REBOOT_TARGET_SERIAL_TRANSFER;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  armSilentReboot(SILENT_REBOOT_TARGET_SERIAL_TRANSFER);
 }
 
 void disarmSerialTransferReboot() {
@@ -942,8 +951,11 @@ void setup() {
   const bool isSilentReboot = (silentRebootMagic == SILENT_REBOOT_MAGIC);
   const uint32_t silentRebootTargetSnapshot =
       (isSilentReboot && silentRebootTarget <= SILENT_REBOOT_TARGET_MAX) ? silentRebootTarget : 0;
+  // Read-and-clear alongside the magic: a stale 1 here must not outlive the reboot that set it.
+  const bool lightWasOnAtSilentReboot = isSilentReboot && silentRebootLightOn == 1;
   silentRebootMagic = 0;
   silentRebootTarget = 0;
+  silentRebootLightOn = 0;
   if (!isSilentReboot) {
     heapRecoveryRestartLatch = 0;
   }
@@ -1180,7 +1192,14 @@ void setup() {
   // reboots preserve the live state so a heap-recovery restart mid-chapter does
   // not go dark under the reader's hands. Inert on boards without a light.
   // Ported from upstream/develop (crosspoint-reader#2983).
-  const bool restoreLightOn = SETTINGS.frontlightOn != 0 && (SETTINGS.frontlightRestoreOnWake != 0 || isSilentReboot);
+  //
+  // The two branches read different sources on purpose. A wake is a fresh start, so it asks the
+  // stored PREFERENCE. A silent reboot is the firmware interrupting itself, so it asks what the
+  // light was actually DOING when it did -- captured into RTC memory by armSilentReboot().
+  // Reading the preference on this path was a bug: it is never cleared when a wake leaves the
+  // light off, so "light on, Restore off, sleep, wake, open a WiFi screen" came back lit.
+  const bool restoreLightOn =
+      isSilentReboot ? lightWasOnAtSilentReboot : (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0);
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
   // After begin(), because a board whose light is probed rather than declared
   // only knows whether it has one by then. Clears mappings this board cannot
