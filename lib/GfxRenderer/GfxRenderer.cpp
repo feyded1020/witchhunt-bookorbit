@@ -2494,6 +2494,16 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
     drawMask = 0x02;  // GRAYSCALE_LSB: image raw 1 = dark-gray
   }
 
+  // Absolute planes carry the whole image rather than a mask over the B/W base,
+  // so a value outside this plane's set has to be written CLEAR, not skipped.
+  // The row blitter writes one polarity per call, so the fast path cannot
+  // express that in a single pass; take the per-pixel path instead of paying
+  // four more template instantiations of it in a build already within ~177 KB
+  // of filling its flash partition. Nothing is lost by it: the absolute
+  // waveform this feeds runs for about a second, so the pixel loop is not what
+  // the pass waits on.
+  const bool absolutePlanes = renderModeSnapshot != BW && getAbsoluteGrayPlanes();
+
   for (int bmpY = 0; bmpY < (bitmap.getHeight() - cropPixY); bmpY++) {
     // The BMP's (0, 0) is the bottom-left corner (if the height is positive, top-left if negative).
     // Screen's (0, 0) is the top-left corner.
@@ -2523,7 +2533,7 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
       continue;
     }
 
-    if (!gray8 && !isScaled && drawMask != 0x00) {
+    if (!gray8 && !isScaled && !absolutePlanes && drawMask != 0x00) {
       // Fast path: write up to 8 pixels per call directly to the framebuffer.
       switch (drawMask) {
         case 0x07:
@@ -2571,7 +2581,15 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
 
       const uint8_t val = outputRow[bmpX / 4] >> (6 - ((bmpX * 2) % 8)) & 0x3;
 
-      if (renderModeSnapshot == BW && val < 3) {
+      if (absolutePlanes) {
+        // (LSB,MSB) is 00 black, 10 dark, 01 light, 11 white: the LSB plane
+        // holds white|dark-gray, the MSB plane white|light-gray. Every covered
+        // pixel is written, which also keeps the image's edge exact under
+        // scaling -- the caller cannot pre-fill a rectangle for it, because the
+        // fitted extent it computes rounds where the loop below floors.
+        const bool bit = (renderModeSnapshot == GRAYSCALE_LSB) ? (val == 1 || val == 3) : (val == 2 || val == 3);
+        drawPixel(screenX, screenY, !bit);  // state=false sets the bit
+      } else if (renderModeSnapshot == BW && val < 3) {
         drawPixel(screenX, screenY);
       } else if (renderModeSnapshot == GRAYSCALE_MSB && (val == 1 || val == 2)) {
         drawPixel(screenX, screenY, false);
@@ -3321,6 +3339,12 @@ void GfxRenderer::copyGrayscaleMsbBuffers(const uint8_t* plane) const { display.
 void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
 
 void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(fadingFix); }
+
+bool GfxRenderer::supportsAbsoluteGrayPlanes() const { return display.supportsAbsoluteGrayPlanes(); }
+
+bool GfxRenderer::beginAbsoluteGrayPass(const HalDisplay::RefreshMode fallback) const {
+  return display.beginAbsoluteGrayPass(fallback, fadingFix);
+}
 
 uint8_t GfxRenderer::getGrayLevels() const { return display.getGrayLevels(); }
 

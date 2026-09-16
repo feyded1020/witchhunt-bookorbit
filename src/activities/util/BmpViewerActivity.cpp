@@ -160,20 +160,57 @@ bool BmpViewerActivity::renderBmpImage(const bool showControls) {
   renderer.clearScreen();
   renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0, 0);
   drawHints();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+
+  // Absolute planes follow crosspoint-reader PR #3469 (Bryan O'Sullivan / @bos);
+  // the flow here is ours -- his viewer has no BW/grayscale toggle or dither
+  // modes to preserve, and our themes need no grayscale-aware changes.
+  //
+  // Where the panel offers absolute planes, take them: on the X3 they run the
+  // long XTH4 waveform in place of the short AA nudge, and it is the nudge that
+  // shows this panel's 8-gate-line drive nonuniformity as vertical banding
+  // across a dithered image. The pass pushes its own B/W base, so ask for it
+  // here rather than displaying first; a panel that declines leaves us on the
+  // ordinary push and the differential planes below.
+  const bool panelHasAbsolute = renderGrayscale && renderer.supportsAbsoluteGrayPlanes();
+  const bool absolutePass = panelHasAbsolute && renderer.beginAbsoluteGrayPass();
+  if (!absolutePass) {
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  }
+  // Which encoding a pass took is otherwise invisible from the outside: on the
+  // UC8253 X3 both take the same time, so the waveform duration does not tell
+  // them apart the way it does on the UC8279. Say it outright.
+  if (renderGrayscale) {
+    LOG_DBG("BMP", "Grayscale planes: %s",
+            absolutePass ? "absolute"
+                         : (panelHasAbsolute ? "differential (panel declined the absolute pass)"
+                                             : "differential (panel has no absolute encoding)"));
+  }
 
   if (renderGrayscale) {
     // Multi-pass 4-level grayscale render — mirrors SleepActivity::renderBitmapSleepScreen.
-    bitmap.rewindToData();
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-    renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0, 0);
+    // A differential plane starts empty and lets the B/W base supply black,
+    // white and the hints. An absolute plane carries the whole frame instead:
+    // a clear bit no longer means "leave as is", so it starts white and has to
+    // take the hints as well, or they would settle grey over a white page.
+    const auto renderPlane = [&](const GfxRenderer::RenderMode mode) {
+      bitmap.rewindToData();
+      renderer.clearScreen(absolutePass ? 0xFF : 0x00);
+      renderer.setRenderMode(mode);
+      renderer.setAbsoluteGrayPlanes(absolutePass);
+      renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0, 0);
+      if (absolutePass) {
+        // White is 11 and black 00 across the two planes, so ordinary BW
+        // drawing puts a 1-bit overlay into a plane correctly. Returning to BW
+        // also clears the absolute flag, hence re-arming it per plane above.
+        renderer.setRenderMode(GfxRenderer::BW);
+        drawHints();
+      }
+    };
+
+    renderPlane(GfxRenderer::GRAYSCALE_LSB);
     renderer.copyGrayscaleLsbBuffers();
 
-    bitmap.rewindToData();
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0, 0);
+    renderPlane(GfxRenderer::GRAYSCALE_MSB);
     renderer.copyGrayscaleMsbBuffers();
 
     renderer.displayGrayBuffer();
