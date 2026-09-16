@@ -176,17 +176,15 @@ bool BmpViewerActivity::renderBmpImage(const bool showControls) {
   if (!absolutePass) {
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   }
-  // Which encoding a pass took is otherwise invisible from the outside: on the
-  // UC8253 X3 both take the same time, so the waveform duration does not tell
-  // them apart the way it does on the UC8279. Say it outright.
   if (renderGrayscale) {
+    // Which encoding a pass took is otherwise invisible from the outside: on the
+    // UC8253 X3 both take the same time, so the waveform duration does not tell
+    // them apart the way it does on the UC8279. Say it outright.
     LOG_DBG("BMP", "Grayscale planes: %s",
             absolutePass ? "absolute"
                          : (panelHasAbsolute ? "differential (panel declined the absolute pass)"
                                              : "differential (panel has no absolute encoding)"));
-  }
 
-  if (renderGrayscale) {
     // Multi-pass 4-level grayscale render — mirrors SleepActivity::renderBitmapSleepScreen.
     // A differential plane starts empty and lets the B/W base supply black,
     // white and the hints. An absolute plane carries the whole frame instead:
