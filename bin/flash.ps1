@@ -67,11 +67,18 @@ Write-Host "flash: $Environment firmware.bin, built $ageMin min ago ($($appItem.
 $newer = Get-ChildItem -Path (Join-Path $repoRoot 'src'), (Join-Path $repoRoot 'lib') -Recurse -Include *.cpp, *.h -ErrorAction SilentlyContinue |
          Where-Object { $_.LastWriteTime -gt $appItem.LastWriteTime } | Select-Object -First 1
 if ($newer) {
-  Write-Warning "flash: sources under src/ or lib/ are newer than this binary."
-  Write-Warning "flash: you are about to flash a build that predates your edits."
+  Write-Warning 'flash: sources under src/ or lib/ are newer than this binary.'
+  Write-Warning 'flash: you are about to flash a build that predates your edits.'
 }
 
-$espArgs = @('--chip', 'esp32c3', '--baud', '921600', '--before', 'default-reset', '--after', 'hard-reset')
+# --chip auto plus keep/keep: write exactly the image that was built. Hardcoding
+# esp32c3 / dio would be wrong for the S3 boards and for the env at
+# platformio.ini:394, which builds qio -- and esptool REWRITES the bootloader
+# header from these flags when it writes offset 0x0, so a wrong value here
+# corrupts the image rather than merely being ignored. esptool still refuses an
+# image whose header does not match the chip it finds, so auto cannot mis-flash.
+# --flash-freq is omitted deliberately: esptool already defaults it to keep.
+$espArgs = @('--chip', 'auto', '--baud', '921600', '--before', 'default-reset', '--after', 'hard-reset')
 if ($Port) { $espArgs += @('--port', $Port) }
 
 # Same offsets a PlatformIO upload uses, verified against firmware.factory.bin:
@@ -89,7 +96,7 @@ if (-not $AppOnly) {
   }
 }
 
-$espArgs += @('write-flash', '--flash-mode', 'dio', '--flash-size', '16MB') + $images
+$espArgs += @('write-flash', '--flash-mode', 'keep', '--flash-size', 'keep') + $images
 
 if ($DryRun) {
   Write-Host "$esptool $($espArgs -join ' ')"

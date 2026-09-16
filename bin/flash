@@ -90,7 +90,14 @@ if [[ -n "$(find "${REPO_ROOT}/src" "${REPO_ROOT}/lib" -name '*.cpp' -o -name '*
   echo "flash:           You are about to flash a build that predates your edits." >&2
 fi
 
-ARGS=(--chip esp32c3 --baud 921600 --before default-reset --after hard-reset)
+# --chip auto plus keep/keep: write exactly the image that was built. Hardcoding
+# esp32c3 / dio would be wrong for the S3 boards and for the env at
+# platformio.ini:394, which builds qio -- and esptool REWRITES the bootloader
+# header from these flags when it writes offset 0x0, so a wrong value here
+# corrupts the image rather than merely being ignored. esptool still refuses an
+# image whose header does not match the chip it finds, so auto cannot mis-flash.
+# --flash-freq is omitted deliberately: esptool already defaults it to keep.
+ARGS=(--chip auto --baud 921600 --before default-reset --after hard-reset)
 [[ -n "${PORT}" ]] && ARGS+=(--port "${PORT}")
 
 # Same offsets a PlatformIO upload uses, verified against firmware.factory.bin:
@@ -109,7 +116,7 @@ if [[ "${APP_ONLY}" -eq 0 ]]; then
 fi
 
 if [[ "${DRY_RUN}" -eq 1 ]]; then
-  printf '%q ' "${ESPTOOL}" "${ARGS[@]}" write-flash --flash-mode dio --flash-size 16MB "${IMAGES[@]}"
+  printf '%q ' "${ESPTOOL}" "${ARGS[@]}" write-flash --flash-mode keep --flash-size keep "${IMAGES[@]}"
   printf '\n'
   exit 0
 fi
@@ -121,7 +128,7 @@ DEADLINE=$(( $(date +%s) + WAIT_SECONDS ))
 ATTEMPT=0
 while true; do
   ATTEMPT=$(( ATTEMPT + 1 ))
-  if "${ESPTOOL}" "${ARGS[@]}" write-flash --flash-mode dio --flash-size 16MB "${IMAGES[@]}"; then
+  if "${ESPTOOL}" "${ARGS[@]}" write-flash --flash-mode keep --flash-size keep "${IMAGES[@]}"; then
     echo "flash: done."
     exit 0
   fi
