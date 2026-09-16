@@ -2,6 +2,118 @@
 
 User-facing changes only. Full commit history is in git log.
 
+## 2.30 — 2026-09-16
+
+Everything since 2.26. Two new devices, touch control throughout, and a long run of fixes to the boot and sleep paths.
+
+### Two new devices
+
+- **The Xteink X4 Pro and the LilyGo T5 S3 Pro now run this firmware**, alongside the X3 and X4. Both are ESP32-S3 devices with a touchscreen; the T5 S3 adds a backlight, and the X4 Pro a two-channel light whose warmth can be set separately. On both, the capacitive Home key is Confirm on a tap and Back on a hold. Touch is an addition, never a replacement: every button still does what it did, and all of it can be switched off.
+- **Firmware is now published per device.** `firmware.bin` stays the combined X3/X4 binary under the name it has always had, so devices in the field keep updating as before; the new boards take `firmware-x4pro.bin` and `firmware-lilygo.bin`. The update check asks for its own device's file, and both the over-the-air path and the SD-card path now refuse an image built for a different device rather than installing it.
+- Getting there meant unpicking an assumption that ran through the whole firmware: it asked "is this an X3?" and treated everything else as an X4. Pin assignments, the SD and display buses, the battery gauge, the clock chip, the panel controller and the display's own capabilities are now read from a per-device profile, so a fourth device is a profile rather than an edit in eighty places.
+- Fix: the recovery firmware mode — hold Up and Power at boot — could not be reached on the X4 Pro or X4 Classic, because Up is the pin the chip samples at reset to decide whether to run the firmware at all. Holding it meant the firmware never started, which from outside is indistinguishable from a dead device: the documented escape from a bad SD card was the thing that looked broken. Those devices use Down instead.
+- Fix (T5 S3): leaving the reader menu, and leaving a book, showed the old screen and the new one superimposed for a refresh. Fix (T5 S3): two cleaning passes in a row left both pages visible at once.
+- Fix: on devices where the touch controller, the clock and the battery gauge share one wire, two of them could talk at once and corrupt each other — including a case where the display's power rails were raised while a frame was being clocked out.
+
+### Touch
+
+- **The whole interface answers to touch.** Rows, book covers, the home menu, the settings tabs, the on-screen keyboard, sliders, the dictionary's word picker, footnote markers and the button-hint strip along the bottom all respond to a finger. Lists use *point-then-confirm* — the first tap moves the highlight, a second tap on the same row opens it — so a mis-tap costs one more tap rather than an action to undo. If you would rather rows opened on the first tap, **Settings → Controls → Tap Action** switches it.
+- **Twenty-odd gestures, each one assignable** like a button, under **Settings → Controls → Gesture actions**. Out of the box: tap the outer thirds to turn pages, tap the middle for the reader menu, hold left or right to skip a chapter, hold the middle to look a word up, hold the bottom to star the page, pinch to resize text, and turn two fingers to rotate the screen. Swipe sideways in a page-turn zone to jump ten pages. Swipe down from the top edge for the reading light, up from the bottom edge for the reader menu, and up or down at the left and right edges for brightness and warmth. **Settings → Controls → Gesture overview** draws the zones and your own assignments on the device itself, so it is always right even if the manual is not.
+- **Hold the top-left corner to turn the reading light on and off, on every screen** — not just while reading. The corners answer only to a hold, never a tap, so no tap anywhere changed meaning; the other three are free for you to assign. Double-pressing Power does the same thing without touching the glass, which is the one that works in the dark.
+- Two master switches, deliberately separate: **Touch Page Turn** governs the reading page (Off / Tap Zones / Swipe / Tap Zones Inverted) and **Touch Navigation** governs everything outside it. Turning off page turns so a resting thumb cannot flip a page should not also stop you tapping a book in the library. Neither can strand you — the reader menu stays reachable with page turns off, and Back and Confirm come in as button presses below the level these settings act on.
+- The LilyGo T5 S3 has a Down key but no Up key, so paging a list *backward* has no button there: **tap the scroll bar** above the thumb, or swipe over the list. Both work on the X4 Pro too.
+- Fix: taps were lost when the reader was busy or coming out of sleep, the carousel's side covers ignored taps, list rows were sized for an 800-pixel screen, and taps on the side button hints did nothing. Fix: a gesture that was refused said nothing at all, and "Built-in" did not say what it would actually do.
+- On the X3 and X4 the touch code is compiled out entirely, so none of this costs those devices anything.
+
+### Boot, sleep and wake
+
+- **Fix: the device could hang on the way to sleep with the sleep screen showing and every button dead**, recoverable only with the reset pin (#155). The last thing the sleep path did was wait for the power button to be released, with no way out — a sticky switch, or a finger that never lifted, and it waited forever. It now gives up after five seconds and sleeps anyway.
+- **Fix: an X4 could sit on the sleep screen ignoring the power button** (#155), which reads exactly like a dead device. Some X4 units do not latch their own power: they stay alive only while the button is physically held, and the firmware did not close that latch until well into the boot — after reading settings, checking the wake gate, three memory integrity walks and the update state. Anything shorter than all of that and the device dropped dead mid-boot with the sleep image still on the glass. The latch is now the first thing the firmware does.
+- **Fix: one too-short press on the power button quietly powered the device off** instead of doing nothing. Refusing a press is a "nothing happened" answer, but on the X4 it was taking a path that cut the battery latch — downgrading the device from "asleep, wakes on a tap" to "off, needs a hold long enough to carry a whole boot", and losing the clock with it.
+- **Fix (X3): the SD card stayed powered through deep sleep**, draining the battery, because the rail was only released on the X4 branch of the sleep path.
+- **Fix: a deadlock while the reader was starting up**, plus a set of races and deadlocks between the drawing task and the main loop — including a shared file position used by two tasks at once, and the task watchdog being fed from a task that had never subscribed to it.
+- **New Boot Diagnostics page** under Settings → System. It reports how this boot started, where the last sleep stopped, and pairs each sleep with the boot that followed it. The point is that "it failed to sleep" and "it failed to wake" look identical from outside, and almost nobody has a serial cable attached. One screenful, no scrolling — it is meant to be photographed into a bug report.
+- Fix (X4 Pro): the main peripheral rail was dropped during deep sleep.
+
+### The screen
+
+- **Fix (X3): vertical banding on grayscale images.** The four-level image path staged its greys as a correction over a black-and-white base and resolved them with a short pulse — and that short pulse is what exposes the panel's own drive unevenness, showing as stripes every eight lines on anything dithered. Those images now carry the whole frame in one pass at the panel's full waveform. Measured upstream on the affected panel, the column variation drops from 3.5–4.7% of the black-to-white range to 0.9% and the eight-line pattern disappears. This covers the bitmap sleep screen and the book-cover sleep screen — a JPEG or PNG cover is decoded to a bitmap first, so it takes this path too — and grayscale images in the image viewer. Text rendering and the reader's own pages are untouched: the short pulse suits them.
+- **Sleep images on the T5 S3 are drawn at the panel's real depth.** Every device dithered sleep images to four grey levels because that is all the display pipeline could carry, which is a hard ceiling on the older panels but not on this one. On a panel with more levels the picture is now decoded once and shown whole, and the "Equalize" filter is applied more strongly to match, since there is finally somewhere to put the extra range. On a bimodal cover that gains about six points of brightness and a fifth more local contrast.
+- **New: Repair Screen** (Settings → System). Fast page refreshes deliberately skip the eraser, so ghosting builds up in a way the periodic clean-up does not fully clear. This drives every pixel hard between black and white several times and settles on white — about twenty seconds, nothing is deleted. It is a maintenance action, not a fix for ghosting while you read.
+- **New: Screen Edge Margin** (Settings → Display: Narrow / Medium / Large). On the T5 S3 the case comes close enough to the live pixels that text at the edge is hard to read. This adds 0, 5 or 10 pixels on top of what the device declares. Narrow is the default and is exactly the old behaviour, so nothing moves unless you ask.
+- **New: a "Lighter" step for text darkness**, in Settings and in a book's own overrides. Every existing step added weight and none took it off. It is modest — it moves the partly-inked edges of letters, not their cores.
+- **Fix: an idle reader flashed the whole screen every fifteen minutes or so.** The ghosting budget is counted in pages, but the once-a-minute clock tick was spending it like a page turn, so the budget drained whether or not anyone was reading and a full refresh eventually fired for no reason but a changing digit.
+- The "sunlight fading" toggle is now offered only on the devices whose glass actually fades, since enabling it costs panel time on every page.
+- The clock in the status bar can sit at either end.
+
+### Reading light
+
+- The T5 S3's backlight is driven, on/off and brightness. On a two-channel light, warmth gets the same quick controls brightness has.
+- **Brightness and warmth now preview live as you move the slider**, and Cancel puts back what you had. Choosing a light level used to mean picking a number, confirming, looking at the screen and going back in. If the light was off, previewing turns it on and then puts it back off — asking for a brightness is not asking for the light.
+- Fix: brightness and warmth were not actually saved. Fix: one of the quiet background restarts could bring the light back at the wrong level.
+
+### Reading
+
+- **Fix: coming back from a footnote landed at the start of the chapter** instead of the page the note was on — and so did keeping your place across a font-size change. Positions are anchored to a paragraph so that re-flowing cannot move them, but the paragraph counter only saw paragraphs sitting directly inside the document body, and a large share of real books (anything Calibre has produced, for one) nest them one level deeper. Every page in such a chapter recorded "paragraph 0", which was then read as a real position meaning the top.
+- **Fix: following a link could exit the book.** Back has only the saved position to return to, and a change intended to treat contents links as navigation rather than as a detour stopped saving one — so Back fell through and closed the book.
+- **The footnote list now separates notes from navigation links.** A page's internal links were all recorded as footnotes, so a chapter's contents link sat among the real notes. Notes come first, then links, each marked and in page order. They stay in the list rather than being hidden, because without touch the list is the only way to reach a link at all.
+- **Fix: hidden text was displayed.** Publishers use the HTML `hidden` attribute for answer keys, teacher's notes, alternate-language blocks and metadata that ships but must not show. The parser never looked at it.
+- Fix: `!important` was stripped from only twelve kinds of CSS declaration, so the rest lost out to rules that should not have beaten them. Fix: a footnote reference styled on the link itself, rather than wrapped in a `<sup>`, was drawn full-size on the baseline. Fix: Korean text written as combining jamo was not composed into syllables.
+- **Fix: looking a word up selected fragments rather than words** (#206). With bionic reading on, "reading" offered "read" and "ing" separately; a word hyphenated across a line break offered each half. Neither looked up. A word broken at its own hyphen resolves either way now.
+- **Fix: an image could be replaced by its alt text and stay that way** (#249). Reading an image's dimensions is refused when memory is short, which is meant to be a statement about one moment — but on the main path the refusal was written into the chapter's cache, where it survived page turns and re-entry. Changing the font was what brought the picture back, which is how this was found. The reader now frees what it can and tries again before giving up.
+- Fix: a chapter was rebuilt from scratch after a single failed allocation, and an SD-card font could lose an entire style — and so every letter on the page — for want of one block of memory slightly smaller than the one asked for. Fix: a partly-extracted cover is decoded rather than discarded.
+- Fix: the header could clip a long label on the right. Fix: text inside nested tables was dropped. Fix: a failed archive read was treated as an enormous one.
+
+### Library, menus and transfer
+
+- **Settings and the reader menu are now tabbed** — Navigation, Settings, Sync and Tools in a book; Display, Reader, Controls and System outside it — instead of one long list. The design is adapted from **CrossInk** by uxjulia.
+- **Fix: one press in the file browser ran two handlers.** Confirm entered a folder and then immediately opened the first thing in it; Back always left the browser however deep you were, because the short-press "up one folder" branch could never be reached.
+- Fix: picking a firmware file from a folder with 64 or more files in it listed the books next to them, and picking one handed an EPUB over as firmware.
+- Fix: a submenu could contain itself. Fix: a settings row did not repaint after being toggled. Fix: taps on weather search results did nothing.
+- **New: USB Drive on the X4 Pro and LilyGo T5 S3.** The card appears on a computer as an ordinary removable disk, so books go on and come off with the file manager. On those devices it replaces USB Transfer, which had nothing left to offer once a computer can mount the card directly.
+- **Security fix: the web file browser could be walked out of its protected folders.** The rules that keep dotfiles, `System Volume Information` and the cache folder off-limits look only at the last part of a path, which is only sound once `..` has been resolved — and six handlers never resolved it. Download, delete and upload were all affected, and an uploaded file name carrying its own separators landed wherever it liked.
+- Fix: Wi-Fi went into power-saving during OPDS browsing, book downloads and KOReader sync, which is where it hurts most. Fix: a screenshot over the cable arrived truncated.
+
+### Under the hood
+
+- Images and covers are noticeably quicker: a stored PNG is decoded where it lies instead of being unpacked first, both pixel caches are written from one pass, writes to the card are buffered, the cover's metadata parse is remembered, and the extracted-image cache is keyed so it survives a layout change.
+- A chapter's anchors are streamed to the card rather than held in memory — the single largest chapter-sized allocation in a build — and the footnote preview index now lives on disk, which lifted the cap that made books with more than about five hundred notes give up part-way through. Style lookups skip work that could never match.
+- SD-card font glyphs are read straight from the flash mapping instead of being copied into memory a page at a time, which is what was competing with the image decoder above.
+- Fix: the home screen retried a 48 KB allocation that could not succeed, once per redraw, for the rest of the session.
+
+### With thanks to
+
+Much of this release is ported from, or built on, other people's work. Where the code is theirs it is credited in the source file it lives in; where the idea is theirs and the code is ours, the source says that too.
+
+- **uxjulia** (Julia Nguyen) — USB mass storage, from the firmware activity down to the USB handoff (crosspoint-reader #3203, freeink-sdk #36/#53/#57), with Justin Mitchell and Uri Tauber; the footnote-reference styling fix (#3355); and **CrossInk**, whose icon-above-label tabbed reader menu this release's menus are modelled on, and whose guide-dots reading aid and table column sizing were earlier borrowings.
+- **Bryan O'Sullivan** (@bos) — the diagnosis, encoding and measurements behind the X3 grayscale banding fix (crosspoint-reader #3469; freeink-sdk #94/#95).
+- **Justin Mitchell** (@itsthisjustin) — per-device firmware assets and the wrong-device guard (#2880, #2983).
+- **Uri Tauber** (@uritauber) — freeing dictionary font caches on exit (#3317); firmware download links on pull requests (#3389).
+- **Sung-jin Brian Hong** (@serialx) — Hangul jamo composition (#3036); retrying the glyph arena smaller instead of dropping the style (#3126).
+- **Sylve** (@s0lness) — found and fixed the web file browser path traversal (#3353).
+- **Joe Harpham** (@jjharpham) — the HTML `hidden` attribute (#3390).
+- **Foulad** (@sfoulad) — the failed archive read (#3244); Wi-Fi power-save during downloads (#3252).
+- **Phạm Bình An** (@brianhuster) — `!important` on every declaration (#3221).
+- **Jadehawk** (@jadehawk) — keeping Wi-Fi awake through KOReader sync and authentication (#3233).
+- **adiskill** — reaching the reader menu with touch page turns off (#3319).
+- **FDKevin** (@fdkevin0) — the clipped header label (#3235).
+- **YUN-JIE** (@YuunJiee) — moving the settings category table into flash (#3364).
+- **Antoine Aflalo** (@Belphemur) — holding the X4 Pro's peripheral rail through deep sleep (#3215).
+- **Oliver Freyermuth** — memory plotting for the S3 devices.
+- **jetaudio** — panel, light and sleep bring-up for the T5 S3 (freeink-sdk #51).
+- The screen repair sequence is modelled on `repair()` in **azw413/lilygo-t5s3paperpro-rs**, an independent driver for the same panel family.
+- The `freeink-sdk` this firmware sits on is maintained upstream by the Free-Ink project. This release takes several resyncs with it — the largest carrying forty-eight upstream commits — alongside the panel, light, USB and grayscale work contributed back the other way.
+
+### Upgrade notes
+
+- **Download the file that matches your device.** X3 and X4 keep `firmware.bin`; the X4 Pro takes `firmware-x4pro.bin` and the LilyGo T5 S3 takes `firmware-lilygo.bin`. An image meant for another device is now refused rather than installed.
+- Chapters are re-indexed once per book the first time you open them, because hidden elements, `!important` and footnote-reference styling all change how a page is laid out. Your place in every book is kept.
+- On the X4 Pro and the LilyGo T5 S3, USB Transfer is replaced by USB Drive. The X3 and X4 are unchanged.
+- **Any gesture assignments you had customised are reset to the new defaults.** The vertical swipes changed meaning during this cycle — they are anchored to the left and right edge columns now rather than to halves of the screen — so a stored choice named a gesture that no longer exists. Button assignments are untouched.
+- The reading light's on/off state is restored on wake only if **Restore Light on Wake** is set; brightness and warmth are always remembered.
+- The new touch, gesture, reading-light and diagnostics labels are translated in German, French, Spanish, Italian, Dutch, Portuguese (PT and BR), Polish, Russian, Ukrainian, Belarusian, Slovenian and Swedish. Turkish and Vietnamese show the English text for those rows until a native speaker fills them in; the eight partly-translated languages are unchanged.
+- See **[Touch Controls](USER_GUIDE.md#5-touch-controls)** in the user guide for the full gesture reference, or **Settings → Controls → Gesture overview** on the device.
+
 ## 2.26 — 2026-08-28
 
 - **Buttons now follow the screen, not the panel.** The four front buttons and the two side buttons sit on different edges of the device, so rotating it swaps which axis each pair moves along — but navigation still assumed portrait. In landscape a list stepped with the buttons beside the screen and jumped pages with the ones below it, the two directions were often reversed, and the hint labels named buttons that did something else. Every list, cursor, keyboard and picker now works out which physical button points the way you mean for the orientation you are holding, and each hint is drawn beside the button that performs it. Page turns, yes/no prompts and your own short/double/long press assignments keep their fixed buttons, as before.

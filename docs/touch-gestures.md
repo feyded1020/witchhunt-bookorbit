@@ -134,8 +134,9 @@ button, and it works on every screen.
 The scroll-bar strip is wider than the thin bar you can see, so you do not have to hit
 it precisely. Tapping the thumb itself does nothing.
 
-> Both touch boards have a **Down** key but no **Up** key, so paging a list *backward*
-> has no physical button. The scroll bar and the swipe are how you do it.
+> The T5S3 has a **Down** key but no **Up** key, so paging a list *backward* has no
+> physical button there. The scroll bar and the swipe are how you do it — and they work
+> on the X4 Pro too, which does have both keys.
 
 ---
 
@@ -157,14 +158,18 @@ bottom edge returns Home.
 
 ## 4. Turning it off
 
-- **Settings → Controls → Touch Page Turn** chooses how touch turns pages: *Off*, *Tap*,
-  *Swipe*, or *Inverted tap*. It governs page turns only — the reader menu and the light
+- **Settings → Controls → Touch Page Turn** chooses how touch turns pages: *Off*,
+  *Tap Zones*, *Swipe*, or *Tap Zones (Inverted)*. It governs page turns only — the
+  reader menu and the light
   stay reachable, so switching page turns off while reading with a palm on the glass does
   not strand you.
-- **Settings → Controls → Tap Centre for Menu** switches the centre tap off on its own.
 - **Settings → Controls → Touch Navigation** silences touch outside the reader.
+- **Settings → Controls → Tap Action** chooses whether a tap on a list row selects it
+  (*Select, then activate*, the default) or opens it straight away.
 - Any single gesture can be set to **Ignore (do nothing)** in *Gesture actions* to switch
-  just that one off.
+  just that one off. That is how the centre tap for the reader menu is turned off: bind
+  **Tap centre** to *Ignore*. There is no separate switch for it — the swipe up from the
+  bottom edge and the Confirm button both still reach the menu.
 
 ---
 
