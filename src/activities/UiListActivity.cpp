@@ -150,6 +150,7 @@ void UiListActivity::render(RenderLock&&) {
     drawChrome();
     renderUi();
   }
+  afterUiRender();
   drawFooter();
   renderer.displayBuffer();
 }
