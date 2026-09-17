@@ -40,6 +40,14 @@ static const esp_partition_t* findPartition() {
   return part;
 }
 
+// Ceiling for font data: the partition minus the language slot at its tail.
+static size_t usableSizeOf(const esp_partition_t* part) {
+  if (!part || part->size <= LANG_RESERVED_BYTES) return 0;
+  return static_cast<size_t>(part->size) - LANG_RESERVED_BYTES;
+}
+
+size_t fontUsableSize() { return usableSizeOf(findPartition()); }
+
 // Read the raw index from flash into a caller-supplied buffer.
 // Returns true and fills `count` with the number of valid entries.
 static bool readIndex(const esp_partition_t* part, Entry* entries, uint8_t& count) {
@@ -50,6 +58,19 @@ static bool readIndex(const esp_partition_t* part, Entry* entries, uint8_t& coun
   if (count == 0 || count > MAX_ENTRIES) return false;
 
   if (esp_partition_read(part, 8, entries, count * ENTRY_SIZE) != ESP_OK) return false;
+
+  // Reject an index that reaches into the language slot. This only fires on a
+  // partition written before the reservation existed; the cache is rebuilt from
+  // the .cpfont files on the SD card, so nothing the user installed is lost.
+  const size_t ceiling = usableSizeOf(part);
+  for (uint8_t i = 0; i < count; i++) {
+    const size_t end = static_cast<size_t>(entries[i].dataOffset) + entries[i].dataSize;
+    if (end > ceiling) {
+      LOG_INF("FFP", "index predates the language reservation (entry %u ends at %u > %u) — re-caching", i,
+              static_cast<unsigned>(end), static_cast<unsigned>(ceiling));
+      return false;
+    }
+  }
   return true;
 }
 
@@ -81,9 +102,18 @@ bool beginWrite(const char* familyName) {
   const esp_partition_t* part = findPartition();
   if (!part) return false;
 
-  // Erase the full partition upfront so appendFile can write sequentially.
-  LOG_INF("FFP", "Erasing flash font partition (%u B)...", static_cast<unsigned>(part->size));
-  if (esp_partition_erase_range(part, 0, part->size) != ESP_OK) {
+  // Erase everything BELOW the language slot upfront so appendFile can write
+  // sequentially. Erasing part->size here would take the language pack with it
+  // on every font cache rebuild.
+  const size_t usable = usableSizeOf(part);
+  if (usable == 0) {
+    LOG_ERR("FFP", "beginWrite: partition too small for the language reservation");
+    s_ws.active = false;
+    return false;
+  }
+  LOG_INF("FFP", "Erasing flash font partition (%u B of %u)...", static_cast<unsigned>(usable),
+          static_cast<unsigned>(part->size));
+  if (esp_partition_erase_range(part, 0, usable) != ESP_OK) {
     LOG_ERR("FFP", "beginWrite: erase failed");
     s_ws.active = false;  // ensure no stale session survives a failed erase
     return false;
@@ -92,7 +122,9 @@ bool beginWrite(const char* familyName) {
   s_ws.active = true;
   s_ws.entryCount = 0;
   s_ws.nextDataOff = static_cast<uint32_t>(HEADER_BYTES);
-  s_ws.partitionSize = part->size;
+  // Lowering this is what makes appendFile's own overflow check respect the
+  // reservation, including on the single-file path that skips PARTITION_CAP.
+  s_ws.partitionSize = usable;
   memset(s_ws.entries, 0, sizeof(s_ws.entries));
 
   LOG_DBG("FFP", "beginWrite: partition ready, data starts at offset %u", static_cast<unsigned>(s_ws.nextDataOff));
