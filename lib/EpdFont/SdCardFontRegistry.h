@@ -10,6 +10,10 @@ struct SdCardFontFileInfo {
   uint8_t pointSize;  // parsed from filename: 14
   uint8_t style;      // always 0 in v4 (all 4 styles bundled in one file);
                       // kept for potential future formats
+  // Byte count, read from the directory entry during discovery. Free here and
+  // it saves an open() everywhere a caller only needs to tell whether the file
+  // changed -- the font preview cache keys on it.
+  uint32_t fileBytes = 0;
 };
 
 struct SdCardFontFamilyInfo {

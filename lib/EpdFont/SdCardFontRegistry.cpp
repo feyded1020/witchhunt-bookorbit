@@ -99,6 +99,7 @@ void SdCardFontRegistry::scanDirectory(const char* dirPath, SdCardFontFamilyInfo
     }
 
     entry.getName(nameBuffer, sizeof(nameBuffer));
+    const auto entryBytes = static_cast<uint32_t>(entry.fileSize());
     entry.close();
 
     // Skip macOS resource fork files (._*) and other hidden files
@@ -111,6 +112,7 @@ void SdCardFontRegistry::scanDirectory(const char* dirPath, SdCardFontFamilyInfo
     info.path = std::string(dirPath) + "/" + nameBuffer;
     info.pointSize = size;
     info.style = style;
+    info.fileBytes = entryBytes;
     family.files.push_back(std::move(info));
   }
   dir.close();
