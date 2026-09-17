@@ -2,55 +2,75 @@
 
 #include <I18n.h>
 
+#include "../../components/ConfirmDialog.h"
 #include "../../components/UITheme.h"
 #include "HalDisplay.h"
+#include "MappedInputManager.h"
+
+namespace fui = freeink::ui;
+
+namespace {
+constexpr fui::ActionId ACTION_CANCEL = 1;
+constexpr fui::ActionId ACTION_CONFIRM = 2;
+}  // namespace
 
 ConfirmationActivity::ConfirmationActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                            const std::string& heading, const std::string& body)
-    : Activity("Confirmation", renderer, mappedInput), heading(heading), body(body) {}
+    : Activity("Confirmation", renderer, mappedInput), UiAppHost(renderer), heading(heading), body(body) {}
 
 void ConfirmationActivity::onEnter() {
   Activity::onEnter();
   inputArmed = false;
 
-  lineHeight = renderer.getLineHeight(fontId);
-  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
-  const int maxWidth = contentRect.width - (margin * 2);
-
-  if (!heading.empty()) {
-    safeHeading = renderer.truncatedText(fontId, heading.c_str(), maxWidth, EpdFontFamily::BOLD);
-  }
-  if (!body.empty()) {
-    safeBody = renderer.truncatedText(fontId, body.c_str(), maxWidth, EpdFontFamily::REGULAR);
-  }
-
-  int totalHeight = 0;
-  if (!safeHeading.empty()) totalHeight += lineHeight;
-  if (!safeBody.empty()) totalHeight += lineHeight;
-  if (!safeHeading.empty() && !safeBody.empty()) totalHeight += spacing;
-
-  startY = contentRect.y + (contentRect.height - totalHeight) / 2;
-
+  resetUi();
+  app.on(ACTION_CANCEL, &ConfirmationActivity::onCancelEvent, this);
+  app.on(ACTION_CONFIRM, &ConfirmationActivity::onConfirmEvent, this);
+  app.setScreen(&ConfirmationActivity::dialogScreen, this);
   requestUpdate(true);
+}
+
+void ConfirmationActivity::onExit() {
+  closeRouting();
+  Activity::onExit();
+}
+
+void ConfirmationActivity::finishWith(const bool cancelled) {
+  ActivityResult res;
+  res.isCancelled = cancelled;
+  setResult(std::move(res));
+  finish();
+}
+
+void ConfirmationActivity::onCancelEvent(const fui::ActionEvent&, void* user) {
+  static_cast<ConfirmationActivity*>(user)->finishWith(true);
+}
+
+void ConfirmationActivity::onConfirmEvent(const fui::ActionEvent&, void* user) {
+  static_cast<ConfirmationActivity*>(user)->finishWith(false);
+}
+
+void ConfirmationActivity::dialogScreen(UiScreen& screen, void* user) {
+  static_cast<ConfirmationActivity*>(user)->buildDialogScreen(screen);
+}
+
+void ConfirmationActivity::buildDialogScreen(UiScreen& screen) {
+  ConfirmDialog::Spec spec;
+  spec.headline = heading.empty() ? nullptr : heading.c_str();
+  spec.message = body.empty() ? nullptr : body.c_str();
+  spec.cancelLabel = tr(STR_CANCEL);
+  spec.acceptLabel = tr(STR_CONFIRM);
+  spec.cancelAction = ACTION_CANCEL;
+  spec.acceptAction = ACTION_CONFIRM;
+  ConfirmDialog::draw(screen, spec);
 }
 
 void ConfirmationActivity::render(RenderLock&& lock) {
   renderer.clearScreen();
 
-  int currentY = startY;
-  LOG_DBG("CONF", "currentY: %d", currentY);
-  // Draw Heading
-  if (!safeHeading.empty()) {
-    renderer.drawCenteredText(fontId, currentY, safeHeading.c_str(), true, EpdFontFamily::BOLD);
-    currentY += lineHeight + spacing;
-  }
+  renderUi();
 
-  // Draw Body
-  if (!safeBody.empty()) {
-    renderer.drawCenteredText(fontId, currentY, safeBody.c_str(), true, EpdFontFamily::REGULAR);
-  }
-
-  // Draw UI Elements
+  // Still drawn, and not redundant: this is how the PHYSICAL buttons are labelled, and on a board
+  // with no digitiser it is the only affordance there is.
   const auto labels = mappedInput.mapLabels("", "", I18N.get(StrId::STR_CANCEL), I18N.get(StrId::STR_CONFIRM));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
@@ -71,23 +91,25 @@ void ConfirmationActivity::loop() {
     return;
   }
 
+  // Touch first: a tap that lands on a dialog button is answered by that button, and must not also
+  // reach the button-release tests below.
+  const auto touch = routeTouch(mappedInput);
+  if (touch.routed) {
+    if (app.invalidated()) requestUpdate();
+    if (touch) return;  // a handler ran; it has already called finish()
+  }
+
   // Cancel and Confirm are not travel across a screen, so they do not follow the logical
   // directions onto the side buttons: they stay on the front strip, which is the only strip this
   // prompt draws hints on. What does follow the orientation is which of the two is drawn first —
   // and these are the very buttons mapLabels() puts those two labels on.
   if (mappedInput.wasReleased(MappedInputManager::frontStripNext())) {
-    ActivityResult res;
-    res.isCancelled = false;
-    setResult(std::move(res));
-    finish();
+    finishWith(false);
     return;
   }
 
   if (mappedInput.wasReleased(MappedInputManager::frontStripPrevious())) {
-    ActivityResult res;
-    res.isCancelled = true;
-    setResult(std::move(res));
-    finish();
+    finishWith(true);
     return;
   }
 }
