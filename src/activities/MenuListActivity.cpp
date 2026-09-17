@@ -90,11 +90,19 @@ void MenuListActivity::materializeListWindow() {
     const auto& item = menuItems[index];
     windowLabels[offset] =
         item.isSeparator && item.nameId != StrId::STR_NONE_OPT ? I18N.get(item.nameId) : item.getTitle();
-    windowValues[offset] = getItemValueString(static_cast<int>(index));
+    // A TOGGLE row gets fui::list's switch rather than the words ON/OFF: ListItem::toggle
+    // replaces the value slot with the same widget ToggleRowProps draws, and the switch visuals
+    // are already inside list(), so this is a flag rather than new drawing code. The value string
+    // is skipped for those rows -- list() ignores it when toggle is set, so building it would be
+    // a std::string per row per render for nothing.
+    const bool isToggle = !item.isSeparator && item.type == SettingType::TOGGLE;
+    windowValues[offset] = isToggle ? std::string{} : getItemValueString(static_cast<int>(index));
     auto& row = windowItems[offset];
     row = {};
     row.label = windowLabels[offset].c_str();
     row.value = windowValues[offset].empty() ? nullptr : windowValues[offset].c_str();
+    row.toggle = isToggle;
+    row.toggleChecked = isToggle && item.getToggleState();
     row.actionValue = static_cast<int16_t>(index);
     row.enabled = !item.isSeparator;
     row.isHeader = item.isSeparator;
