@@ -1,5 +1,6 @@
 #include "I18n.h"
 
+#include <FlashLangPartition.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Serialization.h>
@@ -25,12 +26,49 @@ const char* I18n::get(StrId id) const {
     return "???";
   }
 
-  // Use generated helper function - no hardcoded switch needed!
-  const LangStrings lang = getLanguageStrings(_language);
-  // If bit 15 of the offset is set, apply the offset to the English lookup table
-  const uint16_t off = lang.offsets[index];
+  // If bit 15 of the offset is set, apply the offset to the English lookup
+  // table. That rule is identical whether _active came from rodata or from the
+  // mmap'd language pack — FlashLangPartition writes English offsets into the
+  // table it derives for exactly that reason.
+  const uint16_t off = _active.offsets[index];
   if (off & 0x8000) return STRINGS_EN_DATA + (off & 0x7FFF);
-  return lang.data + off;
+  return _active.data + off;
+}
+
+void I18n::refreshActiveStrings() {
+  // Drop to English FIRST: _active may point into the mapping that build()
+  // below is about to tear down, and a stale pointer here is a crash in every
+  // drawn row.
+  _active = englishStrings();
+
+  const auto index = static_cast<size_t>(_language);
+  if (index == 0 || index >= static_cast<size_t>(Language::_COUNT)) return;
+
+  const i18n_strings::LangPack& pack = i18n_strings::LANGPACKS[index];
+  if (!pack.data || pack.compressedLen == 0) return;
+
+  const auto langIndex = static_cast<uint8_t>(index);
+  const auto keyCount = static_cast<uint16_t>(StrId::_COUNT);
+
+  if (!FlashLangPartition::holds(langIndex, pack.stamp)) {
+    // Either a different language, or the same one from a different firmware
+    // build — the stamp covers both. Rebuilding costs an erase plus ~30 KB of
+    // inflate, once, and only on the boot that follows the change.
+    if (!FlashLangPartition::build(langIndex, pack.stamp, pack.data, pack.compressedLen, pack.uncompressedLen, keyCount,
+                                   OFFSETS_EN)) {
+      LOG_ERR("I18N", "language pack %u could not be built - staying on English", langIndex);
+      return;
+    }
+  }
+
+  FlashLangPartition::Mapped mapped;
+  if (!FlashLangPartition::map(langIndex, pack.stamp, keyCount, &mapped)) {
+    LOG_ERR("I18N", "language pack %u could not be mapped - staying on English", langIndex);
+    return;
+  }
+
+  _active = {mapped.data, mapped.offsets};
+  LOG_INF("I18N", "language pack %u active", langIndex);
 }
 
 void I18n::setLanguage(Language lang) {
@@ -38,6 +76,7 @@ void I18n::setLanguage(Language lang) {
     return;
   }
   _language = lang;
+  refreshActiveStrings();
   saveSettings();
 }
 
@@ -74,6 +113,14 @@ void I18n::saveSettings() {
 }
 
 void I18n::loadSettings() {
+  loadLanguageSetting();
+  // Separate step because loadLanguageSetting() has several early exits and the
+  // pack has to be resolved on every one of them, including the "no settings
+  // file" path that leaves the language at English.
+  refreshActiveStrings();
+}
+
+void I18n::loadLanguageSetting() {
   FsFile file;
   if (!Storage.openFileForRead("I18N", SETTINGS_FILE, file)) {
     LOG_INF("I18N", "No settings file, using default (English)");
