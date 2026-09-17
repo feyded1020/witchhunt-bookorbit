@@ -11,6 +11,22 @@
 // .cpfont files so font metadata can be mmap'd directly from flash — zero SRAM
 // cost for fullIntervals / kern / ligature tables during layout.
 //
+// The TAIL of the partition is NOT ours: the last LANG_RESERVED_BYTES belong to
+// FlashLangPartition, which keeps the decompressed UI language there. See
+// fontUsableSize(). Two consequences, both handled here rather than at the call
+// sites:
+//   * beginWrite() erases and budgets only up to the ceiling. It used to erase
+//     part->size, which would wipe the language slot every time a font family
+//     was cached. Lowering WriteSession::partitionSize is what makes
+//     appendFile()'s existing overflow check honour the reservation too — that
+//     covers SdCardFontManager's single-file fallback path, which does not
+//     apply its own PARTITION_CAP.
+//   * readIndex() rejects an index whose data runs past the ceiling. That is
+//     the migration case: a partition written by firmware from before the
+//     reservation existed may hold font data where the language now lives.
+//     Treating it as invalid re-derives the cache from the .cpfont files on the
+//     SD card, which are the originals — the flash copy is only ever a cache.
+//
 // Partition layout:
 //   [4 B]  magic  "CPFC"
 //   [1 B]  entry count N  (1..MAX_ENTRIES)
@@ -46,6 +62,23 @@ namespace FlashFontPartition {
 static constexpr uint8_t MAX_ENTRIES = 16;  // enough for 3 families × 5 sizes + margin
 static constexpr size_t ENTRY_SIZE = 48;
 static constexpr size_t HEADER_BYTES = 8 + MAX_ENTRIES * ENTRY_SIZE;  // 776 bytes
+
+// Bytes at the END of the partition reserved for FlashLangPartition.
+//
+// 64 KB because esp_partition_mmap() aligns to 64 KB and the language slot has
+// to start on such a boundary: the partition begins at 0xc90000 and is an exact
+// multiple of 64 KB, so size - 64 KB is aligned. The largest language needs
+// ~31 KB (header + offset table + blob), so half the slot is spare.
+//
+// This costs the font cache nothing in practice. SdCardFontManager already
+// declines to use the top of the partition — its PARTITION_CAP is 3300 KB
+// against a real 3,538,944 B — so 159,744 B were already going unused and this
+// reservation fits inside that with ~92 KB still spare.
+static constexpr size_t LANG_RESERVED_BYTES = 64 * 1024;
+
+// Bytes of the partition the font cache may use: everything below the language
+// slot. Returns 0 if the partition is missing or smaller than the reservation.
+size_t fontUsableSize();
 
 struct Entry {
   char familyName[32];
