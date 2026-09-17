@@ -263,6 +263,26 @@ bool HalDisplay::releaseSecondaryBuffer() {
     LOG_INF("FBUF", "releaseSecondary called but secondary already released (double-release; caller lost track)");
     return false;
   }
+  // Carry the DISPLAYED frame into the write buffer before the active one is freed.
+  //
+  // In dual-buffer mode the secondary buffer holds the frame on the panel and the write buffer
+  // holds the frame from TWO refreshes ago (displayBuffer() ends in swapBuffers()). Freeing the
+  // secondary without this leaves the write buffer holding that two-generations-stale frame while
+  // the display is now in single-buffer mode -- where every other code path, including
+  // reallocSecondaryBuffer()'s own re-seed ("correct when the caller reallocs before drawing the
+  // next page (frameBuffer then still holds the on-screen frame)"), assumes the write buffer IS
+  // the on-screen frame.
+  //
+  // A full render does not notice, because it clears first. A PARTIAL repaint does: it composites
+  // onto whatever the write buffer holds, and syncWriteBufferFromActive() cannot rescue it either
+  // -- that memcpy is gated on `frameBufferActive` being non-null, so once the secondary is gone
+  // it silently does nothing. Symptom on device: an overlay drawn over the previous screen
+  // instead of the current one, after any activity that releases the buffer (HomeActivity during
+  // cover loading, the reader around a section build).
+  //
+  // One framebuffer-sized memcpy on a path that is about to spend hundreds of ms parsing CSS or
+  // decoding a cover, so the cost does not register.
+  einkDisplay.syncWriteBufferFromActive();
   const bool ok = einkDisplay.releaseSecondaryBuffer();
   LOG_INF("FBUF", "releaseSecondary -> %d (hasSecondary=%d redSynced=%d contig=%lu)", ok ? 1 : 0,
           einkDisplay.hasSecondaryBuffer() ? 1 : 0, einkDisplay.isRedRamSynced() ? 1 : 0,

@@ -35,6 +35,7 @@
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "settings/SettingsSubmenuActivity.h"
+#include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 #include "weather/WeatherActivity.h"
 
@@ -648,21 +649,52 @@ void ActivityManager::dispatchLightPanelGesture() {
   // text entry -- a keyboard's own rows would be behind it and a swipe there is likelier to
   // be a mis-stroke than a request for the light.
   const std::string& name = currentActivity->getName();
-  if (name == "SettingsSubmenu" || name == "KeyboardEntry") return;
+  if (name == "FrontlightPanel" || name == "KeyboardEntry") return;
 
-  // The light submenu already exists, complete with the on/off toggle, both pickers and
-  // their board gating (requiring(ReadingLight) / requiring(WarmLight)). Borrowing it beats
-  // a second panel that would have to be kept in step with it -- and the toggle being its
-  // FIRST row is what makes "swipe, tap" reach on/off.
-  std::vector<SettingInfo> lightItems;
-  for (const auto& setting : getSettingsList()) {
-    if (setting.submenu == StrId::STR_MENU_DISP_LIGHT) lightItems.push_back(setting);
+  // A dedicated drawer rather than the Display > Reading light submenu, which this used to
+  // borrow. The submenu is a settings LIST, and every control on it is one row deep: the
+  // brightness row only opens its slider on a further screen. Worse, the rows handed over were
+  // raw getSettingsList() entries that still carried their `submenu` field, so
+  // MenuListActivity::onEnter() re-collapsed them into a nested submenu and the pull-down
+  // opened a screen titled "Reading light" whose single row was also "Reading light".
+  //
+  // Through the CURRENT activity's startActivityForResult(), not pushActivity() directly, and
+  // that routing is load-bearing rather than stylistic. The drawer paints over only its own band
+  // and leaves the rest of the frame standing, which requires the displayed frame to be
+  // recoverable -- and syncWriteBufferFromDisplayed() silently does nothing while the secondary
+  // framebuffer is lent out (FreeInkDisplay.cpp: `if (frameBuffer && frameBufferActive)`).
+  // Background-B holds that borrow across loop ticks for the length of a spine build, and
+  // EpubReaderActivity::startActivityForResult() is the hook that hands it back for exactly this
+  // case ("B's borrow must not outlive the reader being the top activity"). pushActivity() moves
+  // the parent onto the stack without calling anything on it, so it would bypass that and let
+  // the drawer composite onto a stale page.
+  //
+  // The empty handler is deliberate: the pop path already requests a repaint of the revealed
+  // activity, and the drawer has no result to report.
+  // Put the DISPLAYED frame in the write framebuffer before the drawer composites onto it. Two
+  // steps, because two different things can leave it wrong and neither covers the other:
+  //
+  //  1. syncWriteBufferFromDisplayed() -- displayBuffer() ends in a swap, so on an ordinary screen
+  //     the write buffer holds the frame from two refreshes ago while the secondary holds what is
+  //     on the panel.
+  //  2. prepareFramebufferForCapture() -- but in the READER the secondary is not the displayed
+  //     frame at all: Background-A parks the pre-rendered NEXT page there, so step 1 alone
+  //     cheerfully copies the wrong page back (device log: hasSecondary=1, wrong frame). This is
+  //     the reader's own hook for exactly that ("redraw the visible page here so the capture
+  //     matches the display"), and it re-renders the current page over the top. A no-op on every
+  //     activity that has no pre-render.
+  //
+  // Under a RenderLock and in this order: the screenshot path in main.cpp does the same thing for
+  // the same reason, and step 2 must be able to overwrite what step 1 produced.
+  {
+    RenderLock lock;
+    renderer.syncWriteBufferFromDisplayed();
+    currentActivity->prepareFramebufferForCapture();
   }
-  if (lightItems.empty()) return;
 
   mappedInput.suppressTouchContact();
-  pushActivity(
-      std::make_unique<SettingsSubmenuActivity>(renderer, mappedInput, StrId::STR_MENU_DISP_LIGHT, lightItems));
+  currentActivity->startActivityForResult(std::make_unique<FrontlightPanelActivity>(renderer, mappedInput),
+                                          [](const ActivityResult&) {});
   LOG_DBG("TCH", "Top-edge swipe -> reading light");
 }
 

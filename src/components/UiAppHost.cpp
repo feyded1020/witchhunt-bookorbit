@@ -16,14 +16,16 @@ void UiAppHost::renderUi() {
   uiReady = true;
 }
 
-UiAppHost::TouchRoute UiAppHost::routeTouch(const MappedInputManager& input) {
+UiAppHost::TouchRoute UiAppHost::routeTouch(const MappedInputManager& input, const bool routeHeld) {
   TouchRoute result;
   if (!uiReady) return result;
 
-  const auto snapshot = touchSnapshotFrom(input);
-  if (!snapshot.touchPressed && !snapshot.touchReleased) return result;
+  result.snap = touchSnapshotFrom(input);
+  if (!result.snap.touchPressed && !result.snap.touchReleased && !(routeHeld && result.snap.touchHeld)) {
+    return result;
+  }
 
   result.routed = true;
-  result.event = app.route(snapshot);
+  result.event = app.route(result.snap);
   return result;
 }
