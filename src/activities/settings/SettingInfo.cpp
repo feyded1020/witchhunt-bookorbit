@@ -13,19 +13,22 @@ std::string SettingInfo::getTitle() const {
   return std::string{I18N.get(nameId)};
 }
 
+bool SettingInfo::getToggleState() const {
+  if (type != SettingType::TOGGLE) return false;
+  if (valuePtr) return SETTINGS.*(valuePtr) != 0;
+  if (valueGetter) return callValueGetter();
+  return false;
+}
+
 std::string SettingInfo::getDisplayValue() const {
   if (isSeparator) return {};
 
   switch (type) {
     case SettingType::TOGGLE: {
-      bool value;
-      if (valuePtr)
-        value = SETTINGS.*(valuePtr);
-      else if (valueGetter)
-        value = callValueGetter();
-      else
-        return {};
-      return std::string(value ? tr(STR_STATE_ON) : tr(STR_STATE_OFF));
+      // A row with neither a field nor a getter has nothing to show -- distinct from one that
+      // reads false, which getToggleState() cannot express on its own.
+      if (!valuePtr && !valueGetter) return {};
+      return std::string(getToggleState() ? tr(STR_STATE_ON) : tr(STR_STATE_OFF));
     }
     case SettingType::ENUM: {
       uint8_t value;

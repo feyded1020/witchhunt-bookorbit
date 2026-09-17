@@ -201,9 +201,14 @@ inline std::vector<SettingInfo> buildSettingsList() {
   settings.push_back(SettingInfo::Enum(StrId::STR_SLEEP_IMAGE_PICK_MODE, &CrossPointSettings::sleepImagePickMode,
                                        {StrId::STR_RANDOM, StrId::STR_SEQUENTIAL}, "sleepImagePickMode",
                                        StrId::STR_CAT_DISPLAY));
-  settings.push_back(SettingInfo::Enum(StrId::STR_QUICK_RESUME_TIMEOUT, &CrossPointSettings::quickResumeSleepScreen,
-                                       {StrId::STR_STATE_OFF, StrId::STR_STATE_ON}, "quickResumeSleepScreen",
-                                       StrId::STR_CAT_DISPLAY));
+  // A TOGGLE, not a two-option ENUM over Off/On -- which is what this used to be. The field is
+  // QUICK_RESUME_SLEEP_SCREEN (NEVER=0 / AFTER_TIMEOUT=1) and every consumer compares it
+  // numerically, so nothing about the stored value changes: JsonSettingsIO clamps an ENUM to
+  // enumValues.size() and a TOGGLE to 2, which for this row is the same bound. What does change is
+  // that the row now draws as a switch like every other on/off setting, and the web API reports it
+  // as "toggle" so the browser renders a checkbox rather than a two-item dropdown.
+  settings.push_back(SettingInfo::Toggle(StrId::STR_QUICK_RESUME_TIMEOUT, &CrossPointSettings::quickResumeSleepScreen,
+                                         "quickResumeSleepScreen", StrId::STR_CAT_DISPLAY));
   settings.push_back(SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
                                        {StrId::STR_NEVER, StrId::STR_IN_READER, StrId::STR_ALWAYS},
                                        "hideBatteryPercentage", StrId::STR_CAT_DISPLAY)

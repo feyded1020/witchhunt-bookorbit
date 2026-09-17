@@ -8,9 +8,17 @@
 #include "SilentRestart.h"
 #include "activities/NetworkMemoryTrim.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "components/ConfirmDialog.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
+
+namespace fui = freeink::ui;
+
+namespace {
+constexpr fui::ActionId ACTION_CANCEL = 1;
+constexpr fui::ActionId ACTION_UPDATE = 2;
+}  // namespace
 
 void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
@@ -58,8 +66,42 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   }
 }
 
+void OtaUpdateActivity::onCancelEvent(const fui::ActionEvent&, void* user) {
+  static_cast<OtaUpdateActivity*>(user)->finish();
+}
+
+void OtaUpdateActivity::onUpdateEvent(const fui::ActionEvent&, void* user) {
+  static_cast<OtaUpdateActivity*>(user)->startUpdate();
+}
+
+void OtaUpdateActivity::confirmScreen(UiScreen& screen, void* user) {
+  static_cast<OtaUpdateActivity*>(user)->buildConfirmScreen(screen);
+}
+
+void OtaUpdateActivity::buildConfirmScreen(UiScreen& screen) {
+  // Two lines in one slot: FUI's layoutText() breaks on \n explicitly
+  // (FreeInkUICore.h), so the current and new versions each get their own line without
+  // needing a second text slot.
+  updateDialogBody = std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION + "\n" +
+                     std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion();
+
+  ConfirmDialog::Spec spec;
+  spec.headline = tr(STR_NEW_UPDATE);
+  spec.message = updateDialogBody.c_str();
+  spec.cancelLabel = tr(STR_CANCEL);
+  spec.acceptLabel = tr(STR_UPDATE);
+  spec.cancelAction = ACTION_CANCEL;
+  spec.acceptAction = ACTION_UPDATE;
+  ConfirmDialog::draw(screen, spec);
+}
+
 void OtaUpdateActivity::onEnter() {
   Activity::onEnter();
+
+  resetUi();
+  app.on(ACTION_CANCEL, &OtaUpdateActivity::onCancelEvent, this);
+  app.on(ACTION_UPDATE, &OtaUpdateActivity::onUpdateEvent, this);
+  app.setScreen(&OtaUpdateActivity::confirmScreen, this);
 
   // Free the heap the WiFi stack needs before it is brought up, not after -
   // association itself is the allocation-heavy step, well ahead of TLS. Matters
@@ -80,6 +122,7 @@ void OtaUpdateActivity::onEnter() {
 }
 
 void OtaUpdateActivity::onExit() {
+  closeRouting();
   Activity::onExit();
 
   if (WiFi.getMode() != WIFI_MODE_NULL) {
@@ -114,13 +157,9 @@ void OtaUpdateActivity::render(RenderLock&&) {
   if (state == CHECKING_FOR_UPDATE) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CHECKING_UPDATE));
   } else if (state == WAITING_CONFIRMATION) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEW_UPDATE), true, EpdFontFamily::BOLD);
-    renderer.drawText(UI_10_FONT_ID, contentRect.x + metrics.contentSidePadding, top + height + metrics.verticalSpacing,
-                      (std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION).c_str());
-    renderer.drawText(UI_10_FONT_ID, contentRect.x + metrics.contentSidePadding,
-                      top + height * 2 + metrics.verticalSpacing * 2,
-                      (std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion()).c_str());
-
+    renderUi();
+    // Still drawn alongside the dialog's own buttons: this labels the PHYSICAL keys, and on a
+    // board with no digitiser it is the only affordance there is.
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_UPDATE), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == UPDATE_IN_PROGRESS) {
@@ -205,6 +244,44 @@ void OtaUpdateActivity::render(RenderLock&&) {
   }
 }
 
+void OtaUpdateActivity::startUpdate() {
+  LOG_DBG("OTA", "New update available, starting download...");
+  // The install now streams in one blocking call; drive the progress bar and
+  // Back-to-cancel from inside the download via this callback. Throttle state
+  // is a member (the callback outlives this stack frame).
+  lastOtaDrawMs = 0;
+  updater.setInstallProgressCallback([this](size_t, size_t) -> bool {
+    mappedInput.update();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      return false;  // abort the install
+    }
+    const uint32_t now = millis();
+    if (now - lastOtaDrawMs >= 1000) {  // throttle e-ink redraws
+      lastOtaDrawMs = now;
+      requestUpdate(true);
+    }
+    return true;
+  });
+  const auto beginResult = updater.beginInstallUpdate();
+  if (beginResult != OtaUpdater::UPDATE_IN_PROGRESS) {
+    LOG_DBG("OTA", "Update begin failed: %d", beginResult);
+    {
+      RenderLock lock(*this);
+      failureReason = beginResult;
+      state = FAILED;
+    }
+    requestUpdate();
+    return;
+  }
+
+  {
+    RenderLock lock(*this);
+    state = UPDATE_IN_PROGRESS;
+  }
+  requestUpdate();
+  return;
+}
+
 void OtaUpdateActivity::loop() {
   // TODO @ngxson : refactor this logic later
   if (updater.getRender()) {
@@ -213,41 +290,15 @@ void OtaUpdateActivity::loop() {
   }
 
   if (state == WAITING_CONFIRMATION) {
-    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-      LOG_DBG("OTA", "New update available, starting download...");
-      // The install now streams in one blocking call; drive the progress bar and
-      // Back-to-cancel from inside the download via this callback. Throttle state
-      // is a member (the callback outlives this stack frame).
-      lastOtaDrawMs = 0;
-      updater.setInstallProgressCallback([this](size_t, size_t) -> bool {
-        mappedInput.update();
-        if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-          return false;  // abort the install
-        }
-        const uint32_t now = millis();
-        if (now - lastOtaDrawMs >= 1000) {  // throttle e-ink redraws
-          lastOtaDrawMs = now;
-          requestUpdate(true);
-        }
-        return true;
-      });
-      const auto beginResult = updater.beginInstallUpdate();
-      if (beginResult != OtaUpdater::UPDATE_IN_PROGRESS) {
-        LOG_DBG("OTA", "Update begin failed: %d", beginResult);
-        {
-          RenderLock lock(*this);
-          failureReason = beginResult;
-          state = FAILED;
-        }
-        requestUpdate();
-        return;
-      }
+    // Touch first: a tap answered by a dialog button must not also reach the key tests below.
+    const auto touch = routeTouch(mappedInput);
+    if (touch.routed) {
+      if (app.invalidated()) requestUpdate();
+      if (touch) return;  // a handler ran
+    }
 
-      {
-        RenderLock lock(*this);
-        state = UPDATE_IN_PROGRESS;
-      }
-      requestUpdate();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      startUpdate();
       return;
     }
 

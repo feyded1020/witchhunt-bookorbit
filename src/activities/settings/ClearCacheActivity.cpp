@@ -6,17 +6,76 @@
 #include <Logging.h>
 
 #include "MappedInputManager.h"
+#include "components/ConfirmDialog.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+
+namespace fui = freeink::ui;
+
+namespace {
+constexpr fui::ActionId ACTION_CANCEL = 1;
+constexpr fui::ActionId ACTION_CLEAR = 2;
+}  // namespace
 
 void ClearCacheActivity::onEnter() {
   Activity::onEnter();
 
   state = WARNING;
+  resetUi();
+  app.on(ACTION_CANCEL, &ClearCacheActivity::onCancelEvent, this);
+  app.on(ACTION_CLEAR, &ClearCacheActivity::onClearEvent, this);
+  app.setScreen(&ClearCacheActivity::warningScreen, this);
   requestUpdate();
 }
 
-void ClearCacheActivity::onExit() { Activity::onExit(); }
+void ClearCacheActivity::onExit() {
+  closeRouting();
+  Activity::onExit();
+}
+
+void ClearCacheActivity::onCancelEvent(const fui::ActionEvent&, void* user) {
+  auto* self = static_cast<ClearCacheActivity*>(user);
+  LOG_DBG("CLEAR_CACHE", "User cancelled");
+  self->goBack();
+}
+
+void ClearCacheActivity::onClearEvent(const fui::ActionEvent&, void* user) {
+  static_cast<ClearCacheActivity*>(user)->startClearing();
+}
+
+// The one place the confirmation turns into work, so the button and the touch target cannot drift.
+void ClearCacheActivity::startClearing() {
+  LOG_DBG("CLEAR_CACHE", "User confirmed, starting cache clear");
+  {
+    RenderLock lock(*this);
+    state = CLEARING;
+  }
+  requestUpdateAndWait();
+  clearCache();
+}
+
+void ClearCacheActivity::warningScreen(UiScreen& screen, void* user) {
+  static_cast<ClearCacheActivity*>(user)->buildWarningScreen(screen);
+}
+
+void ClearCacheActivity::buildWarningScreen(UiScreen& screen) {
+  // Warnings 3 and 4 are one sentence split across two keys; joined here as the body, exactly as
+  // the hand-drawn version did. Held in a member-lifetime string because OptionDialogProps stores
+  // a pointer and the draw happens inside ConfirmDialog::draw().
+  warningBody = std::string(tr(STR_CLEAR_CACHE_WARNING_3)) + " " + tr(STR_CLEAR_CACHE_WARNING_4);
+
+  ConfirmDialog::Spec spec;
+  spec.title = tr(STR_CLEAR_CACHE_WARNING_1);
+  spec.headline = tr(STR_CLEAR_CACHE_WARNING_2);
+  spec.message = warningBody.c_str();
+  spec.cancelLabel = tr(STR_CANCEL);
+  spec.acceptLabel = tr(STR_CLEAR_BUTTON);
+  spec.cancelAction = ACTION_CANCEL;
+  spec.acceptAction = ACTION_CLEAR;
+  // Warning 1 is a sentence, not a caption, so it may wrap.
+  spec.titleMaxLines = 3;
+  ConfirmDialog::draw(screen, spec);
+}
 
 void ClearCacheActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -28,24 +87,10 @@ void ClearCacheActivity::render(RenderLock&&) {
                  tr(STR_CLEAR_READING_CACHE));
 
   const int midY = contentRect.y + contentRect.height / 2;
-  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const int warnWidth = contentRect.width - 2 * metrics.contentSidePadding;
   if (state == WARNING) {
-    const auto warn1Lines = renderer.wrappedText(UI_10_FONT_ID, tr(STR_CLEAR_CACHE_WARNING_1), warnWidth, 3);
-    int y = midY - 60;
-    for (const auto& line : warn1Lines) {
-      renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
-      y += lineHeight;
-    }
-    renderer.drawCenteredText(UI_10_FONT_ID, midY - 30, tr(STR_CLEAR_CACHE_WARNING_2), true, EpdFontFamily::BOLD);
-    const std::string warn34 = std::string(tr(STR_CLEAR_CACHE_WARNING_3)) + " " + tr(STR_CLEAR_CACHE_WARNING_4);
-    const auto warn34Lines = renderer.wrappedText(UI_10_FONT_ID, warn34.c_str(), warnWidth, 3);
-    y = midY + 10;
-    for (const auto& line : warn34Lines) {
-      renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
-      y += lineHeight;
-    }
-
+    renderUi();
+    // Still drawn alongside the dialog's own buttons: this is how the PHYSICAL keys are labelled,
+    // and on a board with no digitiser it is the only affordance there is.
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_CLEAR_BUTTON), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
@@ -132,15 +177,16 @@ void ClearCacheActivity::clearCache() {
 
 void ClearCacheActivity::loop() {
   if (state == WARNING) {
-    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-      LOG_DBG("CLEAR_CACHE", "User confirmed, starting cache clear");
-      {
-        RenderLock lock(*this);
-        state = CLEARING;
-      }
-      requestUpdateAndWait();
+    // Touch first: a tap that lands on a dialog button is answered by that button, and must not
+    // also reach the key tests below.
+    const auto touch = routeTouch(mappedInput);
+    if (touch.routed) {
+      if (app.invalidated()) requestUpdate();
+      if (touch) return;  // a handler ran
+    }
 
-      clearCache();
+    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      startClearing();
     }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {

@@ -323,11 +323,19 @@ void SettingsActivity::materializeListWindow() {
     const auto& setting = (*currentSettings)[index];
     windowLabels[offset] =
         setting.isSeparator && setting.nameId != StrId::STR_NONE_OPT ? I18N.get(setting.nameId) : setting.getTitle();
-    windowValues[offset] = setting.getDisplayValue();
+    // A TOGGLE row gets fui::list's switch rather than the words ON/OFF: ListItem::toggle
+    // replaces the value slot with the same widget ToggleRowProps draws, and the switch visuals
+    // are already inside list(), so this is a flag rather than new drawing code. The value string
+    // is skipped for those rows -- list() ignores it when toggle is set, so building it would be
+    // a std::string per row per render for nothing.
+    const bool isToggle = !setting.isSeparator && setting.type == SettingType::TOGGLE;
+    windowValues[offset] = isToggle ? std::string{} : setting.getDisplayValue();
     auto& row = windowItems[offset];
     row = {};
     row.label = windowLabels[offset].c_str();
     row.value = windowValues[offset].empty() ? nullptr : windowValues[offset].c_str();
+    row.toggle = isToggle;
+    row.toggleChecked = isToggle && setting.getToggleState();
     row.actionValue = static_cast<int16_t>(index);
     row.enabled = !setting.isSeparator;
     row.isHeader = setting.isSeparator;

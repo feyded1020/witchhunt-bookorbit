@@ -375,6 +375,12 @@ struct SettingInfo {
   // Returns the current display value string (ON/OFF for toggles, enum label, numeric value, >>).
   [[nodiscard]] std::string getDisplayValue() const;
 
+  // The boolean behind a TOGGLE row, read from wherever this row keeps it (a CrossPointSettings
+  // field, or a dynamic getter for state the settings struct does not own -- the reading light
+  // asks the hardware). Split out so the on-screen SWITCH and the ON/OFF text cannot disagree
+  // about which is lit: getDisplayValue() reads it through here too. False for any other type.
+  [[nodiscard]] bool getToggleState() const;
+
   // Toggles/cycles the underlying value for TOGGLE, ENUM, and VALUE types.
   // Does nothing for ACTION and STRING types (callers handle those separately).
   // Marked const because it mutates the external SETTINGS global (via valuePtr),
