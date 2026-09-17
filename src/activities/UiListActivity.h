@@ -33,6 +33,11 @@ class UiListActivity : public Activity, protected UiAppHost {
   virtual bool handleButtons();
   virtual void onBackButton() { finish(); }
   virtual void onSelectionChanged(int /*index*/) {}
+  // Runs once the UI has been laid out and drawn, before the footer and the
+  // buffer swap. For anything that has to patch the framebuffer using a
+  // rectangle only the layout pass knows -- see FontSelectionActivity, which
+  // blits a cached preview strip here.
+  virtual void afterUiRender() {}
   virtual int indexForActionValue(int16_t value) const { return value; }
   virtual const char* headerTitle() const { return nullptr; }
   virtual void drawChrome();

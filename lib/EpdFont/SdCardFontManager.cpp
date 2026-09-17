@@ -112,7 +112,7 @@ static bool writeFamily(const SdCardFontFamilyInfo& family, uint8_t requestedPoi
 }
 
 bool SdCardFontManager::loadFamily(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t targetPtSize,
-                                   const std::function<void()>& onColdLoad) {
+                                   const std::function<void()>& onColdLoad, const FlashCachePolicy policy) {
   if (!renderer_) renderer_ = &renderer;
   if (!loadedFamilyName_.empty()) unloadAll(renderer);
 
@@ -138,7 +138,14 @@ bool SdCardFontManager::loadFamily(const SdCardFontFamilyInfo& family, GfxRender
     const bool alreadyCached = FlashFontPartition::hasEntry(family.name.c_str(), selected->pointSize);
 
     bool readyToMmap = alreadyCached;
-    if (!alreadyCached) {
+    if (!alreadyCached && policy == FlashCachePolicy::ReadOnly) {
+      // Transient load (font preview): beginWrite() erases the whole partition
+      // and writeFamily() copies every size back from SD, so caching a font the
+      // reader may never use would cost seconds and a flash erase cycle each
+      // time. Read the one file from SD instead and leave the partition alone.
+      LOG_DBG("SDMGR", "Flash cache miss for %s@%u; loading from SD (read-only policy)", family.name.c_str(),
+              selected->pointSize);
+    } else if (!alreadyCached) {
       // Genuine first load: writing the family into the flash partition takes
       // a noticeable moment — let the caller advertise it before we start.
       if (onColdLoad) onColdLoad();

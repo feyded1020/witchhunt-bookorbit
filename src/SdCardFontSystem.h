@@ -29,7 +29,21 @@ class SdCardFontSystem {
   /// onColdLoad (if set) fires only when the font has to be written to the flash
   /// partition (genuine first load) — callers use it to show a "loading font" popup.
   void ensureLoaded(GfxRenderer& renderer, const char* familyName, uint8_t fontSizeEnum,
-                    const std::function<void()>& onColdLoad = {});
+                    const std::function<void()>& onColdLoad = {},
+                    FlashCachePolicy policy = FlashCachePolicy::ReadWrite);
+
+  /// Load a family only to show it on screen. A family already present in the
+  /// flash partition is still mmap'd from there; anything else is read straight
+  /// from SD and the partition is left untouched. The font selection list uses
+  /// this so moving the cursor cannot erase and rewrite the partition per row.
+  void ensureLoadedForPreview(GfxRenderer& renderer, const char* familyName, uint8_t fontSizeEnum) {
+    ensureLoaded(renderer, familyName, fontSizeEnum, {}, FlashCachePolicy::ReadOnly);
+  }
+
+  /// Physical point size a fontSize enum asks for, before a family's own files
+  /// are consulted. Callers that need the size actually loaded must still run
+  /// it through SdCardFontFamilyInfo::pickClosestSize().
+  static uint8_t targetPointSize(uint8_t fontSizeEnum);
 
   /// Resolve an SD card font ID from family name + fontSize enum.
   /// Returns 0 if not found. Used by CrossPointSettings::getReaderFontId().

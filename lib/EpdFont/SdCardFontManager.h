@@ -9,6 +9,14 @@ class GfxRenderer;
 class SdCardFont;
 struct SdCardFontFamilyInfo;
 
+// Whether a load may populate the flash font partition on a cache miss.
+// Writing it erases the whole partition and copies the family back from SD, so
+// only a load that the reader will actually use should pay that price.
+enum class FlashCachePolicy : uint8_t {
+  ReadWrite,  // mmap on a hit, write-then-mmap on a miss
+  ReadOnly,   // mmap on a hit, plain SD read on a miss
+};
+
 class SdCardFontManager {
  public:
   SdCardFontManager() = default;
@@ -24,8 +32,10 @@ class SdCardFontManager {
   // onColdLoad (if set) is invoked once, just before the slow path that writes the
   // font into the flash partition (i.e. only on a genuine first load, not on a
   // flash-cache mmap hit) — callers use it to show a "loading font" popup.
+  // Under FlashCachePolicy::ReadOnly that slow path is skipped entirely and
+  // onColdLoad never fires.
   bool loadFamily(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t targetPtSize,
-                  const std::function<void()>& onColdLoad = {});
+                  const std::function<void()>& onColdLoad = {}, FlashCachePolicy policy = FlashCachePolicy::ReadWrite);
 
   // Unload everything, unregister from renderer.
   void unloadAll(GfxRenderer& renderer);
