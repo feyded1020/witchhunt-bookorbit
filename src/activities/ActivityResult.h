@@ -94,6 +94,17 @@ struct DictionarySwitchResult {
   int8_t direction = 1;  // +1 = next in the discovered list, -1 = previous
 };
 
+// Text selected in the word overlay's highlight mode (a single page's range of words).
+struct HighlightResult {
+  std::string text;
+};
+
+// Chosen entry in the highlights list: a chapter and a position within it (0..10000).
+struct HighlightJumpResult {
+  int spineIndex = 0;
+  uint16_t progressQ = 0;
+};
+
 struct StarredPageResult {
   int spineIndex = 0;
   int pageNumber = 0;
@@ -101,7 +112,8 @@ struct StarredPageResult {
 
 using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
                                    PageResult, SyncResult, NetworkModeResult, FootnoteResult, FilePathResult,
-                                   StarredPageResult, PrintedPageResult, DictionarySwitchResult>;
+                                   StarredPageResult, PrintedPageResult, DictionarySwitchResult, HighlightResult,
+                                   HighlightJumpResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

@@ -16,6 +16,7 @@
 #include <atomic>
 
 #include "BookmarkStore.h"
+#include "bookorbit/HighlightStore.h"
 #include "CrossPointState.h"
 #include "EpubReaderMenuActivity.h"
 #include "ReaderUtils.h"
@@ -571,6 +572,8 @@ class EpubReaderActivity final : public Activity {
 
   // Bookmarks (starred pages)
   BookmarkStore bookmarkStore;
+  // Highlights (text ranges) for this book; synced to BookOrbit as annotations.
+  HighlightStore highlightStore;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -786,6 +789,8 @@ class EpubReaderActivity final : public Activity {
   // Open word selection over the current page, or the dictionary picker when no
   // dictionary is configured. Both suspend background work for their duration.
   void openDictionary();
+  // Opens the word overlay in highlight mode; the chosen range is saved to highlightStore.
+  void openHighlightSelect();
 
   // Quiesce background work and hold it quiesced until resumeBackgroundWork(),
   // so a lookup does not compete with the look-ahead for a heap that is already

@@ -1,5 +1,6 @@
 #include "BookOrbitSyncExtras.h"
 
+#include <BookOrbitAnnotationStore.h>
 #include <BookOrbitAnnotations.h>
 #include <BookOrbitBookmarkStore.h>
 #include <BookOrbitBookmarks.h>
@@ -7,6 +8,7 @@
 #include <BookOrbitSyncClient.h>
 #include <ChapterXPathIndexer.h>
 #include <Epub.h>
+#include <HighlightPositionResolver.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <WallClock.h>
@@ -18,6 +20,7 @@
 #include "BookOrbitBookState.h"
 #include "BookmarkStore.h"
 #include "GlobalBookmarkIndex.h"
+#include "HighlightStore.h"
 
 
 namespace BookOrbitExtras {
@@ -385,6 +388,246 @@ void syncBookmarks(const std::string& stateDir, const std::string& documentHash,
   }
 }
 
+BookOrbitClippingRef refOf(const Highlight& h) { return {h.timestamp, h.spineIndex, h.paragraphHint}; }
+BookOrbitClippingRef refOf(const BookOrbitAnnotationRecord& r) { return {r.timestamp, r.spineIndex, r.paragraphIndex}; }
+
+bool annotationKeyOf(const BookOrbitAnnotationRecord& record, char (&outKey)[BookOrbitAnnotationKey::DIGEST_SIZE],
+                     char (&outDatetime)[20]) {
+  return bookOrbitFormatDatetime(record.identityEpoch, outDatetime) &&
+         bookOrbitAnnotationKey(outDatetime, record.pos0.c_str(), outKey);
+}
+
+// Two-way highlight exchange, adapted from CrossInk-Bookorbit's prepare/upload/applyIncoming
+// annotation steps (MIT) to Witch Hunt's HighlightStore. Identity is md5(datetime | pos0); the
+// xpointer pair is minted once, from the highlight's text, by HighlightPositionResolver.
+void syncHighlights(const std::string& stateDir, const std::string& documentHash, LazyEpub& lazyEpub,
+                    Summary& summary) {
+  HighlightStore store;
+  if (!store.load(stateDir)) {
+    LOG_ERR("BookOrbit", "Could not read highlights; they will not sync");
+    return;
+  }
+
+  std::vector<BookOrbitAnnotationRecord> records;
+  // Only a readable record file proves this book synced highlights before (see syncBookmarks).
+  const bool syncedHereBefore = BookOrbitAnnotationStore::readAll(stateDir, records);
+  const uint32_t watermark = BookOrbitAnnotationStore::readWatermark(stateDir);
+  uint32_t nextLateIdentity = watermark + 1;
+
+  // Mint positions for highlights that have none yet. Needs the book; a highlight whose text
+  // cannot be found again (edited book, odd markup) stays local and is retried next sync.
+  bool textChanged = false;
+  for (const Highlight& h : store.getAll()) {
+    const BookOrbitClippingRef ref = refOf(h);
+    const bool known = std::any_of(records.begin(), records.end(),
+                                   [&](const BookOrbitAnnotationRecord& r) { return refOf(r) == ref; });
+    if (known) continue;
+    const std::shared_ptr<Epub>& epub = lazyEpub.get();
+    if (!epub) break;
+    BookOrbitAnnotationRecord record;
+    std::string sourceText;
+    const uint16_t hint = h.paragraphHint == Highlight::NO_PARAGRAPH ? 1 : h.paragraphHint;
+    if (!HighlightPositionResolver::findHighlightXPointers(epub, h.spineIndex, hint, h.text, record.pos0, record.pos1,
+                                                           &sourceText)) {
+      LOG_ERR("BookOrbit", "Could not place highlight %lu in spine %u; retrying next sync",
+              static_cast<unsigned long>(h.timestamp), static_cast<unsigned>(h.spineIndex));
+      continue;
+    }
+    record.timestamp = h.timestamp;
+    record.identityEpoch = h.timestamp > watermark ? h.timestamp : nextLateIdentity++;
+    record.spineIndex = h.spineIndex;
+    record.paragraphIndex = h.paragraphHint;
+    if (!BookOrbitAnnotationStore::put(stateDir, record)) continue;
+    // What the server reads back at these positions; the device's word-joined text can differ
+    // in spacing and punctuation, which the server would report as a repaired annotation.
+    if (!sourceText.empty() && store.setText(h.timestamp, sourceText)) textChanged = true;
+    records.push_back(std::move(record));
+  }
+  if (textChanged) store.save();
+
+  std::vector<BookOrbitClippingRef> live;
+  live.reserve(store.getAll().size());
+  for (const Highlight& h : store.getAll()) live.push_back(refOf(h));
+  if (BookOrbitAnnotationStore::retain(stateDir, live)) {
+    records.erase(std::remove_if(records.begin(), records.end(),
+                                 [&](const BookOrbitAnnotationRecord& r) {
+                                   return std::find(live.begin(), live.end(), refOf(r)) == live.end();
+                                 }),
+                  records.end());
+  }
+
+  // Outgoing: records newer than the watermark, bounded by count and text bytes.
+  std::vector<BookOrbitAnnotation> outgoing;
+  uint32_t outgoingWatermark = 0;
+  size_t batchTextBytes = 0;
+  for (const BookOrbitAnnotationRecord& record : records) {
+    if (outgoing.size() >= BOOKORBIT_ANNOTATION_BATCH || batchTextBytes >= BOOKORBIT_ANNOTATION_BATCH_TEXT_BYTES) break;
+    if (record.identityEpoch <= watermark) continue;
+    const auto it = std::find_if(store.getAll().begin(), store.getAll().end(),
+                                 [&](const Highlight& h) { return refOf(h) == refOf(record); });
+    if (it == store.getAll().end()) continue;
+    BookOrbitAnnotation annotation;
+    if (!bookOrbitFormatDatetime(record.identityEpoch, annotation.datetime)) continue;
+    annotation.text = it->text;
+    annotation.pos0 = record.pos0;
+    annotation.pos1 = record.pos1;
+    annotation.chapter = it->chapter;
+    batchTextBytes += annotation.text.size();
+    outgoing.push_back(std::move(annotation));
+    outgoingWatermark = std::max(outgoingWatermark, record.identityEpoch);
+  }
+
+  // The complete key set: only with sync history, and only when every highlight has a position,
+  // or the server would read an unplaced highlight as deleted.
+  std::vector<BookOrbitAnnotationKey> keys;
+  bool keysComplete = false;
+  if (!syncedHereBefore) {
+    LOG_INF("BookOrbit", "No highlight sync history for this book; deletions will not propagate this sync");
+  } else if (records.size() <= MAX_KEYS_PER_SYNC && records.size() >= store.getAll().size()) {
+    keys.reserve(records.size());
+    keysComplete = true;
+    for (const BookOrbitAnnotationRecord& record : records) {
+      BookOrbitAnnotationKey key;
+      if (!annotationKeyOf(record, key.k, key.dt)) {
+        keysComplete = false;
+        break;
+      }
+      keys.push_back(key);
+    }
+    if (!keysComplete) keys.clear();
+  }
+
+  std::vector<BookOrbitIncomingAnnotation> incoming;
+  bool unmatched = false;
+  bool morePending = false;
+  const BookOrbitAnnotationKeys keySet{keys.empty() ? nullptr : keys.data(), keys.size(), keysComplete};
+  const auto result =
+      BookOrbitSyncClient::exchangeAnnotations(documentHash, BookOrbitSyncClient::DEVICE_MODEL, keySet,
+                                               outgoing.data(), outgoing.size(), unmatched, &incoming, &morePending);
+  LOG_INF("BookOrbit", "Highlight exchange result=%d (http=%d, unmatched=%d)", static_cast<int>(result),
+          BookOrbitSyncClient::lastHttpCode, unmatched ? 1 : 0);
+  if (unmatched) summary.documentUnmatched = true;
+  if (result != BookOrbitSyncClient::OK || unmatched) return;  // retried next sync
+
+  // A web highlight converted during this request only ships on the next one.
+  const BookOrbitAnnotationKeys noKeys{nullptr, 0, false};
+  for (int round = 0; round < 2 && incoming.size() < BOOKORBIT_ANNOTATION_BATCH && (round == 0 || morePending);
+       round++) {
+    morePending = false;
+    bool roundUnmatched = false;
+    if (BookOrbitSyncClient::exchangeAnnotations(documentHash, BookOrbitSyncClient::DEVICE_MODEL, noKeys, nullptr, 0,
+                                                 roundUnmatched, &incoming, &morePending) != BookOrbitSyncClient::OK ||
+        roundUnmatched) {
+      break;
+    }
+  }
+  if (outgoingWatermark > 0 && !BookOrbitAnnotationStore::advanceWatermark(stateDir, outgoingWatermark)) {
+    LOG_ERR("BookOrbit", "Highlights uploaded but the watermark did not advance; they will be re-sent");
+  }
+  summary.annotationsSent = static_cast<uint32_t>(outgoing.size());
+  if (incoming.empty()) return;
+
+  std::vector<BookOrbitAckEntry> appliedIds;
+  std::vector<BookOrbitAckEntry> deletedIds;
+  bool storeChanged = false;
+  uint32_t newestReceived = 0;
+  std::vector<uint32_t> receivedHere;
+  for (const BookOrbitIncomingAnnotation& change : incoming) {
+    if (change.deleted) {
+      for (const BookOrbitAnnotationRecord& record : records) {
+        char datetime[20] = {};
+        char key[BookOrbitAnnotationKey::DIGEST_SIZE] = {};
+        if (!annotationKeyOf(record, key, datetime) || change.key != key) continue;
+        if (store.removeByTimestamp(record.timestamp)) {
+          storeChanged = true;
+          summary.annotationsRemoved++;
+        }
+        break;
+      }
+      deletedIds.push_back({change.serverId, 0});  // already gone is the same outcome
+      continue;
+    }
+
+    int spineIndex = -1;
+    if (change.text.empty() || !ChapterXPathIndexer::tryExtractSpineIndexFromXPath(change.pos0, spineIndex) ||
+        spineIndex < 0) {
+      LOG_ERR("BookOrbit", "Cannot place server annotation %lu from %s", static_cast<unsigned long>(change.serverId),
+              change.pos0.c_str());
+      continue;  // unacknowledged: offered again
+    }
+    const uint16_t spine = static_cast<uint16_t>(spineIndex);
+
+    // Matched on chapter and text: the server normalizes xpointers, so a highlight of ours can
+    // come back with a different path. Text is the identity both sides agree on.
+    const bool present = std::any_of(store.getAll().begin(), store.getAll().end(), [&](const Highlight& h) {
+      return h.spineIndex == spine && h.text == change.text;
+    });
+    uint32_t identity = 0;
+    const bool haveIdentity = bookOrbitParseDatetime(change.datetime, identity);
+    if (present) {
+      appliedIds.push_back({change.serverId, change.version});
+      if (haveIdentity) newestReceived = std::max(newestReceived, identity);
+      continue;
+    }
+
+    uint16_t paragraph = Highlight::NO_PARAGRAPH;
+    ChapterXPathIndexer::tryExtractParagraphIndexFromXPath(change.pos0, paragraph);
+    uint16_t progressQ = Highlight::PROGRESS_UNKNOWN;
+    if (const std::shared_ptr<Epub>& epub = lazyEpub.get()) {
+      float intra = 0.0f;
+      bool exact = false;
+      if (spineIndex < epub->getSpineItemsCount() &&
+          ChapterXPathIndexer::findProgressForXPath(epub, spineIndex, change.pos0, intra, exact)) {
+        progressQ = static_cast<uint16_t>(std::min(1.0f, std::max(0.0f, intra)) * 10000.0f + 0.5f);
+      }
+    }
+    const uint32_t ts = store.add(spine, paragraph, progressQ, change.chapter, change.text);
+    if (ts == 0) {
+      LOG_ERR("BookOrbit", "Could not store server annotation %lu", static_cast<unsigned long>(change.serverId));
+      continue;  // unacknowledged: a full store should not silently swallow it
+    }
+    storeChanged = true;
+    appliedIds.push_back({change.serverId, change.version});
+    summary.annotationsAdded++;
+
+    // Recorded with the server's own datetime and pos0, so next sync reports the key it computed.
+    BookOrbitAnnotationRecord record;
+    record.timestamp = ts;
+    record.identityEpoch = haveIdentity ? identity : ts;
+    record.spineIndex = spine;
+    record.paragraphIndex = paragraph;
+    record.pos0 = change.pos0;
+    record.pos1 = change.pos0;
+    BookOrbitAnnotationStore::put(stateDir, record);
+    if (haveIdentity) newestReceived = std::max(newestReceived, identity);
+    receivedHere.push_back(ts);
+    records.push_back(std::move(record));
+  }
+
+  if (storeChanged && !store.save()) {
+    LOG_ERR("BookOrbit", "Failed to save received highlights; nothing acknowledged");
+    return;  // the server keeps them pending and the next sync retries
+  }
+
+  // Received highlights are on the server by definition: cover them with the watermark unless
+  // older local records still wait to upload.
+  if (newestReceived > 0) {
+    const uint32_t mark = BookOrbitAnnotationStore::readWatermark(stateDir);
+    const bool localStillPending =
+        std::any_of(records.begin(), records.end(), [&](const BookOrbitAnnotationRecord& r) {
+          return r.identityEpoch > mark &&
+                 std::find(receivedHere.begin(), receivedHere.end(), r.timestamp) == receivedHere.end();
+        });
+    if (!localStillPending) BookOrbitAnnotationStore::advanceWatermark(stateDir, newestReceived);
+  }
+
+  LOG_INF("BookOrbit", "Applied %u server annotation(s), %u deletion(s)", (unsigned)appliedIds.size(),
+          (unsigned)deletedIds.size());
+  if (!appliedIds.empty() || !deletedIds.empty()) {
+    BookOrbitSyncClient::ackAnnotations(documentHash, BookOrbitSyncClient::DEVICE_MODEL, appliedIds, deletedIds);
+  }
+}
+
 // Records the sweep. The server treats a device with no recent sweep as a plain KOReader
 // install and fabricates estimated sessions from progress pushes, duplicating the measured
 // ones; the sweep suppresses that. Recorded before any progress push for the same reason.
@@ -416,6 +659,8 @@ Summary run(const std::string& epubPath, const std::string& documentHash,
   summary.statsAccepted = uploadQueuedStats(stateDir, documentHash);
 
   LazyEpub epub(epubPath);
+  status(tr(STR_SYNCING_HIGHLIGHTS));
+  syncHighlights(stateDir, documentHash, epub, summary);
   status(tr(STR_SYNCING_BOOKMARKS));
   syncBookmarks(stateDir, documentHash, epub, summary);
 
