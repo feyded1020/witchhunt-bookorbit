@@ -17,6 +17,7 @@
 #include "SettingsList.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
+#include "browser/BookOrbitCatalogActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/themes/ButtonHintStrip.h"
 #include "components/themes/ListTouchBand.h"
@@ -477,6 +478,10 @@ void ActivityManager::goToGlobalBookmarks() { goToGlobalBookmarks({}); }
 void ActivityManager::goToGlobalBookmarks(ReturnHint hint) {
   hasReturnHint = false;
   replaceActivity(std::make_unique<GlobalBookmarksActivity>(renderer, mappedInput, std::move(hint)));
+}
+
+void ActivityManager::goToBookOrbitCatalog() {
+  replaceActivity(std::make_unique<BookOrbitCatalogActivity>(renderer, mappedInput));
 }
 
 void ActivityManager::goToBrowser() {

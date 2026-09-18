@@ -136,6 +136,7 @@ class ActivityManager {
   void goToGlobalBookmarks();
   void goToGlobalBookmarks(ReturnHint hint);
   void goToBrowser();
+  void goToBookOrbitCatalog();
   void goToBrowserWithSearch(std::string query);
   void goToReader(std::string path);
   void goToKOReaderSync();

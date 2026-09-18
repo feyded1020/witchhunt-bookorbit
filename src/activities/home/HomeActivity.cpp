@@ -1,5 +1,7 @@
 #include "HomeActivity.h"
 
+#include <BookOrbitCredentialStore.h>
+
 #include <Bitmap.h>
 #include <CooperativeAbort.h>
 #include <Epub.h>
@@ -117,7 +119,7 @@ int getHomeCoverRenderHeight(const HomeScreenLayout& layout) {
 // dispatches Confirm based on action) and render() (which draws labels/icons).
 void HomeActivity::rebuildMenuEntries() {
   menuEntries.clear();
-  menuEntries.reserve(7);
+  menuEntries.reserve(8);
 
   menuEntries.push_back({MenuAction::FileBrowser, StrId::STR_BROWSE_FILES, Folder});
   menuEntries.push_back({MenuAction::Recents, StrId::STR_MENU_RECENT_BOOKS, Recent});
@@ -126,6 +128,9 @@ void HomeActivity::rebuildMenuEntries() {
   }
   if (hasOpdsServers) {
     menuEntries.push_back({MenuAction::OpdsBrowser, StrId::STR_OPDS_BROWSER, Library});
+  }
+  if (BOOKORBIT_STORE.hasCredentials()) {
+    menuEntries.push_back({MenuAction::BookOrbitCatalog, StrId::STR_BOOKORBIT_CATALOG, Library});
   }
   menuEntries.push_back({MenuAction::FileTransfer, StrId::STR_FILE_TRANSFER, Transfer});
   if (SETTINGS.useWeather) {
@@ -1097,6 +1102,9 @@ void HomeActivity::dispatchMenuAction(MenuAction action) {
       break;
     case MenuAction::OpdsBrowser:
       activityManager.goToBrowser();
+      break;
+    case MenuAction::BookOrbitCatalog:
+      activityManager.goToBookOrbitCatalog();
       break;
     case MenuAction::FileTransfer:
       activityManager.goToFileTransfer();

@@ -27,6 +27,7 @@ class HomeActivity final : public Activity {
     Recents,
     GlobalBookmarks,
     OpdsBrowser,
+    BookOrbitCatalog,
     FileTransfer,
     Weather,
     Settings,

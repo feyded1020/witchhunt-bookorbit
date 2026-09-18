@@ -7,6 +7,7 @@
 #include "BookOrbitAuthActivity.h"
 #include "BookOrbitCredentialStore.h"
 #include "MappedInputManager.h"
+#include "activities/ActivityManager.h"
 #include "SliderSettingPicker.h"
 #include "activities/SliderPickerActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
@@ -52,9 +53,10 @@ void BookOrbitSettingsActivity::buildMenuItems() {
                                           "koSyncOnBookClose"));
   menuItems.push_back(SettingInfo::Action(StrId::STR_KO_MIN_SESSION_PAGES, SettingAction::KOSyncMinPagesPicker));
 
-  // Catalog download folder ("" = SD root); created on first download.
-  menuItems.push_back(SettingInfo::Action(StrId::STR_OPDS_DOWNLOAD_FOLDER, SettingAction::None)
+  // Catalog: browse, and the download folder ("" = SD root; created on first download).
+  menuItems.push_back(SettingInfo::Action(StrId::STR_BROWSE_CATALOG, SettingAction::None)
                           .withSubcategory(StrId::STR_BOOKORBIT_CATALOG));
+  menuItems.push_back(SettingInfo::Action(StrId::STR_OPDS_DOWNLOAD_FOLDER, SettingAction::None));
 
   menuItems.push_back(
       SettingInfo::Action(StrId::STR_AUTHENTICATE, SettingAction::None).withSubcategory(StrId::STR_MENU_KOSYNC_AUTH));
@@ -85,7 +87,7 @@ std::string BookOrbitSettingsActivity::getItemValueString(int index) const {
     if (v == 0) return std::string(tr(STR_ALWAYS));
     return std::to_string(v) + tr(STR_PAGES_SUFFIX);
   }
-  if (item.nameId == StrId::STR_AUTHENTICATE) {
+  if (item.nameId == StrId::STR_AUTHENTICATE || item.nameId == StrId::STR_BROWSE_CATALOG) {
     return BOOKORBIT_STORE.hasCredentials() ? "" : std::string("[") + tr(STR_SET_CREDENTIALS_FIRST) + "]";
   }
 
@@ -156,6 +158,9 @@ void BookOrbitSettingsActivity::onActionSelected(int index) {
             BOOKORBIT_STORE.saveToFile();
           }
         });
+  } else if (item.nameId == StrId::STR_BROWSE_CATALOG) {
+    if (!BOOKORBIT_STORE.hasCredentials()) return;
+    activityManager.goToBookOrbitCatalog();
   } else if (item.nameId == StrId::STR_AUTHENTICATE) {
     if (!BOOKORBIT_STORE.hasCredentials()) return;
     startActivityForResult(std::make_unique<BookOrbitAuthActivity>(renderer, mappedInput),
