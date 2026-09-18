@@ -51,6 +51,7 @@
 #include "FinishedBookActivity.h"
 #include "GlobalBookmarkIndex.h"
 #include "BookOrbitCredentialStore.h"
+#include "bookorbit/BookOrbitBookState.h"
 #include "KOReaderDocumentId.h"
 #include "MappedInputManager.h"
 #include "QrDisplayActivity.h"
@@ -647,6 +648,12 @@ void EpubReaderActivity::onEnter() {
   // accumulate going forward.
   globalReadingSessionTracker().begin(KOReaderDocumentId::calculateFromFilename(epub->getPath()), epub->getTitle(),
                                       epub->getAuthor());
+  // BookOrbit needs per-page reading events keyed by the content hash, which KOReaderDocumentId
+  // caches per book, so only the first open of a book pays the file read.
+  if (BOOKORBIT_STORE.hasCredentials()) {
+    const std::string stateDir = BookOrbitBookState::dirFor(epub->getPath());
+    if (!stateDir.empty()) globalReadingSessionTracker().enableBookOrbitEvents(stateDir);
+  }
   // Bookmarks + recent-books overrides + the stats session. These are the loads a wake
   // shortcut would most plausibly skip or cache in RTC, so they get their own bucket.
   WakeTrace::mark(WakeTrace::Phase::StoresLoaded);
@@ -4295,6 +4302,9 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
   // overwrites the stored per-book progress, so an unknown 0 at session end would regress it.
   if (pageCount > 0) {
     globalReadingSessionTracker().updateProgress(percent);
+    // End of this page as a book fraction: what a BookOrbit event reports once it is turned.
+    globalReadingSessionTracker().updatePreciseProgress(
+        epub->calculateProgress(spineIndex, static_cast<float>(currentPage + 1) / static_cast<float>(pageCount)));
   }
   LOG_DBG("ERS", "Progress saved: Chapter %d, Page %d (%d%%)", spineIndex, currentPage, percent);
 }

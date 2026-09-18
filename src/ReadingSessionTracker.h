@@ -1,6 +1,9 @@
 #pragma once
+#include <BookOrbitStatsQueue.h>
+
 #include <cstdint>
 #include <string>
+#include <vector>
 
 // Tracks a single reading session and flushes its accumulated time/pages into
 // the ReadingStatsStore when it ends.
@@ -40,6 +43,14 @@ class ReadingSessionTracker {
   // Update the snapshot of the book's progress (0-100). Cached and written
   // out when the session is flushed. Cheap; OK to call on every page turn.
   void updateProgress(uint8_t progress);
+
+  // BookOrbit per-page reading events. Enabled by the EPUB reader after begin() when a
+  // BookOrbit account is configured; `stateDir` is the book's BookOrbitBookState dir. While
+  // enabled, each page turn records the page just finished (its dwell time and the precise
+  // book position last passed to updatePreciseProgress), buffered in RAM and appended to the
+  // book's SD queue once, at end(). BookOrbitSyncExtras uploads the queue on the next sync.
+  void enableBookOrbitEvents(const std::string& stateDir);
+  void updatePreciseProgress(float fraction);
 
   // Record that the user has marked the current session's book as finished.
   // Persists immediately (a finish event is rare and the user expects it to
@@ -84,6 +95,12 @@ class ReadingSessionTracker {
 
   uint32_t pagesTurnedThisSession = 0;
   uint8_t lastKnownProgress = 0;
+
+  // BookOrbit event capture (see enableBookOrbitEvents).
+  void captureBookOrbitEvent(uint32_t dwellMs);
+  std::string bookOrbitStateDir;  // empty = disabled
+  float preciseProgress = -1.0f;  // < 0 until the reader reports a position
+  std::vector<BookOrbitStatEvent> pendingBookOrbitEvents;
 };
 
 // Global tracker singleton; readers route their lifecycle calls through here.

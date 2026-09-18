@@ -3,6 +3,9 @@
 #include <Arduino.h>  // millis()
 #include <HalClock.h>
 #include <Logging.h>
+#include <WallClock.h>
+
+#include <algorithm>
 
 #include "ReadingStats.h"
 
@@ -40,8 +43,59 @@ void ReadingSessionTracker::begin(const std::string& docId_, const std::string& 
 
 void ReadingSessionTracker::onPageTurn() {
   if (!active) return;
+  if (!bookOrbitStateDir.empty()) {
+    captureBookOrbitEvent(millis() - lastActivityMs);
+  }
   flushIdleSinceLastActivity();
   pagesTurnedThisSession += 1;
+}
+
+void ReadingSessionTracker::enableBookOrbitEvents(const std::string& stateDir) {
+  if (!active) return;
+  bookOrbitStateDir = stateDir;
+  preciseProgress = -1.0f;
+  pendingBookOrbitEvents.clear();
+}
+
+void ReadingSessionTracker::updatePreciseProgress(const float fraction) {
+  if (!active) return;
+  preciseProgress = std::min(1.0f, std::max(0.0f, fraction));
+}
+
+// Ported from CrossInk-Bookorbit's EpubReaderActivity::capturePageStatEvent (MIT).
+void ReadingSessionTracker::captureBookOrbitEvent(const uint32_t dwellMs) {
+  const uint32_t dwellSeconds = dwellMs / 1000;
+  // A page left open past the idle cap was not being read: drop it rather than clamp it,
+  // since BookOrbit derives reading pace from these dwell times. Sub-second turns are skims.
+  if (dwellSeconds == 0 || dwellMs > MAX_IDLE_MS || preciseProgress < 0.0f) {
+    return;
+  }
+  // Hard bound on session RAM (16 bytes per event); the SD queue applies the same cap.
+  if (pendingBookOrbitEvents.size() >= BookOrbitStatsQueue::MAX_QUEUED_EVENTS) {
+    return;
+  }
+
+  uint32_t nowEpoch = 0;
+  bool approximate = true;
+  BookOrbitStatsQueue::captureNow(nowEpoch, approximate);
+  if (nowEpoch == 0) {
+    return;  // no usable clock at all; nothing for the upload-time correction to anchor on
+  }
+
+  BookOrbitStatEvent event;
+  event.startTime = nowEpoch > dwellSeconds ? nowEpoch - dwellSeconds : nowEpoch;
+  event.durationSeconds = dwellSeconds;
+  // Position of the page just finished: updatePreciseProgress() is called when a page is
+  // saved, so at turn time it still describes the page being left.
+  event.page = static_cast<uint16_t>(preciseProgress * BookOrbitStatsQueue::PROGRESS_SCALE + 0.5f);
+  event.totalPages = BookOrbitStatsQueue::PROGRESS_SCALE;
+  event.era = static_cast<uint16_t>(WallClock::era());
+  event.flags = approximate ? BookOrbitStatEvent::FLAG_CLOCK_APPROXIMATE : 0;
+
+  if (pendingBookOrbitEvents.size() == pendingBookOrbitEvents.capacity()) {
+    pendingBookOrbitEvents.reserve(pendingBookOrbitEvents.size() + 64);
+  }
+  pendingBookOrbitEvents.push_back(event);
 }
 
 void ReadingSessionTracker::updateProgress(uint8_t progress) {
@@ -89,6 +143,20 @@ void ReadingSessionTracker::end() {
               docId.c_str(), title.c_str(), author.c_str(), seconds, pagesTurnedThisSession, (long long)walltime);
     }
   }
+
+  // Flush the session's BookOrbit events in one batch (never once per page turn).
+  if (!bookOrbitStateDir.empty()) {
+    if (!pendingBookOrbitEvents.empty()) {
+      BookOrbitStatsQueue::appendBatch(bookOrbitStateDir, pendingBookOrbitEvents);
+    }
+    // Reading sessions are the natural "last known good time" checkpoints for the
+    // boot-time clock restore.
+    WallClock::checkpoint();
+  }
+  bookOrbitStateDir.clear();
+  preciseProgress = -1.0f;
+  pendingBookOrbitEvents.clear();
+  pendingBookOrbitEvents.shrink_to_fit();
 
   active = false;
   docId.clear();
