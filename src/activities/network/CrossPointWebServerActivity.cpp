@@ -16,6 +16,7 @@
 #include "SdCardFontGlobals.h"
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
+#include "activities/NetworkMemoryTrim.h"
 #include "activities/network/CalibreConnectActivity.h"
 #include "activities/network/SignalStrengthWidget.h"
 #include "components/UITheme.h"
@@ -129,6 +130,9 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
   if (mode == NetworkMode::JOIN_NETWORK) {
     // STA mode - launch WiFi selection
     LOG_DBG("WEBACT", "Turning on WiFi (STA mode)...");
+    // BEFORE the radio: association itself is allocation-heavy, and on a lean heap it is the
+    // join that fails, not the server that follows it.
+    freeMemoryBeforeRadio();
     powerManager.ensureFullSpeedForRadio();  // WiFi needs >=80 MHz; see HalPowerManager
     WiFi.mode(WIFI_STA);
 
@@ -254,15 +258,32 @@ void CrossPointWebServerActivity::startAccessPoint() {
   startWebServer();
 }
 
-void CrossPointWebServerActivity::showServerScreenAndReleaseBuffers() {
-  // Free SD font heap for the web server session. A loaded SD font
-  // (Literata etc.) holds ~24-60KB of kern/ligature/glyph data that is
-  // completely unused during the web server session. The device restarts
-  // after the web server exits (silentRestart in onExit), so the font
-  // will be reloaded fresh on the next boot anyway.
+// Everything that frees memory but needs nothing from the network. Split out of
+// showServerScreenAndReleaseBuffers() because that one cannot run until the join succeeded —
+// it paints the assigned IP — and waiting until then meant the STA path brought the radio up
+// on an untrimmed heap and failed to associate at all on an X3.
+void CrossPointWebServerActivity::freeMemoryBeforeRadio() {
+  if (memoryFreedForRadio) return;
+  memoryFreedForRadio = true;
+
+  // A loaded SD font (Literata etc.) holds ~24-60KB of kern/ligature/glyph data that is
+  // completely unused during a web server session. The device restarts when the session ends
+  // (silentRestart in onExit), so it is reloaded fresh on the next boot anyway.
   LOG_DBG("WEBACT", "Free heap before SD font unload: %d bytes", ESP.getFreeHeap());
   sdFontSystem.unload(renderer);
   LOG_DBG("WEBACT", "Free heap after SD font unload: %d bytes", ESP.getFreeHeap());
+
+  // The secondary framebuffer and the glyph cache, on the same reasoning as every other
+  // network activity. WifiSelectionActivity does this too; both are idempotent, and this call
+  // covers the AP path, which never goes through that activity.
+  trimMemoryForNetworkSession(renderer, "WEBACT");
+}
+
+void CrossPointWebServerActivity::showServerScreenAndReleaseBuffers() {
+  // The AP path reaches this before WiFi.mode(WIFI_AP), so here it does the real work; the STA
+  // path already ran it before the join and this is a no-op. Either way the memory is gone
+  // before the radio, which is the invariant worth keeping.
+  freeMemoryBeforeRadio();
 
   // Set running state now so the paint below uses the correct UI branch.
   state = WebServerActivityState::SERVER_RUNNING;
@@ -286,9 +307,9 @@ void CrossPointWebServerActivity::showServerScreenAndReleaseBuffers() {
 void CrossPointWebServerActivity::startWebServer() {
   LOG_DBG("WEBACT", "Starting web server...");
 
-  // AP mode paints and releases the buffers before the WiFi stack starts
-  // (startAccessPoint). The STA path can only do it here, once the join
-  // succeeded and the assigned IP is known.
+  // Both paths have already freed the memory the radio needed (freeMemoryBeforeRadio). What is
+  // left is the final paint plus releasing BOTH buffers, and only that needs the assigned IP,
+  // which is why the STA path reaches it here rather than before the join.
   if (!buffersReleased) {
     showServerScreenAndReleaseBuffers();
   }

@@ -10,6 +10,7 @@
 #include "SdCardFontGlobals.h"
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
+#include "activities/NetworkMemoryTrim.h"
 #include "activities/network/SignalStrengthWidget.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -17,6 +18,18 @@
 namespace {
 constexpr const char* HOSTNAME = "crosspoint";
 }  // namespace
+
+// Unlike CrossPointWebServerActivity we keep rendering live progress UI, so the primary
+// framebuffer must stay. The ~52 KB secondary buffer, the glyph cache and the SD reader font
+// are unused here though. Safe to drop without restoring: onExit() always silentRestart()s.
+//
+// Idempotent, and called both before the radio comes up and again before the server starts.
+void CalibreConnectActivity::freeMemoryBeforeRadio() {
+  LOG_DBG("CAL", "Free heap before trim: %d bytes", ESP.getFreeHeap());
+  sdFontSystem.unload(renderer);
+  trimMemoryForNetworkSession(renderer, "CAL");
+  LOG_DBG("CAL", "Free heap after trim: %d bytes", ESP.getFreeHeap());
+}
 
 void CalibreConnectActivity::onEnter() {
   Activity::onEnter();
@@ -41,6 +54,9 @@ void CalibreConnectActivity::onEnter() {
   exitRequested = false;
 
   if (WiFi.status() != WL_CONNECTED) {
+    // BEFORE the radio, not after the join: bringing up the WiFi stack is itself
+    // allocation-heavy, and on a lean heap it is the association that fails.
+    freeMemoryBeforeRadio();
     startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                            [this](const ActivityResult& result) {
                              if (!result.isCancelled) {
@@ -88,20 +104,11 @@ void CalibreConnectActivity::startWebServer() {
     LOG_DBG("CAL", "mDNS started: http://%s.local/", HOSTNAME);
   }
 
-  // Unlike CrossPointWebServerActivity we keep rendering live progress UI, so
-  // the primary framebuffer must stay. The ~52 KB secondary buffer and the SD
-  // reader font are unused here though, and the web server needs the headroom
-  // (each request wants an 8 KB contiguous block). Safe to drop both without
-  // restoring: onExit() always silentRestart()s once WiFi is up.
-  LOG_DBG("CAL", "Free heap before trim: %d bytes", ESP.getFreeHeap());
-  sdFontSystem.unload(renderer);
-  if (renderer.hasSecondaryBuffer() && renderer.releaseSecondaryBuffer()) {
-    // Keep X4 fast differential refresh alive by diffing against the
-    // controller's retained baseline instead of the freed secondary buffer.
-    renderer.setSingleBufferFastDiff(true);
-    LOG_DBG("CAL", "Released secondary framebuffer for web server (~52 KB)");
-  }
-  LOG_DBG("CAL", "Free heap after trim: %d bytes", ESP.getFreeHeap());
+  // The trim itself already happened in freeMemoryBeforeRadio(), before the join. Repeated here
+  // because it is idempotent and the status screens drawn since then have repopulated the glyph
+  // cache, which the web server would rather have as free heap (each request wants an 8 KB
+  // contiguous block).
+  freeMemoryBeforeRadio();
 
   webServer.reset(new CrossPointWebServer());
   webServer->begin();
