@@ -40,7 +40,20 @@ add_library(crosspoint_test_common INTERFACE)
 target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}
   ${REPO_ROOT}/lib
+  # The stdio HalStorage in test/zip_entry_reader enciphers a protected book's cache the way
+  # the device does, so anything including it needs the cipher's headers.
+  ${REPO_ROOT}/lib/CacheCipher
 )
+# ... and its sources, as a STATIC library: an OBJECT library's objects do not propagate
+# through an INTERFACE target here, and the failure is a bare linker error with no undefined
+# symbol named. One library rather than a copy per target, so the derivation pinned by
+# test/cache_cipher is the same code every other suite links.
+add_library(cache_cipher_host STATIC
+  ${REPO_ROOT}/lib/CacheCipher/CacheCipher.cpp
+  ${REPO_ROOT}/lib/CacheCipher/CacheKeys.cpp
+)
+target_include_directories(cache_cipher_host PUBLIC ${REPO_ROOT}/lib/CacheCipher)
+target_link_libraries(crosspoint_test_common INTERFACE cache_cipher_host)
 target_compile_options(crosspoint_test_common INTERFACE
   -Wall
   -Wextra
@@ -109,6 +122,7 @@ add_custom_target(i18n_generated DEPENDS ${I18N_GENERATED_KEYS})
 add_subdirectory(${REPO_ROOT}/lib/SaxParser ${CMAKE_CURRENT_BINARY_DIR}/SaxParser)
 
 add_subdirectory(buffered_io)
+add_subdirectory(cache_cipher)
 add_subdirectory(natural_sort)
 add_subdirectory(path_containment)
 add_subdirectory(firmware_board_tag)
