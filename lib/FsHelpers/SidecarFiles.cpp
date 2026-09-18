@@ -47,7 +47,73 @@ std::string metadataPath(const std::string& bookPath) {
   return firstExisting(bookPath, kMetadataExtensions, sizeof(kMetadataExtensions) / sizeof(kMetadataExtensions[0]));
 }
 
-std::vector<const char*> existingExtensions(const std::string& bookPath) {
+// Extension-style sidecars only (cover, metadata). Internal now: callers move and delete
+// through existingPaths()/movePairs(), which cover both naming rules and cannot strand one.
+static std::vector<const char*> existingExtensions(const std::string& bookPath);
+
+std::vector<std::string> existingPaths(const std::string& bookPath) {
+  std::vector<std::string> found;
+  // Suffix sidecars hang off the full name, so they work even for a book whose name carries no
+  // extension of its own - basePath() would give up, they do not.
+  found.reserve(sizeof(kCoverExtensions) / sizeof(kCoverExtensions[0]) +
+                sizeof(kMetadataExtensions) / sizeof(kMetadataExtensions[0]) +
+                sizeof(kFullNameSuffixes) / sizeof(kFullNameSuffixes[0]));
+
+  // Same case-variant rule as below: FAT answers to either case, so report the first that
+  // matched and skip its variants, or a caller moving them would rename one file twice.
+  std::vector<const char*> matchedSuffixes;
+  for (const char* suffix : kFullNameSuffixes) {
+    bool seen = false;
+    for (const char* already : matchedSuffixes) {
+      if (sameExtensionIgnoringCase(already, suffix)) seen = true;
+    }
+    if (seen) continue;
+    const std::string candidate = bookPath + suffix;
+    if (Storage.exists(candidate.c_str())) {
+      matchedSuffixes.push_back(suffix);
+      found.push_back(candidate);
+    }
+  }
+
+  const std::string base = basePath(bookPath);
+  if (base.empty()) return found;
+  for (const char* ext : existingExtensions(bookPath)) {
+    found.push_back(base + ext);
+  }
+  return found;
+}
+
+std::vector<std::pair<std::string, std::string>> movePairs(const std::string& bookPath,
+                                                           const std::string& newBookPath) {
+  std::vector<std::pair<std::string, std::string>> pairs;
+  const std::vector<std::string> sources = existingPaths(bookPath);
+  pairs.reserve(sources.size());
+
+  const std::string srcBase = basePath(bookPath);
+  const std::string dstBase = basePath(newBookPath);
+  for (const std::string& src : sources) {
+    // A suffix sidecar keeps everything after the book's own name; an extension sidecar keeps
+    // everything after the base. Deciding by prefix rather than by re-deriving the name means a
+    // path can only be rewritten the way it was found.
+    if (src.size() > bookPath.size() && src.compare(0, bookPath.size(), bookPath) == 0) {
+      pairs.emplace_back(src, newBookPath + src.substr(bookPath.size()));
+    } else if (!srcBase.empty() && !dstBase.empty() && src.size() > srcBase.size() &&
+               src.compare(0, srcBase.size(), srcBase) == 0) {
+      pairs.emplace_back(src, dstBase + src.substr(srcBase.size()));
+    }
+  }
+  return pairs;
+}
+
+size_t removeAll(const std::string& bookPath) {
+  size_t removed = 0;
+  for (const std::string& path : existingPaths(bookPath)) {
+    if (Storage.remove(path.c_str())) removed++;
+  }
+  return removed;
+}
+
+static std::vector<const char*> existingExtensions(const std::string& bookPath) {
   std::vector<const char*> found;
   const std::string base = basePath(bookPath);
   if (base.empty()) return found;

@@ -21,6 +21,8 @@ class FileBrowserActivity final : public UiListActivity {
 
  private:
   void clearFileMetadata(const std::string& fullPath);
+  // Same, plus the book's sidecars — for paths that delete the book itself.
+  void clearBookFileAndSidecars(const std::string& fullPath);
   bool removeDirRecursive(const std::string& fullPath);
   void openContextMenu();
   void handleContextMenuAction(int action, const std::string& fullPath, const std::string& entry,

@@ -134,16 +134,12 @@ std::string getSidecarCoverBmpPath(const std::string& bookPath, int width, int h
 // silently loses its cover and reverts to the metadata embedded in the EPUB.
 // Which extensions those are is SidecarFiles' business, not this function's.
 bool moveSidecarFilesToCompleted(const std::string& currentBookPath, const std::string& targetBookPath) {
-  const std::string srcBase = SidecarFiles::basePath(currentBookPath);
-  const std::string dstBase = SidecarFiles::basePath(targetBookPath);
-  if (srcBase.empty() || dstBase.empty()) {
-    return false;
-  }
-
   bool success = true;
-  for (const char* ext : SidecarFiles::existingExtensions(currentBookPath)) {
-    const std::string srcSidecar = srcBase + ext;
-    std::string dstSidecar = dstBase + ext;
+  // movePairs() rather than basePath() + extension: a rights document is named off the book's
+  // FULL name ("book.epub.rights"), so building sidecar names here would carry the cover and
+  // strand the rights file - and a protected book that loses its rights document stops opening.
+  for (const auto& [srcSidecar, targetSidecar] : SidecarFiles::movePairs(currentBookPath, targetBookPath)) {
+    std::string dstSidecar = targetSidecar;
     if (Storage.exists(dstSidecar.c_str())) {
       dstSidecar = findUniqueCompletedSidecarPath(dstSidecar);
       if (dstSidecar.empty()) {

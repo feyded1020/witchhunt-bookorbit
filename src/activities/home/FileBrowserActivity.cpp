@@ -6,6 +6,7 @@
 #include <HalDisplay.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <SidecarFiles.h>
 #include <Txt.h>
 #include <Utf8.h>
 #include <Xtc.h>
@@ -64,6 +65,21 @@ void FileBrowserActivity::clearFileMetadata(const std::string& fullPath) {
   }
 }
 
+// Deleting the BOOK, not just its cache: its sidecars go too. Kept separate from
+// clearFileMetadata() on purpose — that one also backs the "Delete cache" action, and clearing
+// a cache must never take the user's cover, metadata or rights document with it.
+//
+// A stranded sidecar is not merely clutter: a later book saved under the same name inherits it,
+// and where a stale cover is just wrong, a stale rights document makes an ordinary book look
+// protected and enciphers its cache under a salt that no longer matches.
+void FileBrowserActivity::clearBookFileAndSidecars(const std::string& fullPath) {
+  clearFileMetadata(fullPath);
+  const size_t removed = SidecarFiles::removeAll(fullPath);
+  if (removed > 0) {
+    LOG_DBG("FileBrowser", "Removed %u sidecar(s) beside %s", static_cast<unsigned>(removed), fullPath.c_str());
+  }
+}
+
 // Iterative post-order traversal: clear book caches then delete files/dirs.
 // Adapted from upstream PR #1892 (WuTofu) to handle our EPUB+XTC cache clearing.
 bool FileBrowserActivity::removeDirRecursive(const std::string& fullPath) {
@@ -74,7 +90,7 @@ bool FileBrowserActivity::removeDirRecursive(const std::string& fullPath) {
   }
   if (!file.isDirectory()) {
     file.close();
-    clearFileMetadata(fullPath);
+    clearBookFileAndSidecars(fullPath);
     return Storage.remove(fullPath.c_str());
   }
   file.close();
@@ -119,7 +135,7 @@ bool FileBrowserActivity::removeDirRecursive(const std::string& fullPath) {
       if (isDir) {
         stack.push_back({std::move(entryPath), false});
       } else {
-        clearFileMetadata(entryPath);
+        clearBookFileAndSidecars(entryPath);
         if (!Storage.remove(entryPath.c_str())) {
           LOG_ERR("FBR", "Failed to remove file: %s", entryPath.c_str());
           dir.close();
@@ -698,7 +714,7 @@ void FileBrowserActivity::doRemove(const std::string& fullPath, const std::strin
                              if (isDirectory) {
                                deleted = removeDirRecursive(fullPath);
                              } else {
-                               clearFileMetadata(fullPath);
+                               clearBookFileAndSidecars(fullPath);
                                deleted = Storage.remove(fullPath.c_str());
                              }
                              if (deleted) {

@@ -8,6 +8,7 @@
 #include <HalSystem.h>  // feedWatchdog()
 #include <Logging.h>
 #include <Memory.h>
+#include <SidecarFiles.h>
 #include <Txt.h>
 #include <WiFi.h>
 #include <Xtc.h>
@@ -1326,6 +1327,17 @@ void CrossPointWebServer::handleRename() const {
   const bool success = file.rename(newPath.c_str());
   file.close();
 
+  // Sidecars follow the book. Renaming or moving only the book stranded its cover and metadata
+  // before this; for a protected book it strands the rights document and stops it opening.
+  if (success && !isDir) {
+    for (const auto& [src, dst] :
+         SidecarFiles::movePairs(std::string(itemPath.c_str()), std::string(newPath.c_str()))) {
+      if (!Storage.rename(src.c_str(), dst.c_str())) {
+        LOG_ERR("WEB", "Moved the book but not its sidecar %s", src.c_str());
+      }
+    }
+  }
+
   if (success) {
     LOG_DBG("WEB", "Renamed: %s -> %s", itemPath.c_str(), newPath.c_str());
     server->send(200, "text/plain", "Renamed successfully");
@@ -1423,6 +1435,17 @@ void CrossPointWebServer::handleMove() const {
   }
   const bool success = file.rename(newPath.c_str());
   file.close();
+
+  // Sidecars follow the book. Renaming or moving only the book stranded its cover and metadata
+  // before this; for a protected book it strands the rights document and stops it opening.
+  if (success && !isDir) {
+    for (const auto& [src, dst] :
+         SidecarFiles::movePairs(std::string(itemPath.c_str()), std::string(newPath.c_str()))) {
+      if (!Storage.rename(src.c_str(), dst.c_str())) {
+        LOG_ERR("WEB", "Moved the book but not its sidecar %s", src.c_str());
+      }
+    }
+  }
 
   if (success) {
     LOG_DBG("WEB", "Moved: %s -> %s", itemPath.c_str(), newPath.c_str());
@@ -1539,6 +1562,11 @@ void CrossPointWebServer::handleDelete() const {
       if (f) f.close();
       success = Storage.remove(itemPath.c_str());
       clearBookCacheIfNeeded(itemPath);
+      // A sidecar belongs to its book; left behind it attaches itself to whatever is saved
+      // under that name next. Deliberately here and not in clearBookCacheIfNeeded(), which also
+      // runs when a book is OVERWRITTEN by an upload — there the sidecars must survive.
+      const size_t strays = SidecarFiles::removeAll(std::string(itemPath.c_str()));
+      if (strays > 0) LOG_DBG("WEB", "Removed %u sidecar(s) beside %s", (unsigned)strays, itemPath.c_str());
     }
 
     if (!success) {
