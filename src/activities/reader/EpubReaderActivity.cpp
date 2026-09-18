@@ -767,6 +767,13 @@ void EpubReaderActivity::loop() {
   if (pendingProgressSave.pending.load(std::memory_order_acquire)) {
     pendingProgressSave.pending.store(false, std::memory_order_relaxed);
     saveProgress(pendingProgressSave.spineIndex, pendingProgressSave.page, pendingProgressSave.pageCount);
+    // Once the chapter's page count is final, settle its bookmarks: place ones received from
+    // BookOrbit on their real page and give local ones their layout-independent position.
+    RenderLock lock(*this);
+    if (section && section->activeBuildPageCount() == 0 && section->pageCount > 0 &&
+        bookmarkStore.resolvePagesForChapter(static_cast<uint16_t>(currentSpineIndex), section->pageCount)) {
+      requestUpdate();  // a received bookmark may now star the page on screen
+    }
   }
 
   // Deferred by the render task (renderFinishedBookPass) because it ends in pushActivity().
@@ -2090,7 +2097,8 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       {
         RenderLock lock(*this);
         if (section && section->currentPage >= 0 && section->currentPage < section->pageCount) {
-          bookmarkStore.toggle(static_cast<uint16_t>(currentSpineIndex), static_cast<uint16_t>(section->currentPage));
+          bookmarkStore.toggle(static_cast<uint16_t>(currentSpineIndex), static_cast<uint16_t>(section->currentPage),
+                               section->activeBuildPageCount() == 0 ? section->pageCount : 0);
           requestUpdate();
         }
       }
@@ -5726,7 +5734,8 @@ void EpubReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION 
     case BA::BTN_STAR_PAGE: {
       RenderLock lock(*this);
       if (section) {
-        bookmarkStore.toggle(static_cast<uint16_t>(currentSpineIndex), static_cast<uint16_t>(section->currentPage));
+        bookmarkStore.toggle(static_cast<uint16_t>(currentSpineIndex), static_cast<uint16_t>(section->currentPage),
+                             section->activeBuildPageCount() == 0 ? section->pageCount : 0);
         requestUpdate();
       }
     } break;
