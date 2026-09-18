@@ -53,6 +53,7 @@ class CrossPointWebServerActivity final : public Activity {
   // Subsequent render() calls return immediately — no display operations
   // are possible after releaseFrameBuffers().
   bool buffersReleased = false;
+  bool memoryFreedForRadio = false;
 
   void renderServerRunning() const;
 
@@ -61,6 +62,9 @@ class CrossPointWebServerActivity final : public Activity {
   // Unload SD fonts, paint the QR/URL screen, and release both frame buffers.
   // AP mode calls this before the WiFi stack starts so it gets the ~100KB of
   // headroom; STA mode calls it from startWebServer once the IP is known.
+  // Frees what the radio needs (SD font, secondary buffer, glyph cache) — must run before any
+  // WiFi bring-up on either path. Idempotent.
+  void freeMemoryBeforeRadio();
   void showServerScreenAndReleaseBuffers();
   void startAccessPoint();
   void startWebServer();

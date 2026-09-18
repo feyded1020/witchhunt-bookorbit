@@ -37,6 +37,8 @@ class CalibreConnectActivity final : public Activity {
   void renderServerRunning() const;
 
   void onWifiSelectionComplete(bool connected);
+  // Frees what the radio needs; must run before any WiFi bring-up. Idempotent.
+  void freeMemoryBeforeRadio();
   void startWebServer();
   void stopWebServer();
 

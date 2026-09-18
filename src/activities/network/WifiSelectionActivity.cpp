@@ -18,6 +18,7 @@
 
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
+#include "activities/NetworkMemoryTrim.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -143,6 +144,20 @@ void WifiSelectionActivity::onEnter() {
     RenderLock lock(*this);
     WIFI_STORE.setLastKnownMacAddress(persistedMac);
   }
+
+  // Free the large blocks BEFORE the radio comes up, for every caller at once.
+  //
+  // This is the one place every WiFi session passes through, and the callers had drifted: five
+  // trimmed before launching this activity, while the web server, Calibre, Weather and OPDS
+  // trimmed only after a successful join — which is too late to help the join itself. Bringing
+  // up the stack is already allocation-heavy (RX/TX buffers, the WPA supplicant, RF calibration
+  // data), so on a lean heap the association is exactly what fails, and it surfaces as a plain
+  // connect timeout with no association event rather than as an obvious OOM.
+  //
+  // Doing it here costs the callers that already trim nothing: the helper is idempotent, and
+  // every one of them releases the secondary buffer during its session anyway, so this only
+  // moves the release earlier. The primary buffer stays, so this activity keeps rendering.
+  trimMemoryForNetworkSession(renderer, "WIFI");
 
   // Trigger first update to show scanning message
   requestUpdate();
