@@ -317,6 +317,30 @@ if we ever offer this back.
   book once, and keeps the decryptor for the session.
 * Hook the two `Epub` entry-read paths so an encrypted entry routes through `decryptToSink`,
   each gated on `if (decryptor && decryptor->isEncrypted(path))`.
+* **Hook `ZipFile`, not the `Epub::readItem*` helpers.** Upstream hooks two read functions on
+  its own `Epub`, which does not transfer: our `Section` constructs its own `ZipFile` and
+  `EntryReader` (Section.cpp ~1078) and never calls `readItemContents*`, so hooking those four
+  helpers would miss the main text path entirely. Eight files use `ZipFile` directly. Same
+  lesson as Phase 0 — the choke point is the class every read passes through.
+* **The streaming tension, and how to settle it.** `ContentDecryptor::decryptToSink()` decrypts
+  AND inflates a whole entry in one call. Our parse path is the opposite shape: `EntryReader`
+  steps through ~1 KB slices out of a `BuildArena`, yielding to the UI and honouring
+  cooperative aborts between slices. A whole-entry sink cannot be paused mid-entry.
+  Rather than write a second streaming AES+inflate path, route a protected book down the
+  extract-to-file branch Section already has (the `sections/html_<n>.bin` bank): decrypt the
+  entry once through the sink into that file, then parse from it with the existing slicing.
+  Upstream does exactly this and lands the plaintext on the card; for us Phase 0 enciphers that
+  file, so the same shape is safe here and is not for them. Cost: a protected book always pays
+  the extract step on first open, never on a cache hit.
+
+  **Decided (project owner, 2026-09-18): a protected book may be slower and may lose background
+  sectioning.** If deflate + decipher + write together need more memory than the cooperative
+  background build can be given, drop the background build for protected books rather than
+  contort the read path around it. This is a deliberate two-tier reader: ordinary books keep
+  every optimisation they have today (RULE P1 is untouched), and a protected book trades
+  smoothness for working at all. Design to that rather than treating a regression on protected
+  books as a defect — but say so in the UI if a first open becomes long enough to look hung, and
+  measure what it actually costs before assuming it must be paid.
 * **`ZipFile::getStoredEntryRange()` must refuse encrypted entries.** It returns a byte range
   for a STORED entry so callers can read it with no decompression
   ([ZipFile.h:86](../lib/ZipFile/ZipFile.h#L86)); for a protected entry those bytes are
