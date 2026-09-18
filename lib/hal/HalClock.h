@@ -40,6 +40,12 @@ bool syncNtp(const char* preferredServer = nullptr);
 /// argument rather than reading app settings, mirroring applyTimezone().
 bool syncNtp(char* errorBuf, size_t errorBufSize, const char* preferredServer = nullptr);
 
+/// Called after every successful NTP sync with the clock reading captured just before it.
+/// Lets app-level code (BookOrbit's WallClock era corrections) observe syncs without the HAL
+/// depending on it. One listener; nullptr clears it.
+using NtpSyncedCallback = void (*)(time_t preSyncTime);
+void setNtpSyncedCallback(NtpSyncedCallback cb);
+
 /// Apply timezone/DST rules via the POSIX TZ string for the given setting.
 void applyTimezone(uint8_t timeZoneSetting);
 

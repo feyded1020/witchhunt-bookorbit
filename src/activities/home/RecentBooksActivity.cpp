@@ -18,7 +18,7 @@
 #include "../util/ConfirmationActivity.h"
 #include "BookInfoActivity.h"
 #include "CrossPointState.h"
-#include "KOReaderCredentialStore.h"
+#include "BookOrbitCredentialStore.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
 #include "activities/ListRowTap.h"
@@ -324,7 +324,7 @@ void RecentBooksActivity::showSelectedBookInfo() {
 // accident).
 void RecentBooksActivity::openSelectedBook(const bool longPress) {
   if (recentBooks.empty() || selectorIndex < 0 || selectorIndex >= static_cast<int>(recentBooks.size())) return;
-  const bool wantsSync = longPress && KOREADER_STORE.hasCredentials();
+  const bool wantsSync = longPress && BOOKORBIT_STORE.hasCredentials();
   const std::string& selectedPath = recentBooks[selectorIndex].path;
   const bool isEpubBook = FsHelpers::hasEpubExtension(selectedPath);
   LOG_DBG("RBA", "Selected recent book: %s (sync=%d epub=%d)", selectedPath.c_str(), wantsSync ? 1 : 0,

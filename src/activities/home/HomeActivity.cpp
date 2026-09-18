@@ -236,7 +236,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
       // navigation diffs against that baseline instead of downgrading to a full/half
       // waveform on every press. Precondition holds: we release right after the first
       // home render (gate requires firstRenderDone) and only issue plain BW redraws
-      // until restore. Same pattern as KOReaderSyncActivity. No-op on X3.
+      // until restore. Same pattern as BookOrbitSyncActivity. No-op on X3.
       renderer.setSingleBufferFastDiff(true);
       LOG_DBG("HOME", "Released secondary framebuffer for cover loading (free=%lu)",
               static_cast<unsigned long>(esp_get_free_heap_size()));
@@ -658,7 +658,7 @@ void HomeActivity::onEnter() {
 
   // A finished-book "sync to KOReader, then search OPDS for this author" request that just
   // rebooted (the sync reboots to reclaim WiFi-session heap fragmentation, see
-  // KOReaderSyncActivity::onExit()) lands here first — there's no reader to hand it to the way
+  // BookOrbitSyncActivity::onExit()) lands here first — there's no reader to hand it to the way
   // the OpenBook/Reader post-actions can via APP_STATE.openEpubPath, so Home is what consumes it.
   // replaceActivity() defers this to the next loop() tick rather than re-entering while this
   // activity is still being constructed (see the "delete this" guard in ActivityManager).

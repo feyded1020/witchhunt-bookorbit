@@ -24,6 +24,17 @@ template <typename T>
   file.read(reinterpret_cast<uint8_t*>(&value), sizeof(T));
 }
 
+// Checked variants used by the BookOrbit stores (ported from CrossInk-Bookorbit).
+template <typename T>
+[[maybe_unused]] static bool tryWritePod(FsFile& file, const T& value) {
+  return file.write(reinterpret_cast<const uint8_t*>(&value), sizeof(T)) == sizeof(T);
+}
+
+template <typename T>
+[[maybe_unused]] static bool tryReadPod(FsFile& file, T& value) {
+  return file.read(reinterpret_cast<uint8_t*>(&value), sizeof(T)) == sizeof(T);
+}
+
 [[maybe_unused]] static void writeString(std::ostream& os, const std::string& s) {
   const uint32_t len = s.size();
   writePod(os, len);

@@ -3,7 +3,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
-#include "KOReaderCredentialStore.h"
+#include "BookOrbitCredentialStore.h"
 #include "MappedInputManager.h"
 #include "SdCardFontGlobals.h"
 #include "activities/settings/SettingActionDispatch.h"
@@ -104,7 +104,7 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
 
   visibleTabs[visibleTabCount++] = MenuTab::Navigation;
   visibleTabs[visibleTabCount++] = MenuTab::Settings;
-  if (KOREADER_STORE.hasCredentials()) visibleTabs[visibleTabCount++] = MenuTab::Sync;
+  if (BOOKORBIT_STORE.hasCredentials()) visibleTabs[visibleTabCount++] = MenuTab::Sync;
   visibleTabs[visibleTabCount++] = MenuTab::Tools;
 
   navigationItems.push_back(SettingInfo::Action(StrId::STR_SELECT_CHAPTER, SettingAction::None));
@@ -334,7 +334,7 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
             threeStateOverrideFromSlot(v);
       }));
 
-  if (KOREADER_STORE.hasCredentials()) {
+  if (BOOKORBIT_STORE.hasCredentials()) {
     syncItems.push_back(SettingInfo::Action(StrId::STR_PULL_PROGRESS_FROM_OTHER_DEVICES, SettingAction::None));
     syncItems.push_back(SettingInfo::Action(StrId::STR_PUSH_PROGRESS_FROM_THIS_DEVICE, SettingAction::None));
   }

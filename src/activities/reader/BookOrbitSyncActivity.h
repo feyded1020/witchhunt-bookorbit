@@ -5,13 +5,13 @@
 
 #include "ChapterXPathIndexer.h"
 #include "CrossPointState.h"
-#include "KOReaderCredentialStore.h"  // DocumentMatchMethod
-#include "KOReaderSyncClient.h"
+#include "BookOrbitSyncClient.h"
 #include "ProgressMapper.h"
 #include "activities/Activity.h"
 
 /**
- * Activity for syncing reading progress with KOReader sync server.
+ * Activity for syncing with a BookOrbit server: reading progress, reading-session stats,
+ * highlights and bookmarks (ported from CrossInk-Bookorbit onto Witch Hunt's sync flow).
  *
  * This activity is launched as a standalone replacement screen, not as a
  * child activity of the reader. The reader persists a compact handoff record,
@@ -32,13 +32,13 @@
  * - PUSH_LOCAL: compute local mapping, warm session with GET, then upload via
  *   reused connection to avoid a second full TLS handshake.
  */
-class KOReaderSyncActivity final : public Activity {
+class BookOrbitSyncActivity final : public Activity {
  public:
-  explicit KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
+  explicit BookOrbitSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
                                 int currentSpineIndex, int currentPage, int totalPagesInSpine,
                                 uint16_t paragraphIndex = 0, bool hasParagraphIndex = false, uint32_t xhtmlSeekHint = 0,
                                 KOReaderSyncIntentState syncIntent = KOReaderSyncIntentState::COMPARE)
-      : Activity("KOReaderSync", renderer, mappedInput),
+      : Activity("BookOrbitSync", renderer, mappedInput),
         epubPath(epubPath),
         currentSpineIndex(currentSpineIndex),
         currentPage(currentPage),
@@ -92,10 +92,16 @@ class KOReaderSyncActivity final : public Activity {
   std::string statusMessage;
   std::string documentHash;
 
-  // The matching method documentHash was actually computed with: the learned per-book method
-  // when one has been recorded, otherwise the configured one. Uploads use this too, so a book
-  // the server holds under the other device's id keeps syncing under that id.
-  DocumentMatchMethod effectiveMatchMethod = DocumentMatchMethod::FILENAME;
+  // One TLS connection shared by every request of a sync (progress, stats, highlights,
+  // bookmarks). Reset before heavy local work so the inflate buffers get the heap back.
+  std::unique_ptr<BookOrbitSyncClient::Session> syncSession;
+  void beginSession();
+  void endSession();
+
+  // Stats upload, highlight and bookmark exchange, and the sweep record. Runs on the open
+  // session right after the progress GET proved the server reachable. Best effort: a failure
+  // here is logged and retried next sync, never fails the progress sync itself.
+  void runBookOrbitExtras();
 
   // Remote progress data
   bool hasRemoteProgress = false;
@@ -137,13 +143,6 @@ class KOReaderSyncActivity final : public Activity {
   void onWifiSelectionComplete(bool success);
   void performSync();
   bool calculateDocumentHash();
-  std::string hashForMethod(DocumentMatchMethod method) const;
-  static const char* matchMethodName(DocumentMatchMethod method);
-  // On a NOT_FOUND, look the book up under the other matching method. On a hit, adopts that
-  // id for this session (documentHash, effectiveMatchMethod, remoteProgress) and persists it.
-  // havePrimaryRecord: our own id already resolved, so only adopt the alternate when it is
-  // further along. When false, any hit wins because we had nothing.
-  bool probeAlternateDocumentId(bool havePrimaryRecord);
   bool smartSyncEnabled() const;
   // -1 remote is further, 0 the two agree, +1 local is further.
   int compareLocalToRemote() const;

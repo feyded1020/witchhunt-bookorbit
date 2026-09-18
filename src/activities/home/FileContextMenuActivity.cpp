@@ -6,7 +6,7 @@
 #include "../ActivityResult.h"
 #include "../settings/SettingInfo.h"
 #include "CrossPointSettings.h"
-#include "KOReaderCredentialStore.h"
+#include "BookOrbitCredentialStore.h"
 #include "components/UITheme.h"
 
 FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -81,7 +81,7 @@ void FileContextMenuActivity::buildMenuItems() {
     menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
   } else if (isEpub) {
     menuItems.push_back(SettingInfo::Action(StrId::STR_OPEN, SettingAction::None));
-    if (KOREADER_STORE.hasCredentials()) {
+    if (BOOKORBIT_STORE.hasCredentials()) {
       menuItems.push_back(SettingInfo::Action(StrId::STR_FETCH_AND_OPEN, SettingAction::None));
     }
     menuItems.push_back(SettingInfo::Action(StrId::STR_MARK_AS_READ, SettingAction::None));

@@ -11,7 +11,6 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "KOReaderCredentialStore.h"
 #include "OpdsServerStore.h"
 #include "ReadingStats.h"
 #include "RecentBooksStore.h"
@@ -342,70 +341,6 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   return true;
 }
 
-// ---- KOReaderCredentialStore ----
-
-bool JsonSettingsIO::saveKOReader(const KOReaderCredentialStore& store, const char* path) {
-  JsonDocument doc;
-  doc["username"] = store.getUsername();
-  doc["password_obf"] = obfuscation::obfuscateToBase64(store.getPassword());
-  doc["serverUrl"] = store.getServerUrl();
-  doc["matchMethod"] = static_cast<uint8_t>(store.getMatchMethod());
-  doc["sendMetadata"] = store.getSendMetadata();
-  doc["syncBehavior"] = static_cast<uint8_t>(store.getSyncBehavior());
-
-  String json;
-  serializeJson(doc, json);
-  return Storage.writeFile(path, json);
-}
-
-bool JsonSettingsIO::loadKOReader(KOReaderCredentialStore& store, const char* json, bool* needsResave) {
-  if (needsResave) *needsResave = false;
-  JsonDocument doc;
-  auto error = deserializeJson(doc, json);
-  if (error) {
-    LOG_ERR("KRS", "JSON parse error: %s", error.c_str());
-    return false;
-  }
-
-  store.username = doc["username"] | std::string("");
-  bool ok = false;
-  bool tooLong = false;
-  store.password = obfuscation::deobfuscateFromBase64(doc["password_obf"] | "", MAX_PASSWORD_LENGTH, &ok, &tooLong);
-  if (tooLong) {
-    LOG_ERR("KRS", "Discarding oversized password for user: %s", store.username.c_str());
-    if (needsResave) *needsResave = true;
-  }
-  if (!ok || store.password.empty()) {
-    store.password = doc["password"] | std::string("");
-    if (store.password.size() > MAX_PASSWORD_LENGTH) {
-      LOG_ERR("KRS", "Discarding oversized legacy password for user: %s", store.username.c_str());
-      store.password.clear();
-      if (needsResave) *needsResave = true;
-    } else if (!store.password.empty() && needsResave) {
-      *needsResave = true;
-    }
-  }
-  // Repair a scheme typo saved by an older build, so the settings screen shows the
-  // same URL getBaseUrl() will connect to.
-  store.serverUrl = UrlUtils::repairSchemeSeparator(doc["serverUrl"] | std::string(""));
-  uint8_t method = doc["matchMethod"] | (uint8_t)0;
-  store.matchMethod = static_cast<DocumentMatchMethod>(method);
-  store.sendMetadata = doc["sendMetadata"] | false;
-
-  // A file written before this key existed belongs to someone already using the chooser.
-  // Default them to ASK_EVERY_TIME rather than the SMART the member initialiser carries, so
-  // an update never silently changes how their sync resolves; only fresh installs get SMART.
-  const JsonVariantConst behaviorValue = doc["syncBehavior"];
-  if (behaviorValue.isNull()) {
-    store.setSyncBehavior(KOReaderSyncBehavior::ASK_EVERY_TIME);
-    if (needsResave) *needsResave = true;
-  } else {
-    store.setSyncBehavior(static_cast<KOReaderSyncBehavior>(behaviorValue | (uint8_t)0));
-  }
-
-  LOG_DBG("KRS", "Loaded KOReader credentials for user: %s", store.username.c_str());
-  return true;
-}
 
 // ---- WifiCredentialStore ----
 

@@ -38,7 +38,8 @@
 #include "CrossPointState.h"
 #include "GestureEventManager.h"
 #include "GlobalBookmarkIndex.h"
-#include "KOReaderCredentialStore.h"
+#include "BookOrbitCredentialStore.h"
+#include "WallClock.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "ReadingSessionTracker.h"
@@ -1181,7 +1182,7 @@ void setup() {
   HalSystem::clearPanic();  // TODO: move this to an activity when we have one to display the panic info
   HalClock::applyTimezone(SETTINGS.timeZone);
   I18N.loadSettings();
-  KOREADER_STORE.loadFromFile();
+  BOOKORBIT_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();
   WEATHER_SETTINGS.loadFromFile();
   UITheme::getInstance().reload();
@@ -1314,6 +1315,11 @@ void setup() {
   BootDiag::markPhase(BootPhase::FirstPaint);
 
   HalClock::restore();
+  // After the restore: WallClock reads the restored clock to decide whether this boot lost it
+  // (new era for BookOrbit's queued reading-session timestamps) or continues the same timeline.
+  WallClock::initAtBoot();
+  HalClock::setNtpSyncedCallback(
+      [](const time_t preSyncTime) { WallClock::markNtpSynced(static_cast<uint32_t>(preSyncTime)); });
   // Split checkpoints: two boots of the same firmware differed by 14780 B of free heap and, far
   // more importantly, by largest8 65524 vs 26612 at after_activity_route — and the only thing
   // that differed was the reading-stats file (1 book / 110 s vs 36 books / 100788 s). Boot min

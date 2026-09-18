@@ -142,7 +142,7 @@ void SettingsActivity::onEnter() {
   addToMoved(systemSettings, SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   addToMoved(systemSettings, std::move(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network)
                                            .withSubcategory(StrId::STR_MENU_SYS_NETWORK)));
-  addToMoved(systemSettings, std::move(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync)
+  addToMoved(systemSettings, std::move(SettingInfo::Action(StrId::STR_BOOKORBIT_SYNC, SettingAction::KOReaderSync)
                                            .withSubcategory(StrId::STR_MENU_SYS_NETWORK)));
   addToMoved(systemSettings, std::move(SettingInfo::Action(StrId::STR_OPDS_BROWSER, SettingAction::OPDSBrowser)
                                            .withSubcategory(StrId::STR_MENU_SYS_NETWORK)));

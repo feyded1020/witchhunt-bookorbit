@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
-#include "KOReaderCredentialStore.h"
+#include "BookOrbitCredentialStore.h"
 #include "SdCardFontGlobals.h"
 #include "TouchGestures.h"
 #include "TouchUi.h"
@@ -50,13 +50,11 @@
 // loop task stack when called from inside SETTINGS.loadFromFile() at boot time.
 // Therefore the list is built at runtime in a local function and returned by value.
 namespace SettingsListDetail {
-inline uint8_t getKoReaderMatchMethod(const void*) { return static_cast<uint8_t>(KOREADER_STORE.getMatchMethod()); }
+inline std::string getBookOrbitServerUrl(void*) { return BOOKORBIT_STORE.getServerUrl(); }
 
-inline std::string getKoReaderServerUrl(void*) { return KOREADER_STORE.getServerUrl(); }
+inline std::string getBookOrbitUsername(void*) { return BOOKORBIT_STORE.getUsername(); }
 
-inline std::string getKoReaderUsername(void*) { return KOREADER_STORE.getUsername(); }
-
-inline std::string getKoReaderPassword(void*) { return KOREADER_STORE.getPassword(); }
+inline std::string getBookOrbitPassword(void*) { return BOOKORBIT_STORE.getPassword(); }
 
 inline std::string getSleepTimeoutDisplay(void*) {
   const uint8_t v = SETTINGS.sleepTimeoutMinutes;
@@ -588,63 +586,43 @@ inline std::vector<SettingInfo> buildSettingsList() {
   settings.push_back(
       SettingInfo::Toggle(StrId::STR_USE_WEATHER, &CrossPointSettings::useWeather, "useWeather", StrId::STR_WEATHER));
 
-  // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
+  // --- BookOrbit Sync (web-only, uses BookOrbitCredentialStore) ---
   settings.push_back(SettingInfo::DynamicString(
-      StrId::STR_SYNC_SERVER_URL, static_cast<SettingInfo::StringGetterFn>(getKoReaderServerUrl),
+      StrId::STR_BOOKORBIT_SERVER_URL, static_cast<SettingInfo::StringGetterFn>(getBookOrbitServerUrl),
       [](void*, const std::string& v) {
-        KOREADER_STORE.setServerUrl(v);
-        KOREADER_STORE.saveToFile();
+        BOOKORBIT_STORE.setServerUrl(v);
+        BOOKORBIT_STORE.saveToFile();
       },
-      "koServerUrl", StrId::STR_KOREADER_SYNC));
+      "boServerUrl", StrId::STR_BOOKORBIT_SYNC));
   settings.push_back(SettingInfo::DynamicString(
-      StrId::STR_KOREADER_USERNAME, static_cast<SettingInfo::StringGetterFn>(getKoReaderUsername),
+      StrId::STR_BOOKORBIT_USERNAME, static_cast<SettingInfo::StringGetterFn>(getBookOrbitUsername),
       [](void*, const std::string& v) {
-        KOREADER_STORE.setCredentials(v, KOREADER_STORE.getPassword());
-        KOREADER_STORE.saveToFile();
+        BOOKORBIT_STORE.setCredentials(v, BOOKORBIT_STORE.getPassword());
+        BOOKORBIT_STORE.saveToFile();
       },
-      "koUsername", StrId::STR_KOREADER_SYNC));
+      "boUsername", StrId::STR_BOOKORBIT_SYNC));
   settings.push_back(SettingInfo::DynamicString(
-                         StrId::STR_KOREADER_PASSWORD, static_cast<SettingInfo::StringGetterFn>(getKoReaderPassword),
+                         StrId::STR_BOOKORBIT_PASSWORD, static_cast<SettingInfo::StringGetterFn>(getBookOrbitPassword),
                          [](void*, const std::string& v) {
-                           KOREADER_STORE.setCredentials(KOREADER_STORE.getUsername(), v);
-                           KOREADER_STORE.saveToFile();
+                           BOOKORBIT_STORE.setCredentials(BOOKORBIT_STORE.getUsername(), v);
+                           BOOKORBIT_STORE.saveToFile();
                          },
-                         "koPassword", StrId::STR_KOREADER_SYNC)
+                         "boPassword", StrId::STR_BOOKORBIT_SYNC)
                          .withObfuscated());
   settings.push_back(SettingInfo::DynamicEnum(
-      StrId::STR_DOCUMENT_MATCHING, {StrId::STR_FILENAME, StrId::STR_BINARY}, getKoReaderMatchMethod,
-      [](void*, uint8_t v) {
-        KOREADER_STORE.setMatchMethod(static_cast<DocumentMatchMethod>(v));
-        KOREADER_STORE.saveToFile();
-      },
-      "koMatchMethod", StrId::STR_KOREADER_SYNC));
-  settings.push_back(SettingInfo::DynamicEnum(
       StrId::STR_KO_SYNC_CONFLICT, {StrId::STR_KO_ASK_EVERY_TIME, StrId::STR_KO_SMART_SYNC},
-      [](const void*) -> uint8_t { return static_cast<uint8_t>(KOREADER_STORE.getSyncBehavior()); },
+      [](const void*) -> uint8_t { return static_cast<uint8_t>(BOOKORBIT_STORE.getSyncBehavior()); },
       [](void*, uint8_t v) {
-        KOREADER_STORE.setSyncBehavior(static_cast<KOReaderSyncBehavior>(v));
-        KOREADER_STORE.saveToFile();
+        BOOKORBIT_STORE.setSyncBehavior(v ? BookOrbitSyncBehavior::SMART : BookOrbitSyncBehavior::ASK_EVERY_TIME);
+        BOOKORBIT_STORE.saveToFile();
       },
-      "koSyncBehavior", StrId::STR_KOREADER_SYNC));
+      "boSyncBehavior", StrId::STR_BOOKORBIT_SYNC));
   settings.push_back(SettingInfo::Toggle(StrId::STR_KO_SYNC_ON_BOOK_CLOSE, &CrossPointSettings::koSyncOnBookClose,
-                                         "koSyncOnBookClose", StrId::STR_KOREADER_SYNC));
+                                         "koSyncOnBookClose", StrId::STR_BOOKORBIT_SYNC));
   settings.push_back(SettingInfo::Action(StrId::STR_KO_MIN_SESSION_PAGES, SettingAction::KOSyncMinPagesPicker)
                          .persisting(&CrossPointSettings::koSyncMinSessionPages, "koSyncMinSessionPages", 60)
                          .withDisplayGetter(getKoSyncMinPagesDisplay)
-                         .withCategory(StrId::STR_KOREADER_SYNC));
-  settings.push_back([]() {
-    SettingInfo s;
-    s.nameId = StrId::STR_SEND_METADATA;
-    s.type = SettingType::TOGGLE;
-    s.key = "koSendMetadata";
-    s.category = StrId::STR_KOREADER_SYNC;
-    s.valueGetter = [](const void*) -> uint8_t { return KOREADER_STORE.getSendMetadata() ? 1u : 0u; };
-    s.valueSetter = [](void*, uint8_t v) {
-      KOREADER_STORE.setSendMetadata(v != 0);
-      KOREADER_STORE.saveToFile();
-    };
-    return s;
-  }());
+                         .withCategory(StrId::STR_BOOKORBIT_SYNC));
 
   // --- Status Bar Settings (web-only, uses StatusBarSettingsActivity) ---
   settings.push_back(SettingInfo::Enum(StrId::STR_UPPER_PROGRESS_BAR, &CrossPointSettings::statusBarUpperProgressBar,

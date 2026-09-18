@@ -50,7 +50,7 @@
 #include "EpubReaderPrintedPageInputActivity.h"
 #include "FinishedBookActivity.h"
 #include "GlobalBookmarkIndex.h"
-#include "KOReaderCredentialStore.h"
+#include "BookOrbitCredentialStore.h"
 #include "KOReaderDocumentId.h"
 #include "MappedInputManager.h"
 #include "QrDisplayActivity.h"
@@ -805,7 +805,7 @@ void EpubReaderActivity::loop() {
   ButtonEventManager::ButtonEvent ev;
   while (buttonEvents.consumeEvent(ev)) {
     if (ev.button == MappedInputManager::Button::Confirm) {
-      if (ev.type == ButtonEventManager::PressType::Long && KOREADER_STORE.hasCredentials()) {
+      if (ev.type == ButtonEventManager::PressType::Long && BOOKORBIT_STORE.hasCredentials()) {
         launchKOReaderSync(SyncLaunchMode::COMPARE);
         return;
       }
@@ -2197,7 +2197,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::PULL_REMOTE: {
       // One-tap pull path: run network preconditions and apply remote progress
       // directly instead of showing an intermediate chooser screen.
-      if (KOREADER_STORE.hasCredentials()) {
+      if (BOOKORBIT_STORE.hasCredentials()) {
         launchKOReaderSync(SyncLaunchMode::PULL_REMOTE);
       }
       break;
@@ -2205,7 +2205,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::PUSH_LOCAL: {
       // One-tap push path: run network preconditions and upload local progress
       // directly for KOReader-like "sync now" behavior.
-      if (KOREADER_STORE.hasCredentials()) {
+      if (BOOKORBIT_STORE.hasCredentials()) {
         launchKOReaderSync(SyncLaunchMode::PUSH_LOCAL);
       }
       break;

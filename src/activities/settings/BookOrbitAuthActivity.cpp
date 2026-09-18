@@ -1,4 +1,4 @@
-#include "KOReaderAuthActivity.h"
+#include "BookOrbitAuthActivity.h"
 
 #include <GfxRenderer.h>
 #include <HalClock.h>
@@ -7,8 +7,7 @@
 #include <WiFi.h>
 
 #include "CrossPointSettings.h"
-#include "KOReaderCredentialStore.h"
-#include "KOReaderSyncClient.h"
+#include "BookOrbitSyncClient.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/NetworkMemoryTrim.h"
@@ -16,7 +15,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
-void KOReaderAuthActivity::onWifiSelectionComplete(const bool success) {
+void BookOrbitAuthActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
     {
       RenderLock lock(*this);
@@ -31,17 +30,12 @@ void KOReaderAuthActivity::onWifiSelectionComplete(const bool success) {
   // as an HTTP timeout on a handful of small round trips. WiFi is torn down on exit.
   // Ported from crosspoint-reader PR #3233 (Jadehawk / @jadehawk).
   WiFi.setSleep(false);
-  LOG_DBG("KOAuth", "WiFi sleep disabled for authentication");
+  LOG_DBG("BookOrbit", "WiFi sleep disabled for authentication");
 
   {
     RenderLock lock(*this);
-    if (mode == Mode::REGISTER) {
-      state = REGISTERING;
-      statusMessage = tr(STR_REGISTERING);
-    } else {
-      state = AUTHENTICATING;
-      statusMessage = tr(STR_AUTHENTICATING);
-    }
+    state = AUTHENTICATING;
+    statusMessage = tr(STR_AUTHENTICATING);
   }
   requestUpdateAndWait();  // show status before blocking TLS call
 
@@ -53,27 +47,23 @@ void KOReaderAuthActivity::onWifiSelectionComplete(const bool success) {
   // waives certificate dates only, keeping chain/signature/hostname checks intact.
   HalClock::ensureUsableForTls(SETTINGS.ntpServer);
   // Same escape hatch as the sync path: a self-hosted server with a private CA.
-  KOReaderSyncClient::setSkipTlsValidation(SETTINGS.skipHttpsValidation != 0);
+  BookOrbitSyncClient::setSkipTlsValidation(SETTINGS.skipHttpsValidation != 0);
 
-  if (mode == Mode::REGISTER) {
-    performRegistration();
-  } else {
-    performAuthentication();
-  }
+  performAuthentication();
 }
 
-void KOReaderAuthActivity::performAuthentication() {
-  const auto result = KOReaderSyncClient::authenticate();
+void BookOrbitAuthActivity::performAuthentication() {
+  const auto result = BookOrbitSyncClient::authenticate();
 
   {
     RenderLock lock(*this);
-    if (result == KOReaderSyncClient::OK) {
+    if (result == BookOrbitSyncClient::OK) {
       state = SUCCESS;
       statusMessage = tr(STR_AUTH_SUCCESS);
     } else {
       state = FAILED;
-      errorMessage = KOReaderSyncClient::errorString(result);
-      const char* detail = KOReaderSyncClient::lastFailureDetail();
+      errorMessage = BookOrbitSyncClient::errorString(result);
+      const char* detail = BookOrbitSyncClient::lastFailureDetail();
       if (detail && detail[0]) {
         errorMessage += " — ";
         errorMessage += detail;
@@ -83,36 +73,12 @@ void KOReaderAuthActivity::performAuthentication() {
   requestUpdate();
 }
 
-void KOReaderAuthActivity::performRegistration() {
-  const auto result = KOReaderSyncClient::registerUser();
-
-  {
-    RenderLock lock(*this);
-    if (result == KOReaderSyncClient::OK) {
-      state = SUCCESS;
-      statusMessage = tr(STR_REGISTER_SUCCESS);
-    } else if (result == KOReaderSyncClient::USER_EXISTS) {
-      state = USER_EXISTS;
-      errorMessage = KOReaderSyncClient::errorString(result);
-    } else {
-      state = FAILED;
-      errorMessage = KOReaderSyncClient::errorString(result);
-      const char* detail = KOReaderSyncClient::lastFailureDetail();
-      if (detail && detail[0]) {
-        errorMessage += " — ";
-        errorMessage += detail;
-      }
-    }
-  }
-  requestUpdate();
-}
-
-void KOReaderAuthActivity::onEnter() {
+void BookOrbitAuthActivity::onEnter() {
   Activity::onEnter();
 
   // Free the heap the WiFi stack needs before it is brought up, not after —
   // association itself is the allocation-heavy step, well ahead of TLS.
-  trimMemoryForNetworkSession(renderer, "KOSync");
+  trimMemoryForNetworkSession(renderer, "BookOrbit");
 
   // Check if already connected
   if (WiFi.status() == WL_CONNECTED) {
@@ -125,7 +91,7 @@ void KOReaderAuthActivity::onEnter() {
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
 }
 
-void KOReaderAuthActivity::onExit() {
+void BookOrbitAuthActivity::onExit() {
   Activity::onExit();
 
   if (WiFi.getMode() != WIFI_MODE_NULL) {
@@ -135,34 +101,29 @@ void KOReaderAuthActivity::onExit() {
   // Unconditional: onEnter() released the secondary framebuffer for the network
   // session and nothing reallocates it, so every exit path — including a
   // cancelled WiFi selection that never brought the radio up — must reboot to
-  // restore double-buffered rendering. Land back in KOReader settings, where the
+  // restore double-buffered rendering. Land back in BookOrbit settings, where the
   // user started, rather than on Home.
   silentRestartToKOReaderSettings();
 }
 
-void KOReaderAuthActivity::render(RenderLock&&) {
+void BookOrbitAuthActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
   GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_KOREADER_AUTH));
+                 tr(STR_BOOKORBIT_SYNC));
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = contentRect.y + (contentRect.height - height) / 2;
 
-  if (state == AUTHENTICATING || state == REGISTERING) {
+  if (state == AUTHENTICATING) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, statusMessage.c_str());
   } else if (state == SUCCESS) {
-    const char* successMsg = (mode == Mode::REGISTER) ? tr(STR_REGISTER_SUCCESS) : tr(STR_AUTH_SUCCESS);
-    renderer.drawCenteredText(UI_10_FONT_ID, top, successMsg, true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_AUTH_SUCCESS), true, EpdFontFamily::BOLD);
     renderer.drawCenteredText(UI_10_FONT_ID, top + height + 10, tr(STR_SYNC_READY));
-  } else if (state == USER_EXISTS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_USERNAME_TAKEN), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + height + 10, errorMessage.c_str());
   } else if (state == FAILED) {
-    const char* failedMsg = (mode == Mode::REGISTER) ? tr(STR_REGISTER_FAILED) : tr(STR_AUTH_FAILED);
-    renderer.drawCenteredText(UI_10_FONT_ID, top, failedMsg, true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_AUTH_FAILED), true, EpdFontFamily::BOLD);
     const auto lines = renderer.wrappedText(UI_10_FONT_ID, errorMessage.c_str(), contentRect.width - 20, 4);
     int y = top + height + 10;
     for (const auto& line : lines) {
@@ -176,8 +137,8 @@ void KOReaderAuthActivity::render(RenderLock&&) {
   renderer.displayBuffer();
 }
 
-void KOReaderAuthActivity::loop() {
-  if (state == SUCCESS || state == FAILED || state == USER_EXISTS) {
+void BookOrbitAuthActivity::loop() {
+  if (state == SUCCESS || state == FAILED) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
         mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       finish();

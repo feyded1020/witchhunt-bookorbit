@@ -23,7 +23,7 @@ enum class KOReaderSyncOutcomeState : uint8_t {
   APPLIED_REMOTE = 5,
 };
 
-// Where KOReaderSyncActivity lands once a sync completes (or fails/cancels) and the device has
+// Where BookOrbitSyncActivity lands once a sync completes (or fails/cancels) and the device has
 // rebooted to reclaim WiFi-session heap fragmentation. Reader/Home cover the two cases that
 // existed before the finished-book "sync + then continue with the picked action" flow; OpenBook
 // and OpdsSearch let that flow land on the next book / an OPDS search after syncing, instead of

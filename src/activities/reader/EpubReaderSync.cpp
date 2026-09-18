@@ -10,7 +10,7 @@
 
 #include "CrossPointState.h"
 #include "EpubReaderActivity.h"
-#include "KOReaderCredentialStore.h"
+#include "BookOrbitCredentialStore.h"
 
 #ifndef DEBUG_MEMORY_CONSUMPTION
 #define DEBUG_MEMORY_CONSUMPTION 0
@@ -114,7 +114,7 @@ bool EpubReaderActivity::onFinishedBookSyncRequested(void* ctx, const std::strin
                                                      const KOReaderSyncPostAction postAction,
                                                      const std::string& target) {
   auto* self = static_cast<EpubReaderActivity*>(ctx);
-  if (!KOREADER_STORE.hasCredentials()) {
+  if (!BOOKORBIT_STORE.hasCredentials()) {
     LOG_DBG("ERS", "Finished-book sync requested without credentials; leaving navigation to the caller");
     return false;
   }
@@ -139,7 +139,7 @@ bool EpubReaderActivity::tryAutoPushOnClose() {
   if (!SETTINGS.koSyncOnBookClose) {
     return false;
   }
-  if (!KOREADER_STORE.hasCredentials()) {
+  if (!BOOKORBIT_STORE.hasCredentials()) {
     return false;
   }
   // Zero is a real setting here, shown as "Always": no minimum, so even a session that turned no

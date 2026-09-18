@@ -25,7 +25,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "FileContextMenuActivity.h"
-#include "KOReaderCredentialStore.h"
+#include "BookOrbitCredentialStore.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -264,7 +264,7 @@ void FileBrowserActivity::activateSelected(const bool longPress) {
   std::string fullPath = model.path();
   if (fullPath.back() != '/') fullPath += "/";
   fullPath += entry;
-  if (longPress && KOREADER_STORE.hasCredentials() && FsHelpers::hasEpubExtension(fullPath)) {
+  if (longPress && BOOKORBIT_STORE.hasCredentials() && FsHelpers::hasEpubExtension(fullPath)) {
     auto& sync = APP_STATE.koReaderSyncSession;
     sync.autoPullEpubPath = fullPath;
     sync.postAction = KOReaderSyncPostAction::Reader;
@@ -528,7 +528,7 @@ void FileBrowserActivity::handleContextMenuAction(int action, const std::string&
       return;
     }
     case Action::FetchAndOpen: {
-      if (KOREADER_STORE.hasCredentials() && FsHelpers::hasEpubExtension(fullPath)) {
+      if (BOOKORBIT_STORE.hasCredentials() && FsHelpers::hasEpubExtension(fullPath)) {
         auto& sync = APP_STATE.koReaderSyncSession;
         sync.autoPullEpubPath = fullPath;
         sync.postAction = KOReaderSyncPostAction::Reader;

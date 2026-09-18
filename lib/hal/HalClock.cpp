@@ -687,6 +687,12 @@ bool quickSntpQuery(const IPAddress* targets, size_t targetCount, time_t& outEpo
 
 }  // namespace
 
+namespace {
+NtpSyncedCallback s_ntpSyncedCallback = nullptr;
+}  // namespace
+
+void setNtpSyncedCallback(NtpSyncedCallback cb) { s_ntpSyncedCallback = cb; }
+
 bool syncNtp(char* errorBuf, size_t errorBufSize, const char* preferredServer) {
   if (errorBuf && errorBufSize > 0) {
     errorBuf[0] = '\0';
@@ -852,6 +858,7 @@ bool syncNtp(char* errorBuf, size_t errorBufSize, const char* preferredServer) {
 
   clockApproximate = false;
   LOG_INF("CLK", "NTP synced, epoch %lld", (long long)rtcEpoch);
+  if (s_ntpSyncedCallback) s_ntpSyncedCallback(preSyncTime);
   return true;
 }
 

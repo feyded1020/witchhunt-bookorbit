@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-#include "KOReaderCredentialStore.h"
+#include "BookOrbitCredentialStore.h"
 #include "OpdsServerStore.h"
 #include "ReaderActivity.h"
 #include "ReadingSessionTracker.h"
@@ -488,7 +488,7 @@ void launchFinishedBookFlow(Activity& host, GfxRenderer& renderer, MappedInputMa
                                                      const std::string&),
                             void* onSyncToKOReaderCtx) {
   const std::string nextBookPath = findNextBookInDirectory(bookPath, series, seriesIndex);
-  const bool koReaderSyncAvailable = onSyncToKOReader != nullptr && KOREADER_STORE.hasCredentials();
+  const bool koReaderSyncAvailable = onSyncToKOReader != nullptr && BOOKORBIT_STORE.hasCredentials();
   Activity* hostPtr = &host;
   host.startActivityForResult(
       std::make_unique<FinishedBookActivity>(renderer, mappedInput, bookPath, nextBookPath, author,
@@ -529,10 +529,10 @@ void launchFinishedBookFlow(Activity& host, GfxRenderer& renderer, MappedInputMa
           RECENT_BOOKS.removeBook(bookPath);
         }
         const bool syncToKOReader =
-            onSyncToKOReader != nullptr && KOREADER_STORE.hasCredentials() && SETTINGS.syncFinishedBookToKOReader;
+            onSyncToKOReader != nullptr && BOOKORBIT_STORE.hasCredentials() && SETTINGS.syncFinishedBookToKOReader;
         if (syncToKOReader) {
           // The sync callback (EpubReaderActivity::launchKOReaderSync) hands off to
-          // KOReaderSyncActivity, which owns pushing progress and, once its reboot completes,
+          // BookOrbitSyncActivity, which owns pushing progress and, once its reboot completes,
           // performing the very action (Home / open next book / OPDS search) that was picked
           // here — see the postAction/target comment on launchFinishedBookFlow's declaration.
           KOReaderSyncPostAction postAction = KOReaderSyncPostAction::Home;

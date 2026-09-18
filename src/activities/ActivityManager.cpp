@@ -28,10 +28,10 @@
 #include "network/CrossPointWebServerActivity.h"
 #include "network/SerialTransferActivity.h"
 #include "network/UsbDriveActivity.h"
-#include "reader/KOReaderSyncActivity.h"
+#include "reader/BookOrbitSyncActivity.h"
 #include "reader/ReaderActivity.h"
 #include "settings/ClockSettingsActivity.h"
-#include "settings/KOReaderSettingsActivity.h"
+#include "settings/BookOrbitSettingsActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "settings/SettingsSubmenuActivity.h"
@@ -461,7 +461,7 @@ void ActivityManager::goToClockSettings() {
 }
 
 void ActivityManager::goToKOReaderSettings() {
-  replaceActivity(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput));
+  replaceActivity(std::make_unique<BookOrbitSettingsActivity>(renderer, mappedInput));
 }
 
 void ActivityManager::goToFileBrowser(std::string path, std::string focusName) {
@@ -514,7 +514,7 @@ void ActivityManager::goToKOReaderSync() {
     return;
   }
 
-  replaceActivity(std::make_unique<KOReaderSyncActivity>(renderer, mappedInput, sync.epubPath, sync.spineIndex,
+  replaceActivity(std::make_unique<BookOrbitSyncActivity>(renderer, mappedInput, sync.epubPath, sync.spineIndex,
                                                          sync.page, sync.totalPagesInSpine, sync.paragraphIndex,
                                                          sync.hasParagraphIndex, sync.xhtmlSeekHint, sync.intent));
 }
