@@ -461,6 +461,10 @@ void BookOrbitSyncActivity::performSync() {
   // PUSH_LOCAL is an explicit user upload — go straight to PUT.
   // AUTO_PUSH needs the preflight GET to bail out if the remote is already ahead.
   if (syncIntent == KOReaderSyncIntentState::PUSH_LOCAL) {
+    // A manual push still carries the book's stats, highlights and bookmarks, on the same
+    // session the upload then reuses.
+    beginSession();
+    runBookOrbitExtras();
     performUpload();
     return;
   }

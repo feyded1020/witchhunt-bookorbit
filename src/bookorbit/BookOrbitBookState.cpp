@@ -12,7 +12,7 @@ std::string dirFor(const std::string& bookPath) {
   if (hash.empty()) {
     return "";
   }
-  const std::string dir = "/.crosspoint/book_" + hash;
+  const std::string dir = "/.crosspoint/wr_book_" + hash;
   if (!Storage.exists(dir.c_str()) && !Storage.mkdir(dir.c_str())) {
     LOG_ERR("BookOrbit", "Cannot create book state dir: %s", dir.c_str());
     return "";

@@ -26,16 +26,21 @@ int BookOrbitSyncClient::lastHttpCode = 0;
 int BookOrbitSyncClient::lastTransportError = 0;
 
 const char* BookOrbitSyncClient::deviceId() {
-  static const std::array<char, 24> id = [] {
-    std::array<char, 24> value{};
+  static const std::array<char, 32> id = [] {
+    std::array<char, 32> value{};
     uint8_t mac[6] = {};
+    // "witchreader-", not CrossInk's "crossink-": the server keys highlight/bookmark sync
+    // state per device id and treats anything missing from a device's key set as deleted.
+    // This firmware does not read CrossInk's local highlight/bookmark files, so reusing the
+    // CrossInk id on the same reader would have its first sync delete everything CrossInk had
+    // synced. A new id is a new device to the server, which instead sends those down.
     if (esp_efuse_mac_get_default(mac) != 0) {
       LOG_ERR("BookOrbit", "Could not read factory MAC; falling back to shared device id");
-      snprintf(value.data(), value.size(), "crossink-device");
+      snprintf(value.data(), value.size(), "witchreader-device");
       return value;
     }
-    snprintf(value.data(), value.size(), "crossink-%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
-             mac[5]);
+    snprintf(value.data(), value.size(), "witchreader-%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3],
+             mac[4], mac[5]);
     return value;
   }();
   return id.data();

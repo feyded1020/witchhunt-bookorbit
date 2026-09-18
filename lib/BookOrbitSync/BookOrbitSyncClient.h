@@ -77,8 +77,9 @@ class BookOrbitSyncClient {
   /**
    * The identifier this reader reports to BookOrbit as device_id / deviceId.
    *
-   * "crossink-" followed by the twelve hex digits of the chip's factory MAC, so two
-   * CrossInk readers on the same account are told apart. The server keys everything
+   * "witchreader-" followed by the twelve hex digits of the chip's factory MAC, so two
+   * readers on the same account are told apart (and never collide with CrossInk's
+   * "crossink-" id on the same hardware -- see deviceId() in the .cpp). The server keys everything
    * per device on this id alone — which highlights a device has seen (and therefore
    * which ones it is deemed to have deleted), reading-session ids, device retirement,
    * progress resets; the human-readable device name only appears on progress rows.

@@ -908,7 +908,7 @@ STR_KOREADER_SYNC_NETWORK_TIMEOUT: "Sync server timed out. Check WiFi strength a
 STR_KOREADER_SYNC_SERVER_ERROR: "Sync server returned an unexpected response. Try again later."
 STR_UNKNOWN_ERROR: "Unknown error"
 STR_BOOKMARKS_SYNCED_FORMAT: "Bookmarks: %d sent, %d added, %d removed"
-STR_BOOKORBIT_CATALOG: "Browse Catalog"
+STR_BOOKORBIT_CATALOG: "BookOrbit Library"
 STR_BOOKORBIT_PASSWORD: "BookOrbit Password"
 STR_BOOKORBIT_SERVER_URL: "BookOrbit Server URL"
 STR_BOOKORBIT_SYNC: "BookOrbit Sync"
