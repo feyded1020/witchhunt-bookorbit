@@ -34,6 +34,9 @@ class Epub {
   std::string contentBasePath;
   // Uniq cache key based on filepath
   std::string cachePath;
+  // True once this book's cache directory has been put under a storage cipher scope; cleared
+  // in the destructor so the scope never outlives the book that owns it.
+  bool cacheCipherActive = false;
   // Spine and TOC cache
   std::unique_ptr<BookMetadataCache> bookMetadataCache;
   // CSS parser for styling
@@ -112,12 +115,27 @@ class Epub {
   // for the EPUB's own bytes to change. Cheap when absent (one Storage.exists).
   void applyMetadataSidecar() const;
 
+  // Puts this book's cache directory under a storage cipher scope when the book is protected.
+  // False means protected-but-unkeyable, which must fail the open rather than cache in clear.
+  bool initCacheCipher();
+
  public:
   explicit Epub(std::string filepath, const std::string& cacheDir) : filepath(std::move(filepath)) {
     // create a cache key based on the filepath
     cachePath = cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(this->filepath));
   }
-  ~Epub() = default;
+  ~Epub();
+
+  // True when this book's derived cache is enciphered at rest (docs/protected-content-plan.md
+  // §3). A protected book's cache holds its extracted text, laid-out pages and converted
+  // images — the whole book in the clear beside the encrypted one if left alone.
+  //
+  // Detection is currently the presence of a `<book>.epub.rights` sidecar, which is the same
+  // marker Phase 1 uses for Adobe-protected books. It is the seam the real classification
+  // (ContentProtection's encryption.xml scan, an LCP licence) replaces later; until then it
+  // also lets the mechanism be exercised on an ordinary book by dropping an empty sidecar
+  // beside it.
+  bool cacheEnciphered() const { return cacheCipherActive; }
   std::string& getBasePath() { return contentBasePath; }
   bool load(bool buildIfMissing = true, bool skipLoadingCss = false);
 

@@ -72,6 +72,7 @@ set(PIPELINE_INCLUDES
   ${REPO_ROOT}/lib/Memory
   ${REPO_ROOT}/lib/Serialization
   ${REPO_ROOT}/lib/Utf8
+  ${REPO_ROOT}/lib/CacheCipher
   ${REPO_ROOT}/lib/ZipFile
   ${REPO_ROOT}/lib/InflateReader
   ${REPO_ROOT}/lib/uzlib/src

@@ -138,6 +138,11 @@ class HalStorage {
   bool ensureDirectoryExists(const char*) { return false; }
   HalFile open(const char*, int = 0) { return HalFile::opened(); }
   bool mkdir(const char*, bool = true) { return false; }
+  // Cache enciphering for protected books (lib/CacheCipher). No-ops here: host tests run plain
+  // books, and the cipher and its key derivation are covered directly by test/cache_cipher.
+  void setCacheCipherScope(const char*, const uint8_t[32]) {}
+  void clearCacheCipherScope() {}
+  bool cacheCipherScopeActive() const { return false; }
   bool exists(const char*) { return false; }
   bool remove(const char*) { return false; }
   bool rename(const char*, const char*) { return false; }

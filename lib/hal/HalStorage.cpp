@@ -2,10 +2,13 @@
 #include "HalStorage.h"
 
 #include <BoardConfig.h>
+#include <CacheCipher.h>
+#include <CacheKeys.h>
 #include <FS.h>  // need to be included before SdFat.h for compatibility with FS.h's File class
 #include <HalCapabilities.h>
 #include <HalClock.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <SDCardManager.h>
 #include <SdFat.h>
 #if FREEINK_CAP_USB_MSC
@@ -14,6 +17,7 @@
 #endif
 
 #include <cassert>
+#include <cstring>
 #include <ctime>
 #include <new>
 #include <optional>
@@ -295,6 +299,10 @@ class HalFile::Impl {
  public:
   Impl(FsFile&& fsFile) : file(std::move(fsFile)) {}
   FsFile file;
+  // Null for every ordinary file, which is all of them outside a protected book's cache
+  // directory. One 44-byte allocation per enciphered handle, made only when enableCipher()
+  // is called; a plain file pays a null check per read/write and nothing else.
+  std::unique_ptr<CacheCipher> cipher;
 };
 
 HalFile::HalFile() = default;
@@ -318,7 +326,52 @@ HalFile& HalFile::operator=(HalFile&& other) {
 
 HalFile HalStorage::open(const char* path, const oflag_t oflag) {
   StorageLock lock;  // ensure thread safety for the duration of this function
-  return HalFile(std::make_unique<HalFile::Impl>(SDCard.open(path, oflag)));
+  HalFile file(std::make_unique<HalFile::Impl>(SDCard.open(path, oflag)));
+  applyCacheCipher(file, path);
+  return file;
+}
+
+void HalStorage::setCacheCipherScope(const char* dir, const uint8_t key[32]) {
+  if (dir == nullptr || *dir == '\0' || key == nullptr) {
+    clearCacheCipherScope();
+    return;
+  }
+  cipherScopeDir = dir;
+  if (!cipherScopeDir.empty() && cipherScopeDir.back() != '/') cipherScopeDir += '/';
+  memcpy(cipherScopeKey, key, sizeof(cipherScopeKey));
+  cipherScopeActive = true;
+  LOG_INF("SD", "Cache cipher scope: %s", cipherScopeDir.c_str());
+}
+
+void HalStorage::clearCacheCipherScope() {
+  if (!cipherScopeActive) return;
+  cipherScopeActive = false;
+  cipherScopeDir.clear();
+  memset(cipherScopeKey, 0, sizeof(cipherScopeKey));
+}
+
+// Every file opened under the active scope is enciphered; everything else is untouched. Doing
+// this here rather than at each call site is deliberate: Section alone opens its cache through
+// a dozen sites, and one missed site would write a protected book's text to the card in the
+// clear. One check per open (not per read), so an ordinary book pays a bool test.
+//
+// A file that cannot get its cipher is CLOSED rather than returned: the caller then sees a
+// failed open, which every site already handles, instead of a working handle that would write
+// plaintext.
+void HalStorage::applyCacheCipher(HalFile& file, const char* path) {
+  if (!cipherScopeActive || path == nullptr || !file.isOpen()) return;
+  const size_t prefixLen = cipherScopeDir.size();
+  if (strncmp(path, cipherScopeDir.c_str(), prefixLen) != 0) return;
+
+  // The nonce comes from the path *relative to the cache directory*, so the same file in two
+  // books (whose keys differ anyway) and two files in one book never share a keystream.
+  const char* relative = path + prefixLen;
+  uint8_t nonce[cachekeys::kNonceBytes];
+  cachekeys::deriveFileNonce(relative, nonce);
+  if (!file.enableCipher(cipherScopeKey, nonce)) {
+    LOG_ERR("SD", "No cipher for %s - closing rather than exposing it", path);
+    file.close();
+  }
 }
 
 bool HalStorage::mkdir(const char* path, const bool pFlag) { HAL_STORAGE_WRAPPED_CALL(mkdir, path, pFlag); }
@@ -337,7 +390,8 @@ bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFi
   FsFile fsFile;
   bool ok = SDCard.openFileForRead(moduleName, path, fsFile);
   file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
-  return ok;
+  applyCacheCipher(file, path);
+  return ok && file.isOpen();
 }
 
 bool HalStorage::openFileForRead(const char* moduleName, const std::string& path, HalFile& file) {
@@ -353,7 +407,8 @@ bool HalStorage::openFileForWrite(const char* moduleName, const char* path, HalF
   FsFile fsFile;
   bool ok = SDCard.openFileForWrite(moduleName, path, fsFile);
   file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
-  return ok;
+  applyCacheCipher(file, path);
+  return ok && file.isOpen();
 }
 
 bool HalStorage::openFileForWrite(const char* moduleName, const std::string& path, HalFile& file) {
@@ -372,7 +427,8 @@ bool HalStorage::openFileForUpdate(const char* moduleName, const char* path, Hal
     LOG_ERR(moduleName, "Failed to open %s for update", path);
   }
   file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
-  return ok;
+  applyCacheCipher(file, path);
+  return ok && file.isOpen();
 }
 
 bool HalStorage::openFileForUpdate(const char* moduleName, const std::string& path, HalFile& file) {
@@ -441,10 +497,93 @@ size_t HalFile::position() const {
   assert(impl != nullptr);
   return static_cast<size_t>(impl->file.position());
 }
-int HalFile::read(void* buf, size_t count) { HAL_FILE_WRAPPED_CALL(read, buf, count); }
-int HalFile::read() { HAL_FILE_WRAPPED_CALL(read, ); }
-size_t HalFile::write(const void* buf, size_t count) { HAL_FILE_WRAPPED_CALL(write, buf, count); }
-size_t HalFile::write(uint8_t b) { HAL_FILE_WRAPPED_CALL(write, b); }
+bool HalFile::enableCipher(const uint8_t key[CacheCipher::kKeyBytes], const uint8_t nonce[CacheCipher::kNonceBytes]) {
+  assert(impl != nullptr);
+  // 44 bytes, once per protected-cache file open. Not on the stack because it has to outlive
+  // this call, and not a member by value because that would cost every file handle in the
+  // firmware for a case almost none of them are in.
+  impl->cipher = makeUniqueNoThrow<CacheCipher>(key, nonce);
+  if (!impl->cipher) {
+    LOG_ERR("SD", "OOM: cache cipher (%u bytes) - refusing to use this handle", (unsigned)sizeof(CacheCipher));
+    return false;
+  }
+  return true;
+}
+
+bool HalFile::cipherEnabled() const { return impl != nullptr && impl->cipher != nullptr; }
+
+// Read, then decipher in place at the offset the bytes came from. The position is sampled
+// before the read because the read advances it.
+int HalFile::read(void* buf, size_t count) {
+  assert(impl != nullptr);
+  if (!impl->cipher) {
+    HAL_FILE_WRAPPED_CALL(read, buf, count);
+  }
+  HalStorage::StorageLock lock;
+  const uint64_t at = impl->file.position();
+  const int n = impl->file.read(buf, count);
+  if (n > 0 && !impl->cipher->apply(static_cast<uint8_t*>(buf), static_cast<size_t>(n), at)) {
+    LOG_ERR("SD", "cache decipher refused at offset %llu", (unsigned long long)at);
+    return -1;
+  }
+  return n;
+}
+
+int HalFile::read() {
+  assert(impl != nullptr);
+  if (!impl->cipher) {
+    HAL_FILE_WRAPPED_CALL(read, );
+  }
+  HalStorage::StorageLock lock;
+  const uint64_t at = impl->file.position();
+  const int value = impl->file.read();
+  if (value < 0) return value;
+  uint8_t byte = static_cast<uint8_t>(value);
+  if (!impl->cipher->apply(&byte, 1, at)) return -1;
+  return byte;
+}
+
+// Encipher into a stack chunk rather than in place: the caller's buffer is const and may be
+// reused (a serializer writing the same record twice, say), so mutating it would be a bug that
+// only shows up later. A refusal stops the write rather than letting plaintext reach the card.
+size_t HalFile::write(const void* buf, size_t count) {
+  assert(impl != nullptr);
+  if (!impl->cipher) {
+    HAL_FILE_WRAPPED_CALL(write, buf, count);
+  }
+  HalStorage::StorageLock lock;
+  constexpr size_t kChunkBytes = 128;  // stack budget: CLAUDE.md caps locals at ~256 bytes
+  uint8_t chunk[kChunkBytes];
+  const uint8_t* src = static_cast<const uint8_t*>(buf);
+  const uint64_t start = impl->file.position();
+
+  size_t written = 0;
+  while (written < count) {
+    const size_t remaining = count - written;
+    const size_t take = remaining < kChunkBytes ? remaining : kChunkBytes;
+    memcpy(chunk, src + written, take);
+    if (!impl->cipher->apply(chunk, take, start + written)) {
+      LOG_ERR("SD", "cache encipher refused at offset %llu - write truncated", (unsigned long long)(start + written));
+      return written;
+    }
+    const size_t n = impl->file.write(chunk, take);
+    written += n;
+    if (n != take) break;  // short write; the caller sees the count it actually got
+  }
+  return written;
+}
+
+size_t HalFile::write(uint8_t b) {
+  assert(impl != nullptr);
+  if (!impl->cipher) {
+    HAL_FILE_WRAPPED_CALL(write, b);
+  }
+  HalStorage::StorageLock lock;
+  const uint64_t at = impl->file.position();
+  uint8_t byte = b;
+  if (!impl->cipher->apply(&byte, 1, at)) return 0;
+  return impl->file.write(byte);
+}
 bool HalFile::rename(const char* newPath) { HAL_FILE_WRAPPED_CALL(rename, newPath); }
 bool HalFile::getModifyDateTime(uint16_t* pdate, uint16_t* ptime) {
   HAL_FILE_WRAPPED_CALL(getModifyDateTime, pdate, ptime);

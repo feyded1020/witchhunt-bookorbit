@@ -3,6 +3,10 @@
 // Implements FsFile on top of stdio so tests can read actual .epub files
 // and write real cache files under /tmp.
 
+#include "CacheCipher.h"
+#include "CacheKeys.h"
+
+#include <memory>
 #include <fcntl.h>
 
 #include <algorithm>
@@ -122,14 +126,32 @@ class HalFile : public Print {
   bool isOpen() const { return fp_ != nullptr; }
   explicit operator bool() const { return fp_ != nullptr || isDir_ || hasName_; }
 
+  // Mirrors HalFile::enableCipher on the device (lib/hal/HalStorage.cpp). Implemented here
+  // rather than stubbed so the pipeline goldens can run over an ENCIPHERED cache and prove the
+  // enciphering is transparent — the whole point of the length-preserving, offset-addressed
+  // design. The host uses the portable ChaCha20 core; the device uses wolfSSL's.
+  bool enableCipher(const uint8_t key[32], const uint8_t nonce[12]) {
+    cipher_ = std::make_unique<CacheCipher>(key, nonce);
+    return true;
+  }
+  bool cipherEnabled() const { return cipher_ != nullptr; }
+
   int read(void* buf, size_t n) {
     if (!fp_) return -1;
-    return static_cast<int>(fread(buf, 1, n, fp_));
+    const uint64_t at = position();
+    const int got = static_cast<int>(fread(buf, 1, n, fp_));
+    if (cipher_ && got > 0 && !cipher_->apply(static_cast<uint8_t*>(buf), static_cast<size_t>(got), at)) return -1;
+    return got;
   }
   // Single-byte read, SdFat-style: returns the byte or -1 (used by Bitmap.cpp).
   int read() {
     if (!fp_) return -1;
-    return fgetc(fp_);
+    const uint64_t at = position();
+    const int value = fgetc(fp_);
+    if (!cipher_ || value < 0) return value;
+    uint8_t byte = static_cast<uint8_t>(value);
+    if (!cipher_->apply(&byte, 1, at)) return -1;
+    return byte;
   }
 
   bool seek(size_t pos) { return fp_ && fseek(fp_, static_cast<long>(pos), SEEK_SET) == 0; }
@@ -154,17 +176,30 @@ class HalFile : public Print {
   uint64_t size64() { return fileSize(); }
   uint64_t fileSize64() { return fileSize(); }
 
-  size_t write(const uint8_t* data, size_t size) {
-    if (!fp_) return 0;
-    return fwrite(data, 1, size, fp_);
-  }
+  size_t write(const uint8_t* data, size_t size) { return write(static_cast<const void*>(data), size); }
   // Device SdFat accepts void*; Page.cpp writes char arrays through this.
   size_t write(const void* data, size_t size) {
     if (!fp_) return 0;
-    return fwrite(data, 1, size, fp_);
+    if (!cipher_) return fwrite(data, 1, size, fp_);
+    // Enciphered into a scratch chunk, never in the caller's buffer — same contract as the
+    // device path, which callers rely on when they reuse a record buffer.
+    const uint8_t* src = static_cast<const uint8_t*>(data);
+    uint8_t chunk[128];
+    const uint64_t start = position();
+    size_t written = 0;
+    while (written < size) {
+      const size_t take = std::min(sizeof(chunk), size - written);
+      memcpy(chunk, src + written, take);
+      if (!cipher_->apply(chunk, take, start + written)) return written;
+      const size_t n = fwrite(chunk, 1, take, fp_);
+      written += n;
+      if (n != take) break;
+    }
+    return written;
   }
   size_t write(uint8_t c) override {
     if (!fp_) return 0;
+    if (cipher_ && !cipher_->apply(&c, 1, position())) return 0;
     return fwrite(&c, 1, 1, fp_);
   }
   void flush() {
@@ -214,6 +249,7 @@ class HalFile : public Print {
   };
 
   FILE* fp_ = nullptr;
+  std::unique_ptr<CacheCipher> cipher_;  // null for every ordinary file
   bool hasImpl_ = false;
   bool isDir_ = false;
   bool hasName_ = false;
@@ -226,10 +262,37 @@ using FsFile = HalFile;
 
 class HalStorage {
  public:
-  bool openFileForRead(const char*, const std::string& path, HalFile& f) { return f.openForRead(path); }
-  bool openFileForRead(const char*, const char* path, HalFile& f) { return f.openForRead(path); }
-  bool openFileForWrite(const char*, const std::string& path, HalFile& f) { return f.openForWrite(path); }
-  bool openFileForWrite(const char*, const char* path, HalFile& f) { return f.openForWrite(path); }
+  bool openFileForRead(const char* m, const std::string& path, HalFile& f) {
+    return openFileForRead(m, path.c_str(), f);
+  }
+  bool openFileForRead(const char*, const char* path, HalFile& f) {
+    const bool ok = f.openForRead(path);
+    applyCacheCipher(f, path);
+    return ok;
+  }
+  bool openFileForWrite(const char* m, const std::string& path, HalFile& f) {
+    return openFileForWrite(m, path.c_str(), f);
+  }
+  bool openFileForWrite(const char*, const char* path, HalFile& f) {
+    const bool ok = f.openForWrite(path);
+    applyCacheCipher(f, path);
+    return ok;
+  }
+
+  // The device's scope mechanism, mirrored so host tests can run a protected book end to end.
+  void setCacheCipherScope(const char* dir, const uint8_t key[32]) {
+    if (!dir || !*dir || !key) return clearCacheCipherScope();
+    cipherScopeDir_ = dir;
+    if (!cipherScopeDir_.empty() && cipherScopeDir_.back() != '/') cipherScopeDir_ += '/';
+    memcpy(cipherScopeKey_, key, sizeof(cipherScopeKey_));
+    cipherScopeActive_ = true;
+  }
+  void clearCacheCipherScope() {
+    cipherScopeActive_ = false;
+    cipherScopeDir_.clear();
+    memset(cipherScopeKey_, 0, sizeof(cipherScopeKey_));
+  }
+  bool cacheCipherScopeActive() const { return cipherScopeActive_; }
   bool openFileForUpdate(const char*, const std::string& path, HalFile& f) { return f.openForUpdate(path); }
   bool openFileForUpdate(const char*, const char* path, HalFile& f) { return f.openForUpdate(path); }
   bool exists(const char* path) { return std::filesystem::exists(path); }
@@ -288,6 +351,21 @@ class HalStorage {
     static HalStorage i;
     return i;
   }
+
+ private:
+  // Same rule as the device: a file opened under the active scope is enciphered, keyed by its
+  // path relative to that scope. See lib/hal/HalStorage.cpp.
+  void applyCacheCipher(HalFile& f, const char* path) {
+    if (!cipherScopeActive_ || !path || !f.isOpen()) return;
+    if (strncmp(path, cipherScopeDir_.c_str(), cipherScopeDir_.size()) != 0) return;
+    uint8_t nonce[cachekeys::kNonceBytes];
+    cachekeys::deriveFileNonce(path + cipherScopeDir_.size(), nonce);
+    f.enableCipher(cipherScopeKey_, nonce);
+  }
+
+  std::string cipherScopeDir_;
+  uint8_t cipherScopeKey_[32] = {0};
+  bool cipherScopeActive_ = false;
 };
 
 #define Storage HalStorage::getInstance()

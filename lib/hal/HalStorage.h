@@ -107,6 +107,19 @@ class HalStorage {
   uint64_t sdUsedBytes();
   uint64_t sdFreeBytes();
 
+  // Encipher-at-rest for one directory subtree — the per-book cache of a protected book.
+  // While a scope is set, every file opened under `dir` is transparently enciphered with a key
+  // derived from the book and a nonce derived from the file's path within the scope; reads
+  // decipher, writes encipher, and no caller changes. See docs/protected-content-plan.md §3.
+  //
+  // One scope at a time, which matches one book open at a time. The owner sets it as the book
+  // opens and clears it as the book closes; leaving a stale scope set would encipher another
+  // book's cache under the wrong key, so tie it to the book's lifetime rather than to a code
+  // path. Files outside the scope, and all files when no scope is set, are untouched.
+  void setCacheCipherScope(const char* dir, const uint8_t key[32]);
+  void clearCacheCipherScope();
+  bool cacheCipherScopeActive() const { return cipherScopeActive; }
+
   static HalStorage& getInstance() { return instance; }
 
   class StorageLock;  // private class, used internally
@@ -114,8 +127,16 @@ class HalStorage {
  private:
   static HalStorage instance;
 
+  // Attaches the cipher to a freshly opened handle when its path falls inside the active
+  // scope, and closes the handle if that fails.
+  void applyCacheCipher(HalFile& file, const char* path);
+
   bool initialized = false;
   SemaphoreHandle_t storageMutex = nullptr;
+
+  std::string cipherScopeDir;  // always ends in '/', empty when inactive
+  uint8_t cipherScopeKey[32] = {0};
+  bool cipherScopeActive = false;
 };
 
 #define Storage HalStorage::getInstance()
@@ -162,6 +183,22 @@ class HalFile : public Print {
   HalFile openNextFile();
   bool isOpen() const;
   operator bool() const;
+
+  // Encipher this handle's contents at rest — for the per-book cache of a protected book,
+  // where the derived files (extracted XHTML, laid-out pages, converted images) would
+  // otherwise put the whole book in the clear beside the encrypted one. See
+  // docs/protected-content-plan.md §3 and lib/CacheCipher.
+  //
+  // Applies from here on: call it immediately after opening, before any read or write. Reads
+  // decipher in place, writes encipher a copy, and the cipher is length-preserving and
+  // addressed by absolute file offset, so every seek, offset table and header patch in the
+  // cache formats keeps working untouched.
+  //
+  // Returns false only on allocation failure, which the caller must treat as fatal for that
+  // file: continuing would write plaintext. Files without this call are unaffected — one null
+  // check per read/write, no allocation.
+  bool enableCipher(const uint8_t key[32], const uint8_t nonce[12]);
+  bool cipherEnabled() const;
 };
 
 // Only do renaming FsFile to HalFile if this header is included by downstream code

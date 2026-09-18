@@ -2,6 +2,7 @@
 
 #include <Bitmap.h>
 #include <BufferedFileIO.h>
+#include <CacheKeyStore.h>
 #include <CooperativeAbort.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
@@ -626,10 +627,42 @@ void Epub::parseCssFiles() const {
   cssParser->clear();
 }
 
+Epub::~Epub() {
+  // The storage cipher scope is global state keyed to this book; a scope left behind would
+  // encipher the NEXT book's cache under this book's key. Tied to the destructor rather than
+  // to a close() call so no early-return path can skip it.
+  if (cacheCipherActive) Storage.clearCacheCipherScope();
+}
+
+// Puts this book's cache directory under a storage cipher scope when the book is protected, so
+// every cache file it writes is enciphered at rest without any of the cache code knowing.
+// Returns false only when the book IS protected but no key could be obtained — the caller must
+// then refuse to open it rather than cache it in the clear.
+bool Epub::initCacheCipher() {
+  if (cacheCipherActive) return true;
+  // Phase 1 replaces this with the real classification; see Epub::cacheEnciphered().
+  if (!Storage.exists((filepath + ".rights").c_str())) return true;
+
+  uint8_t bookKey[cachekeys::kBookKeyBytes];
+  if (!cachekeys::bookKeyForCacheDir(cachePath.c_str(), bookKey)) {
+    LOG_ERR("EBP", "Protected book but no cache key: %s", filepath.c_str());
+    return false;
+  }
+  Storage.setCacheCipherScope(cachePath.c_str(), bookKey);
+  memset(bookKey, 0, sizeof(bookKey));
+  cacheCipherActive = true;
+  LOG_INF("EBP", "Cache enciphered at rest for %s", filepath.c_str());
+  return true;
+}
+
 // load in the meta data for the epub file
 bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   LOG_DBG("EBP", "Loading ePub: %s", filepath.c_str());
   tocReliability = TocReliability::Unknown;
+
+  // Before anything touches the cache directory: every open below has to land inside the
+  // scope, or a protected book leaves half its text on the card in the clear.
+  if (!initCacheCipher()) return false;
 
   // Initialize spine/TOC cache
   bookMetadataCache.reset(new BookMetadataCache(cachePath));
@@ -897,6 +930,12 @@ bool Epub::loadForCover() {
   // Cover-only load: get coverItemHref WITHOUT building the spine/TOC book.bin (which, on a huge
   // book, is both slow and the site of the large manifest-index build). Used by RecentBooks / Home
   // cover thumbnails so showing a thumbnail never triggers a full-book parse.
+  //
+  // The cipher scope belongs here too, not only in load(): this path WRITES to the same cache
+  // directory (book.bin, cover thumbnails). Writing those in the clear and later reading them
+  // back through the cipher — which a full open would do — returns noise, so every entry point
+  // that touches a book's cache has to agree about whether it is enciphered.
+  if (!initCacheCipher()) return false;
   bookMetadataCache.reset(new BookMetadataCache(cachePath));
   cssParser.reset(new CssParser(cachePath));  // constructed for API symmetry; not parsed here
 
@@ -945,6 +984,8 @@ bool Epub::loadForMetadata() {
   // Metadata-only load: see the header for why this exists (issue #104 — the series-sequel scan used
   // to full-load every EPUB in the folder). Structured exactly like loadForCover(); the only
   // difference is which field the caller goes on to read, so neither marks the other's data valid.
+  // Same cache directory, so the same cipher-scope rule as loadForCover().
+  if (!initCacheCipher()) return false;
   bookMetadataCache.reset(new BookMetadataCache(cachePath));
   cssParser.reset(new CssParser(cachePath));  // constructed for API symmetry; not parsed here
 
