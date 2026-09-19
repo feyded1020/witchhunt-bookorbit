@@ -692,8 +692,8 @@ void LyraCarouselTheme::drawList(const GfxRenderer& renderer, Rect rect, int ite
   constexpr int maxValWidth = 200;
   constexpr int cornerRadius = 6;
 
-  const int rowHeight = (rowSubtitle != nullptr) ? LyraCarouselMetrics::values.listWithSubtitleRowHeight
-                                                 : LyraCarouselMetrics::values.listRowHeight;
+  const int rowHeight = (rowSubtitle != nullptr) ? UITheme::getInstance().getMetrics().listWithSubtitleRowHeight
+                                                 : UITheme::getInstance().getMetrics().listRowHeight;
   // Never paint more rows than the touch band can register — see BaseTheme::drawList.
   const int pageItems = std::min(rect.height / rowHeight, ListTouchBand::kMaxRows);
   if (pageItems <= 0 || itemCount <= 0 || rowTitle == nullptr) {

@@ -255,7 +255,7 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<UIIcon(int index)>& rowIcon,
                          const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
   int rowHeight =
-      (rowSubtitle != nullptr) ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
+      (rowSubtitle != nullptr) ? UITheme::getInstance().getMetrics().listWithSubtitleRowHeight : UITheme::getInstance().getMetrics().listRowHeight;
   int pageItems = rect.height / rowHeight;
   // Never paint more rows than the touch band can register: a painted row past the cap is drawn
   // but recorded by nothing, so it answers to no tap. That is not hypothetical -- the reader
@@ -722,7 +722,7 @@ void LyraTheme::drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) c
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
-  int rowHeight = LyraMetrics::values.menuRowHeight;
+  int rowHeight = UITheme::getInstance().getMetrics().menuRowHeight;
   int rowSpacing = LyraMetrics::values.menuSpacing;
   if (buttonCount > 0 && rect.height > 0) {
     const int defaultHeight = buttonCount * rowHeight + std::max(0, buttonCount - 1) * rowSpacing;

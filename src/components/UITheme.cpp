@@ -1,5 +1,7 @@
 #include "UITheme.h"
 
+#include "UiFonts.h"
+
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
@@ -58,32 +60,48 @@ void UITheme::reload() {
   setTheme(themeType);
 }
 
+void UITheme::applyFontScale(const ThemeMetrics& base) {
+  scaledMetrics = base;
+  currentMetrics = &scaledMetrics;
+  const float scale = uiFontScale();
+  if (scale <= 1.0f) return;
+  const auto grow = [scale](int v) { return static_cast<int>(v * scale + 0.5f); };
+  // Only rows whose height is set by the text inside them. Headers, covers and the home menu
+  // already have room for a size or two; the home menu gets a little at Extra Large only.
+  scaledMetrics.listRowHeight = grow(base.listRowHeight);
+  scaledMetrics.listWithSubtitleRowHeight = grow(base.listWithSubtitleRowHeight);
+  scaledMetrics.tabBarHeight = grow(base.tabBarHeight);
+  scaledMetrics.keyboardKeyHeight = grow(base.keyboardKeyHeight);
+  scaledMetrics.keyboardBottomKeyHeight = grow(base.keyboardBottomKeyHeight);
+  if (scale >= 1.4f) scaledMetrics.menuRowHeight = base.menuRowHeight + 8;
+}
+
 void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
   switch (type) {
     case CrossPointSettings::UI_THEME::CLASSIC:
       LOG_DBG("UI", "Using Classic theme");
       currentTheme = std::make_unique<BaseTheme>();
-      currentMetrics = &BaseMetrics::values;
+      applyFontScale(BaseMetrics::values);
       break;
     case CrossPointSettings::UI_THEME::LYRA:
       LOG_DBG("UI", "Using Lyra theme");
       currentTheme = std::make_unique<LyraTheme>();
-      currentMetrics = &LyraMetrics::values;
+      applyFontScale(LyraMetrics::values);
       break;
     case CrossPointSettings::UI_THEME::LYRA_3_COVERS:
       LOG_DBG("UI", "Using Lyra 3 Covers theme");
       currentTheme = std::make_unique<Lyra3CoversTheme>();
-      currentMetrics = &Lyra3CoversMetrics::values;
+      applyFontScale(Lyra3CoversMetrics::values);
       break;
     case CrossPointSettings::UI_THEME::LYRA_CAROUSEL:
       LOG_DBG("UI", "Using Lyra Carousel theme");
       currentTheme = std::make_unique<LyraCarouselTheme>();
-      currentMetrics = &LyraCarouselMetrics::values;
+      applyFontScale(LyraCarouselMetrics::values);
       break;
     default:
       LOG_ERR("UI", "Unknown theme %d, falling back to Classic", static_cast<int>(type));
       currentTheme = std::make_unique<BaseTheme>();
-      currentMetrics = &BaseMetrics::values;
+      applyFontScale(BaseMetrics::values);
       break;
   }
 }

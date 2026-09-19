@@ -40,6 +40,7 @@
 #include "GlobalBookmarkIndex.h"
 #include "BookOrbitCredentialStore.h"
 #include "WallClock.h"
+#include "components/UiFonts.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "ReadingSessionTracker.h"
@@ -178,6 +179,47 @@ EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
 EpdFont ui12RegularFont(&inter_ui_12_regular);
 EpdFont ui12BoldFont(&inter_ui_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+
+float uiFontScale() {
+  switch (SETTINGS.uiFontSize) {
+    case 1:
+      return 1.2f;
+    case 2:
+      return 1.4f;
+    default:
+      return 1.0f;
+  }
+}
+
+void applyUiFontSettings(GfxRenderer& renderer) {
+  const uint8_t size = SETTINGS.uiFontSize > 2 ? 0 : SETTINGS.uiFontSize;
+  const uint8_t family = SETTINGS.uiFontFamily > 2 ? 0 : SETTINGS.uiFontFamily;
+  // [family][size] -> {UI_10, UI_12}: each step moves both ids up one point size. Inter is only
+  // built in at 10/12 (larger sizes cost ~240 KB of flash), so Inter's Large and Extra Large
+  // use Noto Sans, the closest built-in sans, which the reader already ships.
+  EpdFontFamily* const table[3][3][2] = {
+      {{&ui10FontFamily, &ui12FontFamily},
+       {&notosans12FontFamily, &notosans14FontFamily},
+       {&notosans14FontFamily, &notosans16FontFamily}},
+      {{&notosans10FontFamily, &notosans12FontFamily},
+       {&notosans12FontFamily, &notosans14FontFamily},
+       {&notosans14FontFamily, &notosans16FontFamily}},
+      {{&bookerly10FontFamily, &bookerly12FontFamily},
+       {&bookerly12FontFamily, &bookerly14FontFamily},
+       {&bookerly14FontFamily, &bookerly16FontFamily}},
+  };
+  renderer.removeFont(UI_10_FONT_ID);
+  renderer.removeFont(UI_12_FONT_ID);
+  renderer.insertFont(UI_10_FONT_ID, *table[family][size][0]);
+  renderer.insertFont(UI_12_FONT_ID, *table[family][size][1]);
+  // SMALL stays Noto Sans 8 at every size: the reader's status bar and several packed layouts
+  // (weather, button hints) draw with it inside fixed-height boxes that do not grow.
+  static bool smallInserted = false;
+  if (!smallInserted) {
+    renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+    smallInserted = true;
+  }
+}
 
 // SilentRestart.h definitions. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
@@ -656,9 +698,7 @@ void setupDisplayAndFonts(bool seamless = false, bool skipSdFontDiscovery = fals
   renderer.insertFont(NOTOSANS_14_FONT_ID, notosans14FontFamily);
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
-  renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
-  renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
-  renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+  applyUiFontSettings(renderer);  // UI_10 / UI_12 / SMALL per the Menu Font settings
 
   // Discover SD card fonts (under /.crosspoint/fonts/) and load the family
   // currently selected in settings (if any). Safe to call without an SD card.
