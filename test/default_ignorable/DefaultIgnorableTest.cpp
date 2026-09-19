@@ -39,16 +39,19 @@ struct NamedFont {
 };
 
 std::vector<NamedFont> shippedFonts() {
+  // Read through EpdFontData rather than naming the arrays. The per-face table symbols are an
+  // internal detail of the generated headers: dedupe_font_tables.py hoists any that several faces
+  // emitted identically into shared_tables.h, and the per-face name then no longer exists. The
+  // struct carries both the pointer and the count, so it is the stable surface.
   return {
-      {"bookerly_14_regular", bookerly_14_regularIntervals,
-       sizeof(bookerly_14_regularIntervals) / sizeof(bookerly_14_regularIntervals[0]), bookerly_14_regularGlyphs},
-      {"bookerly_18_bolditalic", bookerly_18_bolditalicIntervals,
-       sizeof(bookerly_18_bolditalicIntervals) / sizeof(bookerly_18_bolditalicIntervals[0]),
-       bookerly_18_bolditalicGlyphs},
-      {"notosans_14_regular", notosans_14_regularIntervals,
-       sizeof(notosans_14_regularIntervals) / sizeof(notosans_14_regularIntervals[0]), notosans_14_regularGlyphs},
-      {"inter_ui_12_regular", inter_ui_12_regularIntervals,
-       sizeof(inter_ui_12_regularIntervals) / sizeof(inter_ui_12_regularIntervals[0]), inter_ui_12_regularGlyphs},
+      {"bookerly_14_regular", bookerly_14_regular.intervals, bookerly_14_regular.intervalCount,
+       bookerly_14_regular.glyph},
+      {"bookerly_18_bolditalic", bookerly_18_bolditalic.intervals, bookerly_18_bolditalic.intervalCount,
+       bookerly_18_bolditalic.glyph},
+      {"notosans_14_regular", notosans_14_regular.intervals, notosans_14_regular.intervalCount,
+       notosans_14_regular.glyph},
+      {"inter_ui_12_regular", inter_ui_12_regular.intervals, inter_ui_12_regular.intervalCount,
+       inter_ui_12_regular.glyph},
   };
 }
 

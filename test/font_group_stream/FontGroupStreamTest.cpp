@@ -76,8 +76,11 @@ const EpdFontData& Font() {
     EpdFontData f{};
     f.bitmap = notosans_14_regularBitmaps;
     f.glyph = notosans_14_regularGlyphs;
-    f.intervals = notosans_14_regularIntervals;
-    f.intervalCount = sizeof(notosans_14_regularIntervals) / sizeof(notosans_14_regularIntervals[0]);
+    // Via the struct, not the array symbol: interval tables that several faces emitted
+    // identically are hoisted into shared_tables.h by dedupe_font_tables.py, so the per-face
+    // name is not guaranteed to exist.
+    f.intervals = notosans_14_regular.intervals;
+    f.intervalCount = notosans_14_regular.intervalCount;
     return f;
   }();
   return font;
