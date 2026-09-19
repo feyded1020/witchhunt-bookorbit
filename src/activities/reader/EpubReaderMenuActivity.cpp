@@ -49,13 +49,9 @@ std::string defaultFontFamilyLabel(const SettingInfo& item) {
       return std::string(SETTINGS.sdFontFamilyName);
     }
   }
-  // Built-in: enumValues[0] is STR_DEFAULT_VALUE, [1..] are built-in families
+  // Built-in: index 0 is the "Default" entry, [1..] are built-in families
   // in CrossPointSettings::FONT_FAMILY order.
-  const auto idx = static_cast<size_t>(SETTINGS.fontFamily + 1);
-  if (idx < item.enumValues.size()) {
-    return I18N.get(item.enumValues[idx]);
-  }
-  return {};
+  return item.getEnumOptionLabel(static_cast<uint8_t>(SETTINGS.fontFamily + 1));
 }
 }  // namespace
 
@@ -223,12 +219,10 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
     settingsItems.push_back(std::move(familySetting));
   }
 
-  // Reader font size: cycles default(-1) -> Small(0) -> Medium(1) -> Large(2) -> X Large(3) -> Tiny(4)
-  settingsItems.push_back(SettingInfo::DynamicEnumCtx(
-                              StrId::STR_FONT_SIZE,
-                              {StrId::STR_DEFAULT_VALUE, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE,
-                               StrId::STR_X_LARGE, StrId::STR_TINY},
-                              self,
+  // Reader font size: cycles default(-1) then the FONT_SIZE values in enum order, labelled with
+  // their point sizes from CrossPointSettings::FONT_SIZE_RUNGS.
+  auto fontSizeSetting = SettingInfo::DynamicEnumCtx(
+                              StrId::STR_FONT_SIZE, {}, self,
                               [](const void* ctx) -> uint8_t {
                                 const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
                                 return (s->pendingFontSizeOverride < 0)
@@ -239,7 +233,9 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
                                 auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
                                 s->pendingFontSizeOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
                               })
-                              .withSelectorActivity());
+                              .withSelectorActivity();
+  fontSizeSetting.enumLabels = CrossPointSettings::fontSizeLabels(tr(STR_DEFAULT_VALUE));
+  settingsItems.push_back(std::move(fontSizeSetting));
 
   // Text darkness. The list is positional -- index IS the stored value -- and
   // Lighter sits last despite being the lightest, because the value is
@@ -493,10 +489,8 @@ std::string EpubReaderMenuActivity::getItemValueString(int index) const {
       return std::string(tr(STR_DEFAULT_VALUE)) + " (" + defaultEffective + ")";
     }
     if (item.nameId == StrId::STR_IMAGES && pendingImageRenderingOverride < 0) {
-      const auto defaultIndex = static_cast<size_t>(SETTINGS.imageRendering + 1);
-      if (defaultIndex < item.enumValues.size()) {
-        return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[defaultIndex]) + ")";
-      }
+      const auto label = item.getEnumOptionLabel(static_cast<uint8_t>(SETTINGS.imageRendering + 1));
+      if (!label.empty()) return std::string(tr(STR_DEFAULT_VALUE)) + " (" + label + ")";
     }
     if (item.nameId == StrId::STR_FONT_FAMILY && pendingFontFamilyOverride < 0 && pendingSdFontFamilyOverride.empty()) {
       const auto label = defaultFontFamilyLabel(item);
@@ -505,16 +499,12 @@ std::string EpubReaderMenuActivity::getItemValueString(int index) const {
       }
     }
     if (item.nameId == StrId::STR_FONT_SIZE && pendingFontSizeOverride < 0) {
-      const auto defaultIndex = static_cast<size_t>(SETTINGS.fontSize + 1);
-      if (defaultIndex < item.enumValues.size()) {
-        return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[defaultIndex]) + ")";
-      }
+      const auto label = item.getEnumOptionLabel(static_cast<uint8_t>(SETTINGS.fontSize + 1));
+      if (!label.empty()) return std::string(tr(STR_DEFAULT_VALUE)) + " (" + label + ")";
     }
     if (item.nameId == StrId::STR_PARA_ALIGNMENT && pendingParagraphAlignmentOverride < 0) {
-      const auto defaultIndex = static_cast<size_t>(SETTINGS.paragraphAlignment + 1);
-      if (defaultIndex < item.enumValues.size()) {
-        return std::string(tr(STR_DEFAULT_VALUE)) + " (" + I18N.get(item.enumValues[defaultIndex]) + ")";
-      }
+      const auto label = item.getEnumOptionLabel(static_cast<uint8_t>(SETTINGS.paragraphAlignment + 1));
+      if (!label.empty()) return std::string(tr(STR_DEFAULT_VALUE)) + " (" + label + ")";
     }
     if (item.nameId == StrId::STR_TEXT_AA && pendingTextAntiAliasingOverride < 0) {
       const auto defaultEffective = (SETTINGS.textAntiAliasing != 0) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);

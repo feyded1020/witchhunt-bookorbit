@@ -92,12 +92,16 @@ struct SettingInfo {
   StrId nameId;
   SettingType type;
   uint8_t CrossPointSettings::* valuePtr = nullptr;
-  // Enum values are used as StrId references for localization via I18N.get().
-  // If enumLabels is populated, it is authoritative for display and index bounds.
-  // In that case it must have the same length as enumValues, because consumers
-  // such as getDisplayValue(), toggleValue(), and CrossPointWebServer::handleGetSettings()
-  // prefer enumLabels when present. Code paths which validate posted enum values
-  // should also use enumLabels.size() when enumLabels is non-empty.
+  // A row's options come from ONE of these two, never both:
+  //
+  //   enumValues -- StrId references, localized through I18N.get(). The normal case.
+  //   enumLabels -- ready-made strings, for options whose text is not a translatable phrase:
+  //                 a font family read off the SD card, or a point size ("14pt").
+  //
+  // enumLabels wins whenever it is non-empty, so a row that sets it leaves enumValues EMPTY
+  // rather than padding it to the same length. Everything that displays or bounds options goes
+  // through getEnumOptionCount() / getEnumOptionLabel(); read either vector directly and a
+  // labels-only row renders blank and clamps to zero, which is how it used to fail.
   std::vector<StrId> enumValues;
   std::vector<std::string> enumLabels;
   SettingAction action = SettingAction::None;

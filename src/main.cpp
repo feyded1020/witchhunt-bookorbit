@@ -136,6 +136,14 @@ EpdFont bookerly18ItalicFont(&bookerly_18_italic);
 EpdFont bookerly18BoldItalicFont(&bookerly_18_bolditalic);
 EpdFontFamily bookerly18FontFamily(&bookerly18RegularFont, &bookerly18BoldFont, &bookerly18ItalicFont,
                                    &bookerly18BoldItalicFont);
+// The accessibility rung. Jumps from 18 to 24 rather than continuing in twos: the point is to be
+// readable by someone who cannot read 18 pt at all, and each extra rung costs flash in eight faces.
+EpdFont bookerly24RegularFont(&bookerly_24_regular);
+EpdFont bookerly24BoldFont(&bookerly_24_bold);
+EpdFont bookerly24ItalicFont(&bookerly_24_italic);
+EpdFont bookerly24BoldItalicFont(&bookerly_24_bolditalic);
+EpdFontFamily bookerly24FontFamily(&bookerly24RegularFont, &bookerly24BoldFont, &bookerly24ItalicFont,
+                                   &bookerly24BoldItalicFont);
 
 EpdFont notosans10RegularFont(&notosans_10_regular);
 EpdFont notosans10BoldFont(&notosans_10_bold);
@@ -167,6 +175,12 @@ EpdFont notosans18ItalicFont(&notosans_18_italic);
 EpdFont notosans18BoldItalicFont(&notosans_18_bolditalic);
 EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, &notosans18ItalicFont,
                                    &notosans18BoldItalicFont);
+EpdFont notosans24RegularFont(&notosans_24_regular);
+EpdFont notosans24BoldFont(&notosans_24_bold);
+EpdFont notosans24ItalicFont(&notosans_24_italic);
+EpdFont notosans24BoldItalicFont(&notosans_24_bolditalic);
+EpdFontFamily notosans24FontFamily(&notosans24RegularFont, &notosans24BoldFont, &notosans24ItalicFont,
+                                   &notosans24BoldItalicFont);
 
 EpdFont smallFont(&notosans_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
@@ -682,12 +696,14 @@ void setupDisplayAndFonts(bool seamless = false, bool skipSdFontDiscovery = fals
   renderer.insertFont(BOOKERLY_12_FONT_ID, bookerly12FontFamily);
   renderer.insertFont(BOOKERLY_16_FONT_ID, bookerly16FontFamily);
   renderer.insertFont(BOOKERLY_18_FONT_ID, bookerly18FontFamily);
+  renderer.insertFont(BOOKERLY_24_FONT_ID, bookerly24FontFamily);
 
   renderer.insertFont(NOTOSANS_10_FONT_ID, notosans10FontFamily);
   renderer.insertFont(NOTOSANS_12_FONT_ID, notosans12FontFamily);
   renderer.insertFont(NOTOSANS_14_FONT_ID, notosans14FontFamily);
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
+  renderer.insertFont(NOTOSANS_24_FONT_ID, notosans24FontFamily);
   // The three UI slots are bound by the font ladder rather than registered here, so the first
   // bind and every later rebind run the same code path.
   applyUiFontScale();

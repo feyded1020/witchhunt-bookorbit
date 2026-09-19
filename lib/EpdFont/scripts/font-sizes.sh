@@ -10,8 +10,8 @@
 # name from builtinFonts/all.h, main.cpp and CrossPointSettings.cpp.
 
 READER_FONT_STYLES=("Regular" "Italic" "Bold" "BoldItalic")
-BOOKERLY_FONT_SIZES=(10 12 14 16 18)
-NOTOSANS_FONT_SIZES=(10 12 14 16 18)
+BOOKERLY_FONT_SIZES=(10 12 14 16 18 24)
+NOTOSANS_FONT_SIZES=(10 12 14 16 18 24)
 
 UI_FONT_STYLES=("Regular" "Bold")
 UI_FONT_SIZES=(10 12 14)

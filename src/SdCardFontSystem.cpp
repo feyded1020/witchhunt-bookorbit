@@ -95,14 +95,11 @@ std::string fontFamilyOptionLabel(uint8_t i) {
   return sdIdx < families.size() ? families[sdIdx].name : std::string();
 }
 
-// Map fontSize enum (SMALL=0, MEDIUM=1, LARGE=2, EXTRA_LARGE=3, TINY=4) to point sizes.
-static constexpr uint8_t FONT_SIZE_TO_PT[] = {12, 14, 16, 18, 10};
+// The point size the selected reader size renders at. Reads the one ladder table rather than a
+// local copy keyed on enum VALUE -- that copy silently went stale whenever a size was added.
+static uint8_t targetPtSizeFromEnum(uint8_t fontSizeEnum);
 
-static uint8_t targetPtSizeFromSettings() {
-  uint8_t e = SETTINGS.fontSize;
-  if (e >= sizeof(FONT_SIZE_TO_PT)) e = 1;  // default to MEDIUM
-  return FONT_SIZE_TO_PT[e];
-}
+static uint8_t targetPtSizeFromSettings() { return targetPtSizeFromEnum(SETTINGS.fontSize); }
 
 void SdCardFontSystem::begin(GfxRenderer& renderer) {
   (void)renderer;
@@ -161,9 +158,9 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
   }
 }
 
-static uint8_t targetPtSizeFromEnum(uint8_t fontSizeEnum) {
-  if (fontSizeEnum >= sizeof(FONT_SIZE_TO_PT)) fontSizeEnum = 1;  // default to MEDIUM
-  return FONT_SIZE_TO_PT[fontSizeEnum];
+static uint8_t targetPtSizeFromEnum(const uint8_t fontSizeEnum) {
+  const uint8_t pt = CrossPointSettings::fontSizePoints(fontSizeEnum);
+  return pt != 0 ? pt : CrossPointSettings::fontSizePoints(CrossPointSettings::MEDIUM);
 }
 
 uint8_t SdCardFontSystem::targetPointSize(const uint8_t fontSizeEnum) { return targetPtSizeFromEnum(fontSizeEnum); }

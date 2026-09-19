@@ -18,11 +18,13 @@ static_assert(BOOKERLY_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_14_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_16_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_18_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BOOKERLY_24_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_14_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_16_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_18_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSANS_24_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_12_FONT_ID != 0, "Font ID collision with sentinel");
@@ -261,6 +263,8 @@ int CrossPointSettings::getBuiltinReaderFontId(uint8_t family, uint8_t size) {
           return BOOKERLY_16_FONT_ID;
         case EXTRA_LARGE:
           return BOOKERLY_18_FONT_ID;
+        case XX_LARGE:
+          return BOOKERLY_24_FONT_ID;
       }
     case NOTOSANS:
       switch (size) {
@@ -275,22 +279,25 @@ int CrossPointSettings::getBuiltinReaderFontId(uint8_t family, uint8_t size) {
           return NOTOSANS_16_FONT_ID;
         case EXTRA_LARGE:
           return NOTOSANS_18_FONT_ID;
+        case XX_LARGE:
+          return NOTOSANS_24_FONT_ID;
       }
   }
 }
 
-constexpr uint8_t CrossPointSettings::FONT_SIZE_LADDER[];
+constexpr CrossPointSettings::ReaderFontRung CrossPointSettings::FONT_SIZE_RUNGS[];
+
 
 int CrossPointSettings::getTallerBuiltinReaderFontId(const uint8_t family, const uint8_t size, const uint8_t stepUp,
                                                      uint8_t* const actualStep) {
-  // Ascending pixel ladder (smallest -> largest). FONT_SIZE enum order is NOT pixel order
-  // (TINY=4), so step through this explicit table instead of enum arithmetic.
-  static constexpr uint8_t kLadder[] = {TINY, SMALL, MEDIUM, LARGE, EXTRA_LARGE};
-  constexpr int kLadderLen = static_cast<int>(sizeof(kLadder) / sizeof(kLadder[0]));
+  // Ascending pixel ladder, from the one table that defines it. Enum order now matches, but read
+  // the table anyway: that agreement is a property of today's numbering, not a rule, and the
+  // table is the thing a future insertion updates.
+  constexpr int kLadderLen = FONT_SIZE_RUNG_COUNT;
 
   int idx = -1;
   for (int i = 0; i < kLadderLen; ++i) {
-    if (kLadder[i] == size) {
+    if (FONT_SIZE_RUNGS[i].size == size) {
       idx = i;
       break;
     }
@@ -301,7 +308,7 @@ int CrossPointSettings::getTallerBuiltinReaderFontId(const uint8_t family, const
   }
   const int target = std::min(idx + static_cast<int>(stepUp), kLadderLen - 1);
   if (actualStep) *actualStep = static_cast<uint8_t>(target - idx);
-  return getBuiltinReaderFontId(family, kLadder[target]);
+  return getBuiltinReaderFontId(family, FONT_SIZE_RUNGS[target].size);
 }
 
 int CrossPointSettings::getReaderFontId() const {

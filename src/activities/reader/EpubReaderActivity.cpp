@@ -2555,20 +2555,20 @@ int EpubReaderActivity::getEffectiveReaderFontId() const {
 // four page slots. Two things changed since: FontCacheManager now prewarms per fontId, and
 // the parser caps sections at ONE auxiliary font (body R/B/I + aux R = exactly four slots).
 static FontSizeLadder buildReaderFontSizeLadder(const int bodyFontId) {
-  static constexpr uint8_t kSizeEnums[] = {CrossPointSettings::TINY, CrossPointSettings::SMALL,
-                                           CrossPointSettings::MEDIUM, CrossPointSettings::LARGE,
-                                           CrossPointSettings::EXTRA_LARGE};
-  static constexpr uint8_t kPointSizes[] = {10, 12, 14, 16, 18};
+  // Sizes and their point values come from CrossPointSettings::FONT_SIZE_RUNGS, the one table
+  // that defines the ladder; this used to keep its own pair of arrays and went stale.
   static constexpr uint8_t kFamilies[] = {CrossPointSettings::BOOKERLY, CrossPointSettings::NOTOSANS};
+  const auto& rungs = CrossPointSettings::FONT_SIZE_RUNGS;
+  constexpr int rungCount = CrossPointSettings::FONT_SIZE_RUNG_COUNT;
 
   FontSizeLadder ladder;
   for (const uint8_t family : kFamilies) {
-    for (size_t i = 0; i < sizeof(kSizeEnums); ++i) {
-      if (CrossPointSettings::getBuiltinReaderFontId(family, kSizeEnums[i]) != bodyFontId) continue;
-      const uint8_t bodyPt = kPointSizes[i];
-      for (size_t j = 0; j < sizeof(kSizeEnums); ++j) {
-        ladder.addRung(CrossPointSettings::getBuiltinReaderFontId(family, kSizeEnums[j]),
-                       static_cast<uint16_t>(kPointSizes[j] * 100 / bodyPt));
+    for (int i = 0; i < rungCount; ++i) {
+      if (CrossPointSettings::getBuiltinReaderFontId(family, rungs[i].size) != bodyFontId) continue;
+      const uint8_t bodyPt = rungs[i].points;
+      for (int j = 0; j < rungCount; ++j) {
+        ladder.addRung(CrossPointSettings::getBuiltinReaderFontId(family, rungs[j].size),
+                       static_cast<uint16_t>(rungs[j].points * 100 / bodyPt));
       }
       return ladder;
     }

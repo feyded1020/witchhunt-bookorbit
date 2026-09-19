@@ -27,7 +27,15 @@ class FontDecompressor {
   // fontconvert.py mirrors this constant and refuses to generate a font that would overflow it,
   // so the next oversized glyph is a build error rather than an invisible blank; the host test
   // checks the shipped fonts against it from the other side.
-  static constexpr uint16_t HOT_GLYPH_BUF_SIZE = 576;
+  // 896, raised from 576 to admit the 24 pt reader faces. The binding glyph is U+01C4 (DZ
+  // digraph) in bookerly_24_bolditalic at 71x50, which packs to 888 bytes; 896 is the next
+  // multiple of 64 above it.
+  //
+  // The cap is set by the widest glyph in the whole coverage, not by anything a reader meets --
+  // that digraph appears in Serbo-Croatian and essentially nowhere else, and at 18 pt it was the
+  // blocker too. Costs FALLBACK_CACHE_SLOTS x 320 = 1,280 B of .bss, which buys a reader font a
+  // third larger than the previous maximum for people who cannot read 18 pt.
+  static constexpr uint16_t HOT_GLYPH_BUF_SIZE = 896;
 
   FontDecompressor() = default;
   ~FontDecompressor();

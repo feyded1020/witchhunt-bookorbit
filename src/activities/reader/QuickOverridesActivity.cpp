@@ -101,12 +101,10 @@ void QuickOverridesActivity::buildMenuItems() {
         }
       }));
 
-  // Font size: default(-1) -> Small(0) -> Medium(1) -> Large(2) -> X Large(3) -> Tiny(4)
-  menuItems.push_back(SettingInfo::DynamicEnumCtx(
-      StrId::STR_FONT_SIZE,
-      {StrId::STR_DEFAULT_VALUE, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE,
-       StrId::STR_TINY},
-      self,
+  // Font size: default(-1) then the FONT_SIZE values in enum order, labelled with their point
+  // sizes from CrossPointSettings::FONT_SIZE_RUNGS.
+  auto fontSizeItem = SettingInfo::DynamicEnumCtx(
+      StrId::STR_FONT_SIZE, {}, self,
       [](const void* ctx) -> uint8_t {
         const auto* s = static_cast<const QuickOverridesActivity*>(ctx);
         return (s->pendingFontSizeOverride < 0) ? 0 : static_cast<uint8_t>(s->pendingFontSizeOverride + 1);
@@ -114,7 +112,9 @@ void QuickOverridesActivity::buildMenuItems() {
       [](void* ctx, uint8_t v) {
         auto* s = static_cast<QuickOverridesActivity*>(ctx);
         s->pendingFontSizeOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
-      }));
+      });
+  fontSizeItem.enumLabels = CrossPointSettings::fontSizeLabels(tr(STR_DEFAULT_VALUE));
+  menuItems.push_back(std::move(fontSizeItem));
 
   // Bionic: default / on / off
   menuItems.push_back(SettingInfo::DynamicEnumCtx(
