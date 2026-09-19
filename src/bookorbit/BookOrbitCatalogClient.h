@@ -56,6 +56,17 @@ struct BookOrbitBookDetail {
   std::vector<BookOrbitCatalogFile> files;
 };
 
+// Per-section counts from the server dashboard (what BookOrbit's own plugin badges its
+// browse tiles with). -1 = unknown (older server, or field absent).
+struct BookOrbitCatalogCounts {
+  int totalBooks = -1;
+  int inProgress = -1;
+  int libraries = -1;
+  int authors = -1;
+  int series = -1;
+  int collections = -1;
+};
+
 struct BookOrbitBookPage {
   std::vector<BookOrbitCatalogBook> books;
   int page = 1;
@@ -73,6 +84,8 @@ class BookOrbitCatalogClient {
   static bool lastFetchBadResponse;
 
   static bool fetchRootSections(std::vector<BookOrbitCatalogSection>& outSections);
+  // Decorative: callers treat a failure as "show no counts".
+  static bool fetchCatalogCounts(BookOrbitCatalogCounts& outCounts);
   static bool fetchBooks(const BookOrbitBookQuery& query, int page, BookOrbitBookPage& outPage);
   static bool fetchSectionEntries(const std::string& sectionId, int page, BookOrbitFacetPage& outPage);
   static bool fetchBookDetail(int64_t bookId, BookOrbitBookDetail& outDetail);

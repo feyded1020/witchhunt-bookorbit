@@ -15,7 +15,7 @@ CrossInk-Bookorbit (MIT) and adapted to Witch Hunt's network stack, stores and U
 | **Reading stats** | Every page you read is recorded (time on page + position) and uploaded on the next sync, feeding BookOrbit's dashboard, streaks and pace. Timestamps are corrected against network time at upload. |
 | **Highlights**: two-way | Reader menu → *Highlight Text*: move to the first word, **Confirm**, extend to the last word, **Confirm** again. Highlights are underlined on the page and listed under *Highlights* (jump / delete). Web highlights arrive on the next sync; deletions go both ways. |
 | **Bookmarks**: two-way | The existing star-page bookmarks sync both ways, deletions included. Bookmarks made on the web land in the right chapter and settle on the exact page the first time you open that chapter. |
-| **Catalog** | Home → *BookOrbit Library* (appears once an account is set), or Settings → BookOrbit Sync → *Browse Catalog*: recently added, continue reading, all books, authors, series, collections, libraries and search, with EPUB download and open. |
+| **Catalog** | Home → *BookOrbit* (appears once an account is set), or Settings → BookOrbit Sync → *Browse Catalog*. Same layout as CrossInk-Bookorbit: the server's sections with book counts (continue reading, recently added, libraries, collections, authors, series, all books), then *On device* and *In progress* (these two also work offline), then search. Books already on the SD card are marked • and open directly; others download and open. |
 
 Matching is by the book file's content hash (KOReader's "Binary" method), so the same EPUB file
 must be on the reader and in BookOrbit. Books downloaded from the catalog always match.

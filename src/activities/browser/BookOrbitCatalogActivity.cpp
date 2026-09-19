@@ -8,10 +8,17 @@
 #include <Logging.h>
 #include <WiFi.h>
 
+#include <FsHelpers.h>
+
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "RecentBooksStore.h"
+#include "components/BookProgressPresentation.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
+#include "activities/ActivityManager.h"
 #include "activities/NetworkMemoryTrim.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
@@ -45,6 +52,24 @@ std::string fileNameFor(const std::string& title, const std::string& author) {
   while (!safe.empty() && (safe.back() == ' ' || safe.back() == '.')) safe.pop_back();
   return safe + ".epub";
 }
+// Where a catalog book downloads to (and where an earlier download of it would be).
+std::string catalogPath(const std::string& title, const std::string& author) {
+  return BOOKORBIT_STORE.getDownloadFolder() + "/" + fileNameFor(title, author);
+}
+
+// Best-effort "already downloaded" check: the current download folder, then the SD root.
+bool onDevicePath(const std::string& title, const std::string& author, std::string& outPath) {
+  outPath = catalogPath(title, author);
+  if (Storage.exists(outPath.c_str())) return true;
+  const std::string atRoot = "/" + fileNameFor(title, author);
+  if (!BOOKORBIT_STORE.getDownloadFolder().empty() && Storage.exists(atRoot.c_str())) {
+    outPath = atRoot;
+    return true;
+  }
+  return false;
+}
+
+constexpr size_t MAX_LOCAL_ENTRIES = 300;
 }  // namespace
 
 void BookOrbitCatalogActivity::onEnter() {
@@ -89,7 +114,9 @@ void BookOrbitCatalogActivity::onExit() {
 
 void BookOrbitCatalogActivity::onWifiReady(const bool connected) {
   if (!connected) {
-    fail(tr(STR_WIFI_CONN_FAILED));
+    // The local sections work without a network; offer those rather than a dead end.
+    offline = true;
+    loadCurrent();
     return;
   }
   WiFi.setSleep(false);
@@ -113,14 +140,21 @@ void BookOrbitCatalogActivity::loadCurrent() {
   requestUpdateAndWait();
 
   View& view = current();
-  bool ok = false;
+  bool ok = true;
   std::vector<BookOrbitCatalogSection> newSections;
+  BookOrbitCatalogCounts counts;
   std::vector<BookOrbitCatalogBook> newBooks;
+  std::vector<bool> newOnDevice;
   std::vector<BookOrbitFacetEntry> newFacets;
+  std::vector<LocalBook> newLocal;
   bool more = false;
   switch (view.kind) {
     case ViewKind::ROOT:
-      ok = BookOrbitCatalogClient::fetchRootSections(newSections);
+      if (!offline) {
+        ok = BookOrbitCatalogClient::fetchRootSections(newSections);
+        // Counts are decorative: an older server without the dashboard just shows none.
+        if (ok) BookOrbitCatalogClient::fetchCatalogCounts(counts);
+      }
       break;
     case ViewKind::BOOKS: {
       BookOrbitBookPage page;
@@ -129,6 +163,9 @@ void BookOrbitCatalogActivity::loadCurrent() {
         newBooks = std::move(page.books);
         more = page.total > 0 ? view.page * BookOrbitCatalogClient::PAGE_SIZE < page.total
                               : static_cast<int>(newBooks.size()) >= BookOrbitCatalogClient::PAGE_SIZE;
+        newOnDevice.reserve(newBooks.size());
+        std::string path;
+        for (const auto& book : newBooks) newOnDevice.push_back(onDevicePath(book.title, book.author, path));
       }
       break;
     }
@@ -141,6 +178,9 @@ void BookOrbitCatalogActivity::loadCurrent() {
       }
       break;
     }
+    case ViewKind::LOCAL:
+      collectLocal(view.local, &newLocal);
+      break;
   }
   if (!ok) {
     fail(BookOrbitCatalogClient::lastFetchBadResponse ? tr(STR_BOOKORBIT_SYNC_HTTP_404)
@@ -148,9 +188,11 @@ void BookOrbitCatalogActivity::loadCurrent() {
     return;
   }
   RenderLock lock(*this);
-  sections = std::move(newSections);
+  if (view.kind == ViewKind::ROOT) buildRoot(newSections, counts);
   books = std::move(newBooks);
+  booksOnDevice = std::move(newOnDevice);
   facets = std::move(newFacets);
+  localBooks = std::move(newLocal);
   hasMore = more;
   const int rows = rowCount();
   if (view.selector >= rows) view.selector = rows > 0 ? rows - 1 : 0;
@@ -158,36 +200,133 @@ void BookOrbitCatalogActivity::loadCurrent() {
   requestUpdate(true);
 }
 
+void BookOrbitCatalogActivity::buildRoot(const std::vector<BookOrbitCatalogSection>& sections,
+                                         const BookOrbitCatalogCounts& counts) {
+  const auto countFor = [&counts](const std::string& id) {
+    if (id == "all-books" || id == "recent") return counts.totalBooks;
+    if (id == "continue-reading") return counts.inProgress;
+    if (id == "libraries") return counts.libraries;
+    if (id == "authors") return counts.authors;
+    if (id == "series") return counts.series;
+    if (id == "collections") return counts.collections;
+    return -1;
+  };
+  rootRows.clear();
+  rootRows.reserve(sections.size() + 3);
+  for (const auto& section : sections) {
+    rootRows.push_back({RootRow::Kind::SERVER, section.title, section.id, countFor(section.id)});
+  }
+  rootRows.push_back({RootRow::Kind::ON_DEVICE, tr(STR_BOOKORBIT_ON_DEVICE), "",
+                      static_cast<int>(collectLocal(LocalKind::ON_DEVICE, nullptr))});
+  rootRows.push_back({RootRow::Kind::IN_PROGRESS, tr(STR_BOOKORBIT_IN_PROGRESS), "",
+                      static_cast<int>(collectLocal(LocalKind::IN_PROGRESS, nullptr))});
+  if (!offline) rootRows.push_back({RootRow::Kind::SEARCH, tr(STR_SEARCH), "", -1});
+}
+
+size_t BookOrbitCatalogActivity::collectLocal(const LocalKind kind, std::vector<LocalBook>* out) {
+  size_t count = 0;
+  if (kind == LocalKind::IN_PROGRESS) {
+    // Started but not finished, from the recent-books list and each book's saved progress.
+    for (const auto& book : RECENT_BOOKS.getBooks()) {
+      if (!FsHelpers::hasEpubExtension(book.path) || !Storage.exists(book.path.c_str())) continue;
+      const int percent = BookProgressPresentation::readPercent(book);
+      if (percent >= 100) continue;
+      count++;
+      if (out) out->push_back({book.title.empty() ? book.path : book.title, book.author, book.path, percent});
+    }
+    return count;
+  }
+
+  // Every EPUB in the BookOrbit download folder and the SD root.
+  const auto scanDir = [&count, out](const std::string& dirPath) {
+    FsFile dir = Storage.open(dirPath.c_str());
+    if (!dir || !dir.isDirectory()) return;
+    char name[128];
+    FsFile file;
+    while (count < MAX_LOCAL_ENTRIES && (file = dir.openNextFile())) {
+      const size_t nameLen = file.isDirectory() ? 0 : file.getName(name, sizeof(name));
+      file.close();
+      if (nameLen > 5 && name[0] != '.' && FsHelpers::hasEpubExtension(std::string_view(name, nameLen))) {
+        count++;
+        if (!out) continue;
+        LocalBook book;
+        std::string stem(name, nameLen - 5);
+        // Catalog downloads are named "Title - Author"; split that back for display.
+        const size_t dash = stem.rfind(" - ");
+        if (dash != std::string::npos) {
+          book.title = stem.substr(0, dash);
+          book.author = stem.substr(dash + 3);
+        } else {
+          book.title = std::move(stem);
+        }
+        book.path = (dirPath == "/" ? std::string("/") : dirPath + "/") + std::string(name, nameLen);
+        out->push_back(std::move(book));
+      }
+    }
+    dir.close();
+  };
+  const std::string& folder = BOOKORBIT_STORE.getDownloadFolder();
+  if (!folder.empty()) scanDir(folder);
+  scanDir("/");
+  if (out) {
+    std::sort(out->begin(), out->end(), [](const LocalBook& a, const LocalBook& b) {
+      return FsHelpers::naturalCompare(a.title.c_str(), b.title.c_str()) < 0;
+    });
+  }
+  return count;
+}
+
 int BookOrbitCatalogActivity::rowCount() const {
   const View& view = stack.back();
   switch (view.kind) {
     case ViewKind::ROOT:
-      return static_cast<int>(sections.size()) + 1;  // + Search
+      return static_cast<int>(rootRows.size());
     case ViewKind::BOOKS:
       return static_cast<int>(books.size()) + (hasMore ? 1 : 0);
     case ViewKind::FACET:
       return static_cast<int>(facets.size()) + (hasMore ? 1 : 0);
+    case ViewKind::LOCAL:
+      return static_cast<int>(localBooks.size());
   }
   return 0;
 }
 
-std::string BookOrbitCatalogActivity::rowLabel(const int index) const {
+std::string BookOrbitCatalogActivity::rowTitle(const int index) const {
   const View& view = stack.back();
   switch (view.kind) {
-    case ViewKind::ROOT:
-      return index < static_cast<int>(sections.size()) ? sections[index].title : std::string(tr(STR_SEARCH));
+    case ViewKind::ROOT: {
+      const RootRow& row = rootRows[index];
+      return row.count >= 0 ? row.title + " (" + std::to_string(row.count) + ")" : row.title;
+    }
     case ViewKind::BOOKS:
-      if (index < static_cast<int>(books.size())) {
-        const auto& book = books[index];
-        return book.author.empty() ? book.title : book.title + " - " + book.author;
-      }
-      return std::string(tr(STR_MORE_ELLIPSIS));
+      return index < static_cast<int>(books.size()) ? books[index].title : std::string(tr(STR_MORE_ELLIPSIS));
     case ViewKind::FACET:
       if (index < static_cast<int>(facets.size())) {
         const auto& entry = facets[index];
         return entry.count > 0 ? entry.title + " (" + std::to_string(entry.count) + ")" : entry.title;
       }
       return std::string(tr(STR_MORE_ELLIPSIS));
+    case ViewKind::LOCAL:
+      return localBooks[index].title;
+  }
+  return {};
+}
+
+std::string BookOrbitCatalogActivity::rowSubtitle(const int index) const {
+  const View& view = stack.back();
+  if (view.kind == ViewKind::BOOKS && index < static_cast<int>(books.size())) return books[index].author;
+  if (view.kind == ViewKind::LOCAL) return localBooks[index].author;
+  return {};
+}
+
+std::string BookOrbitCatalogActivity::rowValue(const int index) const {
+  const View& view = stack.back();
+  // A dot marks a catalog book already on the SD card (selecting it opens it).
+  if (view.kind == ViewKind::BOOKS && index < static_cast<int>(booksOnDevice.size()) && booksOnDevice[index]) {
+    return "\xE2\x80\xA2";
+  }
+  if (view.kind == ViewKind::LOCAL && view.local == LocalKind::IN_PROGRESS && localBooks[index].percent >= 0) {
+    return std::to_string(localBooks[index].percent) + "%";
   }
   return {};
 }
@@ -223,33 +362,52 @@ void BookOrbitCatalogActivity::activateRow(const int index) {
   view.selector = index;
   switch (view.kind) {
     case ViewKind::ROOT: {
-      if (index >= static_cast<int>(sections.size())) {
+      const RootRow& row = rootRows[index];
+      if (row.kind == RootRow::Kind::SEARCH) {
         openSearch();
         return;
       }
-      const auto& section = sections[index];
-      if (isFacetSection(section.id)) {
+      if (row.kind == RootRow::Kind::ON_DEVICE || row.kind == RootRow::Kind::IN_PROGRESS) {
+        View local;
+        local.kind = ViewKind::LOCAL;
+        local.title = row.title;
+        local.local = row.kind == RootRow::Kind::ON_DEVICE ? LocalKind::ON_DEVICE : LocalKind::IN_PROGRESS;
+        stack.push_back(std::move(local));
+        loadCurrent();
+        return;
+      }
+      if (isFacetSection(row.sectionId)) {
         View facet;
         facet.kind = ViewKind::FACET;
-        facet.title = section.title;
-        facet.sectionId = section.id;
+        facet.title = row.title;
+        facet.sectionId = row.sectionId;
         stack.push_back(std::move(facet));
         loadCurrent();
         return;
       }
       BookOrbitBookQuery query;
-      query.sort = section.id == "continue-reading" ? "recently_read"
-                   : section.id == "all-books"      ? "title"
-                                                    : "recently_added";
-      pushBooks(section.title, std::move(query));
+      query.sort = row.sectionId == "continue-reading" ? "recently_read"
+                   : row.sectionId == "all-books"      ? "title"
+                                                       : "recently_added";
+      pushBooks(row.title, std::move(query));
       return;
     }
+    case ViewKind::LOCAL:
+      openBook(localBooks[index].path);
+      return;
     case ViewKind::BOOKS:
       if (index >= static_cast<int>(books.size())) {
         view.page++;
         view.selector = 0;
         loadCurrent();
         return;
+      }
+      if (index < static_cast<int>(booksOnDevice.size()) && booksOnDevice[index]) {
+        std::string path;
+        if (onDevicePath(books[index].title, books[index].author, path)) {
+          openBook(path);
+          return;
+        }
       }
       downloadBook(books[index]);
       return;
@@ -283,6 +441,18 @@ void BookOrbitCatalogActivity::activateRow(const int index) {
       return;
     }
   }
+}
+
+void BookOrbitCatalogActivity::openBook(const std::string& path) {
+  if (!wifiUsed) {
+    // No network session to tear down: hand straight over to the reader.
+    activityManager.goToReader(path);
+    return;
+  }
+  APP_STATE.openEpubPath = path;
+  APP_STATE.saveToFile();
+  openAfterExit = true;  // onExit's silent restart lands in the reader
+  finish();
 }
 
 void BookOrbitCatalogActivity::goBack() {
@@ -321,8 +491,7 @@ void BookOrbitCatalogActivity::downloadBook(const BookOrbitCatalogBook& book) {
 
   const std::string folder = BOOKORBIT_STORE.getDownloadFolder();
   if (!folder.empty() && !Storage.exists(folder.c_str())) Storage.mkdir(folder.c_str());
-  const std::string path = folder + "/" +
-                           fileNameFor(detail.title.empty() ? book.title : detail.title,
+  const std::string path = catalogPath(detail.title.empty() ? book.title : detail.title,
                                        detail.author.empty() ? book.author : detail.author);
   if (Storage.exists(path.c_str())) {
     RenderLock lock(*this);
@@ -379,7 +548,7 @@ void BookOrbitCatalogActivity::loop() {
         finish();
       }
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && BOOKORBIT_STORE.hasCredentials() &&
-               WiFi.status() == WL_CONNECTED) {
+               !offline && WiFi.status() == WL_CONNECTED) {
       loadCurrent();  // retry
     }
     return;
@@ -387,10 +556,7 @@ void BookOrbitCatalogActivity::loop() {
 
   if (state == State::DONE) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !downloadedPath.empty()) {
-      APP_STATE.openEpubPath = downloadedPath;
-      APP_STATE.saveToFile();
-      openAfterExit = true;
-      finish();
+      openBook(downloadedPath);
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       RenderLock lock(*this);
       state = State::LIST;
@@ -477,8 +643,13 @@ void BookOrbitCatalogActivity::render(RenderLock&&) {
         renderer.drawText(UI_10_FONT_ID, contentRect.x + metrics.contentSidePadding, contentTop + 20,
                           tr(STR_NO_ENTRIES));
       } else {
-        GUI.drawList(renderer, Rect{contentRect.x, contentTop, contentRect.width, contentHeight}, rows,
-                     stack.back().selector, [this](int index) { return rowLabel(index); });
+        const ViewKind kind = stack.back().kind;
+        const bool twoLine = kind == ViewKind::BOOKS || kind == ViewKind::LOCAL;
+        GUI.drawList(
+            renderer, Rect{contentRect.x, contentTop, contentRect.width, contentHeight}, rows, stack.back().selector,
+            [this](int index) { return rowTitle(index); },
+            twoLine ? std::function<std::string(int)>([this](int index) { return rowSubtitle(index); }) : nullptr,
+            nullptr, [this](int index) { return rowValue(index); });
         confirm = tr(STR_SELECT);
       }
       break;

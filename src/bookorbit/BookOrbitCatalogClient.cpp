@@ -114,6 +114,28 @@ bool BookOrbitCatalogClient::fetchRootSections(std::vector<BookOrbitCatalogSecti
   return true;
 }
 
+bool BookOrbitCatalogClient::fetchCatalogCounts(BookOrbitCatalogCounts& outCounts) {
+  outCounts = BookOrbitCatalogCounts{};
+  if (!BOOKORBIT_STORE.hasCredentials()) return false;
+  // The dashboard also carries book lists; the filter keeps only the counts in memory.
+  JsonDocument filter;
+  filter["totalBooks"] = true;
+  filter["browseCounts"]["inProgress"] = true;
+  filter["browseCounts"]["libraries"] = true;
+  filter["browseCounts"]["authors"] = true;
+  filter["browseCounts"]["series"] = true;
+  filter["browseCounts"]["collections"] = true;
+  JsonDocument doc;
+  if (!fetchJson(BOOKORBIT_STORE.getBaseUrl() + "/plugin/catalog/dashboard", filter, doc)) return false;
+  outCounts.totalBooks = doc["totalBooks"] | -1;
+  outCounts.inProgress = doc["browseCounts"]["inProgress"] | -1;
+  outCounts.libraries = doc["browseCounts"]["libraries"] | -1;
+  outCounts.authors = doc["browseCounts"]["authors"] | -1;
+  outCounts.series = doc["browseCounts"]["series"] | -1;
+  outCounts.collections = doc["browseCounts"]["collections"] | -1;
+  return true;
+}
+
 bool BookOrbitCatalogClient::fetchBooks(const BookOrbitBookQuery& query, const int page, BookOrbitBookPage& outPage) {
   outPage = BookOrbitBookPage{};
   if (!BOOKORBIT_STORE.hasCredentials()) return false;

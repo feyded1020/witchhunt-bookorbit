@@ -130,7 +130,7 @@ void HomeActivity::rebuildMenuEntries() {
     menuEntries.push_back({MenuAction::OpdsBrowser, StrId::STR_OPDS_BROWSER, Library});
   }
   if (BOOKORBIT_STORE.hasCredentials()) {
-    menuEntries.push_back({MenuAction::BookOrbitCatalog, StrId::STR_BOOKORBIT_CATALOG, Library});
+    menuEntries.push_back({MenuAction::BookOrbitCatalog, StrId::STR_BOOKORBIT_HOME, Library});
   }
   menuEntries.push_back({MenuAction::FileTransfer, StrId::STR_FILE_TRANSFER, Transfer});
   if (SETTINGS.useWeather) {
