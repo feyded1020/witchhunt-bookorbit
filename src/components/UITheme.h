@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "CrossPointSettings.h"
+#include "UiFontScale.h"
 #include "components/themes/BaseTheme.h"
 
 class UITheme {
@@ -16,11 +17,18 @@ class UITheme {
   UITheme();
   static UITheme& getInstance() { return instance; }
 
-  const ThemeMetrics& getMetrics() const { return *currentMetrics; }
+  const ThemeMetrics& getMetrics() const { return currentMetrics; }
   const BaseTheme& getTheme() const { return *currentTheme; }
   BaseTheme& getMutableTheme() { return *currentTheme; }
   void reload();
   void setTheme(CrossPointSettings::UI_THEME type);
+
+  // Growth of each logical UI font slot at the active SETTINGS.uiFontSize step, relative to the
+  // default step (see UiFontLadder). Themes add these to the baked offsets that position stacked
+  // text: each line shifts down by the total growth of the lines ABOVE it, which preserves the
+  // spacing the design was tuned for instead of re-deriving it from line heights that were
+  // deliberately overlapped.
+  static UiFontLadder::Step fontGrowth();
   static int getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
                                      bool hasSubtitle);
   static std::string makeSeparatorTitle(const std::string& title);
@@ -82,7 +90,10 @@ class UITheme {
   static int getProgressBarHeight(uint8_t progressBar, uint8_t thickness);
 
  private:
-  const ThemeMetrics* currentMetrics;
+  // A copy rather than a pointer into the theme's constexpr table: the UI font size scales
+  // several of these at runtime. 160-odd bytes of RAM against 18% usage, versus a second
+  // constexpr table per theme in the flash that is the binding constraint here.
+  ThemeMetrics currentMetrics;
   std::unique_ptr<BaseTheme> currentTheme;
 };
 

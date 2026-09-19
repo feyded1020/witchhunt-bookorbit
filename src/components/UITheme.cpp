@@ -12,6 +12,7 @@
 #include <string>
 
 #include "MappedInputManager.h"
+#include "UiFontScale.h"
 #include "components/themes/BaseTheme.h"
 #include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
@@ -58,34 +59,42 @@ void UITheme::reload() {
   setTheme(themeType);
 }
 
+// The ladder is indexed by UI_FONT_SIZE but does not depend on it (see UiFontScale.h); this is
+// the one place the two meet, so it is the one place that can check they agree.
+static_assert(UiFontLadder::STEP_COUNT == CrossPointSettings::UI_FONT_SIZE_COUNT,
+              "every UI_FONT_SIZE needs a row in UiFontLadder::STEPS");
+
+UiFontLadder::Step UITheme::fontGrowth() { return UiFontLadder::growthAt(SETTINGS.uiFontSize); }
+
 void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
   switch (type) {
     case CrossPointSettings::UI_THEME::CLASSIC:
       LOG_DBG("UI", "Using Classic theme");
       currentTheme = std::make_unique<BaseTheme>();
-      currentMetrics = &BaseMetrics::values;
+      currentMetrics = BaseMetrics::values;
       break;
     case CrossPointSettings::UI_THEME::LYRA:
       LOG_DBG("UI", "Using Lyra theme");
       currentTheme = std::make_unique<LyraTheme>();
-      currentMetrics = &LyraMetrics::values;
+      currentMetrics = LyraMetrics::values;
       break;
     case CrossPointSettings::UI_THEME::LYRA_3_COVERS:
       LOG_DBG("UI", "Using Lyra 3 Covers theme");
       currentTheme = std::make_unique<Lyra3CoversTheme>();
-      currentMetrics = &Lyra3CoversMetrics::values;
+      currentMetrics = Lyra3CoversMetrics::values;
       break;
     case CrossPointSettings::UI_THEME::LYRA_CAROUSEL:
       LOG_DBG("UI", "Using Lyra Carousel theme");
       currentTheme = std::make_unique<LyraCarouselTheme>();
-      currentMetrics = &LyraCarouselMetrics::values;
+      currentMetrics = LyraCarouselMetrics::values;
       break;
     default:
       LOG_ERR("UI", "Unknown theme %d, falling back to Classic", static_cast<int>(type));
       currentTheme = std::make_unique<BaseTheme>();
-      currentMetrics = &BaseMetrics::values;
+      currentMetrics = BaseMetrics::values;
       break;
   }
+  UiFontLadder::applyTo(currentMetrics, fontGrowth());
 }
 
 int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,

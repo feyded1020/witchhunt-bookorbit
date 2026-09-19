@@ -8,6 +8,7 @@
 #include <Memory.h>
 #include <SdCardFont.h>
 #include <SmallCaps.h>
+#include <TextTruncation.h>
 #include <TouchTransform.h>
 #include <Utf8.h>
 #include <esp_heap_caps.h>
@@ -2876,6 +2877,7 @@ HalDisplay::RefreshMode GfxRenderer::consumeRefreshOverride(const HalDisplay::Re
 
 void GfxRenderer::triggerDisplay(const HalDisplay::RefreshMode mode, const bool turnOffScreen) const {
   const HalDisplay::RefreshMode effectiveMode = consumeRefreshOverride(mode);
+  noteRefresh(effectiveMode);
   const bool effectiveTurnOff = turnOffScreen || fadingFix.load(std::memory_order_relaxed);
   display.triggerDisplay(effectiveMode, effectiveTurnOff);
   // triggerDisplay swaps display buffers; keep renderer's cached pointer in
@@ -2885,6 +2887,7 @@ void GfxRenderer::triggerDisplay(const HalDisplay::RefreshMode mode, const bool 
 
 void GfxRenderer::triggerDisplayAsync(const HalDisplay::RefreshMode mode, const bool turnOffScreen) const {
   const HalDisplay::RefreshMode effectiveMode = consumeRefreshOverride(mode);
+  noteRefresh(effectiveMode);
   const bool effectiveTurnOff = turnOffScreen || fadingFix.load(std::memory_order_relaxed);
   display.triggerDisplayAsync(effectiveMode, effectiveTurnOff);
   // The buffer swap happened before the waveform started; resync the cached
@@ -2903,6 +2906,7 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
     return;
   }
   const auto effectiveMode = consumeRefreshOverride(refreshMode);
+  noteRefresh(effectiveMode);
 
   if (start_ms_valid) {
     auto elapsed = millis() - start_ms;
@@ -2931,20 +2935,34 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
                                        const EpdFontFamily::Style style) const {
   if (!text || maxWidth <= 0) return "";
 
-  std::string item = text;
-  // U+2026 HORIZONTAL ELLIPSIS (UTF-8: 0xE2 0x80 0xA6)
-  const char* ellipsis = "\xe2\x80\xa6";
-  int textWidth = getTextWidth(fontId, item.c_str(), style);
-  if (textWidth <= maxWidth) {
-    // Text fits, return as is
-    return item;
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) {
+    LOG_ERR("GFX", "Font %d not found", fontId);
+    return text;
   }
 
-  while (!item.empty() && getTextWidth(fontId, (item + ellipsis).c_str(), style) >= maxWidth) {
+  // Scan pass: record the text and hand back the whole string. The scan has to see every glyph
+  // the real pass will draw, and prewarming a truncated string would leave the remainder to the
+  // per-glyph fallback. This used to fall out of getTextWidth() returning 0 while scanning, which
+  // read as "fits"; now that the measurement happens inside textTruncation, say it explicitly.
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) {
+    fontCacheManager_->recordText(text, fontId, style);
+    return text;
+  }
+
+  // SMALL_CAPS scales every metric, which the single-pass walk does not model; a font with no
+  // U+2026 has nothing to truncate with. Neither case occurs today, so both take the old loop.
+  if (!(style & EpdFontFamily::SMALL_CAPS) && textTruncation::canTruncate(fontIt->second, style)) {
+    return textTruncation::truncateToWidth(fontIt->second, text, maxWidth, style);
+  }
+
+  std::string item = text;
+  int textWidth = getTextWidth(fontId, item.c_str(), style);
+  if (textWidth <= maxWidth) return item;
+  while (!item.empty() && getTextWidth(fontId, (item + textTruncation::ELLIPSIS_UTF8).c_str(), style) >= maxWidth) {
     utf8RemoveLastChar(item);
   }
-
-  return item.empty() ? ellipsis : item + ellipsis;
+  return item.empty() ? textTruncation::ELLIPSIS_UTF8 : item + textTruncation::ELLIPSIS_UTF8;
 }
 
 std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* text, const int maxWidth,
@@ -3393,6 +3411,7 @@ bool GfxRenderer::supportsGrayFrame() const { return display.supportsGrayFrame()
 
 void GfxRenderer::displayGrayscaleFrame(const HalDisplay::RefreshMode mode) const {
   const HalDisplay::RefreshMode effectiveMode = consumeRefreshOverride(mode);
+  noteRefresh(effectiveMode);
   display.displayGrayscaleFrame(effectiveMode, fadingFix);
   // Same contract as triggerDisplay(): the display swapped buffers, so the
   // cached pointer must follow or every later draw writes to the frame now on
