@@ -150,6 +150,21 @@ class GfxRenderer {
   // later displayBuffer() turn).
   HalDisplay::RefreshMode consumeRefreshOverride(HalDisplay::RefreshMode requested) const;
 
+  // FAST refreshes shipped since the last HALF or FULL. Saturating uint8: the only question ever
+  // asked of it is "at least N?", and N is single digits. Starts saturated so a repaint issued
+  // before any refresh has happened still gets its ghost-clearing HALF.
+  mutable uint8_t fastRefreshesSinceFull_ = 0xFF;
+  // Counts one shipped frame. Called from every path that reaches the panel, with the EFFECTIVE
+  // mode (i.e. after consumeRefreshOverride), because an armed override is what actually drives
+  // the waveform and therefore what actually clears the ghosting.
+  void noteRefresh(HalDisplay::RefreshMode effectiveMode) const {
+    if (effectiveMode == HalDisplay::FAST_REFRESH) {
+      if (fastRefreshesSinceFull_ < 0xFF) fastRefreshesSinceFull_++;
+    } else {
+      fastRefreshesSinceFull_ = 0;
+    }
+  }
+
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
   void freeBwBufferChunks();
@@ -308,6 +323,26 @@ class GfxRenderer {
   // uses its own requested mode. Use when the armed override should move to a later refresh — e.g.
   // the reader keeps the indexing popup FAST but forces the following content page to HALF itself.
   void clearRefreshOverride() const { consumeRefreshOverride(HalDisplay::FAST_REFRESH); }
+
+  // FAST refreshes a non-reader screen may accumulate before another ghost-clearing HALF earns
+  // its cost. Deliberately far below the reader's refreshFrequencyPages (15): a page turn
+  // replaces every word on the panel where a menu repaint changes a highlight bar and a few
+  // rows, so UI ghosting builds more slowly -- but UI text is also read from close up, so this
+  // stays conservative rather than maximal.
+  static constexpr uint8_t GHOST_CLEARING_FAST_BUDGET = 4;
+  // True when enough FAST refreshes have accumulated since the last HALF/FULL that another
+  // ghost-clearing HALF is worth its cost. Measured on an X3: HALF 2186 ms against FAST 435 ms.
+  //
+  // Non-reader screens arm a HALF whenever they repaint everything after something else was on
+  // the panel -- SettingsActivity does it on entry AND on returning from every child activity --
+  // so bouncing in and out of a submenu paid ~2.2 s per return even when the HALF three updates
+  // earlier had already cleared the panel.
+  //
+  // This gates ONLY that hygiene HALF. The correctness ones -- a stale differential baseline
+  // after a framebuffer release, a reader exit -- are armed through setNextDisplayRefreshMode(),
+  // and consumeRefreshOverride() replaces the requested mode outright, so they are unreachable
+  // from here and cannot be suppressed.
+  bool ghostClearingHalfWorthwhile() const { return fastRefreshesSinceFull_ >= GHOST_CLEARING_FAST_BUDGET; }
   // Make the write framebuffer match the currently displayed frame. Call before
   // a partial repaint that patches a few regions and re-displays without
   // re-rendering the full frame: displayBuffer() ends with swapBuffers(), so

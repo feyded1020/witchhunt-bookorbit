@@ -2877,6 +2877,7 @@ HalDisplay::RefreshMode GfxRenderer::consumeRefreshOverride(const HalDisplay::Re
 
 void GfxRenderer::triggerDisplay(const HalDisplay::RefreshMode mode, const bool turnOffScreen) const {
   const HalDisplay::RefreshMode effectiveMode = consumeRefreshOverride(mode);
+  noteRefresh(effectiveMode);
   const bool effectiveTurnOff = turnOffScreen || fadingFix.load(std::memory_order_relaxed);
   display.triggerDisplay(effectiveMode, effectiveTurnOff);
   // triggerDisplay swaps display buffers; keep renderer's cached pointer in
@@ -2886,6 +2887,7 @@ void GfxRenderer::triggerDisplay(const HalDisplay::RefreshMode mode, const bool 
 
 void GfxRenderer::triggerDisplayAsync(const HalDisplay::RefreshMode mode, const bool turnOffScreen) const {
   const HalDisplay::RefreshMode effectiveMode = consumeRefreshOverride(mode);
+  noteRefresh(effectiveMode);
   const bool effectiveTurnOff = turnOffScreen || fadingFix.load(std::memory_order_relaxed);
   display.triggerDisplayAsync(effectiveMode, effectiveTurnOff);
   // The buffer swap happened before the waveform started; resync the cached
@@ -2904,6 +2906,7 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
     return;
   }
   const auto effectiveMode = consumeRefreshOverride(refreshMode);
+  noteRefresh(effectiveMode);
 
   if (start_ms_valid) {
     auto elapsed = millis() - start_ms;
@@ -3408,6 +3411,7 @@ bool GfxRenderer::supportsGrayFrame() const { return display.supportsGrayFrame()
 
 void GfxRenderer::displayGrayscaleFrame(const HalDisplay::RefreshMode mode) const {
   const HalDisplay::RefreshMode effectiveMode = consumeRefreshOverride(mode);
+  noteRefresh(effectiveMode);
   display.displayGrayscaleFrame(effectiveMode, fadingFix);
   // Same contract as triggerDisplay(): the display swapped buffers, so the
   // cached pointer must follow or every later draw writes to the frame now on
