@@ -41,7 +41,7 @@ class FontDecompressor {
   // compacts the requested glyph. The returned pointer is valid only until the
   // next getBitmap call or cache eviction; callers must copy bitmap data if a
   // longer lifetime is required.
-  const uint8_t* getBitmap(const EpdFontData* fontData, const EpdGlyph* glyph, uint32_t glyphIndex);
+  const uint8_t* getBitmap(const EpdFontData* fontData, const EpdGlyphRef& glyph, uint32_t glyphIndex);
 
   // Free all cached data (page buffers).
   void clearCache();
@@ -175,7 +175,7 @@ class FontDecompressor {
 
     // Compact one glyph from the stream into `packedDst` (glyph.dataLength bytes).
     // Zero-size glyphs consume nothing and succeed.
-    bool extractGlyph(uint32_t alignedOffset, const EpdGlyph& glyph, uint8_t* packedDst);
+    bool extractGlyph(uint32_t alignedOffset, const EpdGlyphRef& glyph, uint8_t* packedDst);
 
     // Bytes of the group decoded so far — the CPU actually spent, for stats.
     uint32_t consumed() const { return pos_; }

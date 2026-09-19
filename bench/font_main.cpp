@@ -91,13 +91,13 @@ static void benchGlyphLookup(const char* label, const EpdFontData* data) {
   constexpr int REPS = 200;
 
   // Warm the flash cache so the first pass does not pay for everyone.
-  for (int i = 0; i < kSweepCount; ++i) sink += (uint32_t)(uintptr_t)font.getGlyph(kSweep[i]);
+  for (int i = 0; i < kSweepCount; ++i) sink += font.getGlyph(kSweep[i]).advanceX;
 
   timerStart();
   for (int r = 0; r < REPS; ++r) {
     for (int i = 0; i < kSweepCount; ++i) {
-      const EpdGlyph* g = font.getGlyph(kSweep[i]);
-      if (g) sink += g->width + g->height + g->advanceX;
+      const EpdGlyphRef g = font.getGlyph(kSweep[i]);
+      if (g) sink += g.width + g.height + g.advanceX;
     }
   }
   const int64_t us = timerElapsedUs();
@@ -185,13 +185,16 @@ static void benchUiBitmapFetch(const char* label, const EpdFontData* data, const
   timerStart();
   for (int r = 0; r < REPS; ++r) {
     for (const char* p = text; *p; ++p) {  // ASCII fixtures, so byte == codepoint
-      const EpdGlyph* g = font.getGlyph((uint32_t)(uint8_t)*p);
-      if (!g || g->dataLength == 0) continue;
-      const uint8_t* bm = &data->bitmap[g->dataOffset];
-      for (uint16_t b = 0; b < g->dataLength; ++b) sink += bm[b];
+      const EpdGlyphRef g = font.getGlyph((uint32_t)(uint8_t)*p);
+      // Derived, not stored: EpdGlyphRef deliberately omits dataLength so the measurement path
+      // does not pay a multiply it never reads. See EpdGlyphPacked.
+      const uint16_t len = g ? glyphDataBytes(g.width, g.height, data->is2Bit) : 0;
+      if (!g || len == 0) continue;
+      const uint8_t* bm = &data->bitmap[g.dataOffset];
+      for (uint16_t b = 0; b < len; ++b) sink += bm[b];
       if (r == 0) {
         glyphs++;
-        bytes += g->dataLength;
+        bytes += len;
       }
     }
   }
@@ -221,10 +224,10 @@ static void benchReaderBitmapCold(const char* label, const EpdFontData* data) {
   int glyphs = 0;
   timerStart();
   for (int i = 0; i < kSweepCount; ++i) {
-    const EpdGlyph* g = font.getGlyph(kSweep[i]);
+    const EpdGlyphRef g = font.getGlyph(kSweep[i]);
     if (!g) continue;
-    const uint32_t idx = (uint32_t)(g - data->glyph);
-    const uint8_t* bm = decompressor.getBitmap(data, g, idx);
+    // The index used to be recovered by pointer subtraction; the resolved form carries it.
+    const uint8_t* bm = decompressor.getBitmap(data, g, g.index);
     if (bm) {
       sink += bm[0];
       glyphs++;
@@ -273,10 +276,9 @@ static void benchReaderPrewarm(const char* label, const EpdFontData* data) {
   timerStart();
   for (int r = 0; r < REPS; ++r) {
     for (const char* p = kReaderPage; *p; ++p) {
-      const EpdGlyph* g = font.getGlyph((uint32_t)(uint8_t)*p);
+      const EpdGlyphRef g = font.getGlyph((uint32_t)(uint8_t)*p);
       if (!g) continue;
-      const uint32_t idx = (uint32_t)(g - data->glyph);
-      const uint8_t* bm = decompressor.getBitmap(data, g, idx);
+      const uint8_t* bm = decompressor.getBitmap(data, g, g.index);
       if (bm) {
         sink += bm[0];
         if (r == 0) glyphs++;
@@ -301,8 +303,8 @@ void setup() {
 
   Serial.println("\n=== Font path ESP32-C3 benchmark ===");
   Serial.printf("CPU: %u MHz   free heap: %u B\n", (unsigned)getCpuFrequencyMhz(), (unsigned)esp_get_free_heap_size());
-  Serial.printf("sizeof(EpdGlyph) = %u B   (the glyph record; see the repack lever in the docs)\n\n",
-                (unsigned)sizeof(EpdGlyph));
+  Serial.printf("glyph record: EpdGlyphPacked %u B (built-in), EpdGlyph %u B (.cpfont)\n\n",
+                (unsigned)sizeof(EpdGlyphPacked), (unsigned)sizeof(EpdGlyph));
 
   if (!decompressor.init()) {
     Serial.println("FATAL: FontDecompressor::init() failed");

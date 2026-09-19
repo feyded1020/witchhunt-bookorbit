@@ -43,18 +43,26 @@ def parse_groups(text):
     return groups
 
 
-def parse_glyphs(text):
-    """Parse EpdGlyph array entries: { width, height, advanceX, left, top, dataLength, dataOffset }"""
+def parse_glyphs(text, is_2bit=True):
+    """Parse EpdGlyphPacked entries: { width, height, advanceX, left, top, dataOffset }.
+
+    dataLength is not stored -- it is derived from width * height * bpp, and this script is one of
+    the things that keeps that derivation honest: it compares the derived value against the actual
+    packed length of every glyph it decompresses. Only compressed fonts reach here, and --compress
+    requires --2bit, so bpp is 2 unless a caller says otherwise.
+    """
     glyphs = []
-    for match in re.finditer(r'\{\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\}', text):
+    bpp = 2 if is_2bit else 1
+    for match in re.finditer(r'\{\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\}', text):
+        width, height = int(match.group(1)), int(match.group(2))
         glyphs.append({
-            'width': int(match.group(1)),
-            'height': int(match.group(2)),
+            'width': width,
+            'height': height,
             'advanceX': int(match.group(3)),
             'left': int(match.group(4)),
             'top': int(match.group(5)),
-            'dataLength': int(match.group(6)),
-            'dataOffset': int(match.group(7)),
+            'dataOffset': int(match.group(6)),
+            'dataLength': (width * height * bpp + 7) // 8,
         })
     return glyphs
 
@@ -134,7 +142,7 @@ def verify_font_file(filepath):
 
     # Extract glyphs
     glyphs_match = re.search(
-        r'static const EpdGlyph ' + re.escape(font_name) + r'Glyphs\[\]\s*=\s*\{(.+?)\};',
+        r'static const EpdGlyphPacked ' + re.escape(font_name) + r'Glyphs\[\]\s*=\s*\{(.+?)\};',
         content, re.DOTALL
     )
     if not glyphs_match:

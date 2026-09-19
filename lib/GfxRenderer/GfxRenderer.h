@@ -843,7 +843,7 @@ class GfxRenderer {
   void cleanupGrayscaleWithPreviousBuffer() const;
 
   // Font helpers
-  const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;
+  const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyphRef& glyph) const;
 
   // Scaled-glyph mask cache (see ScaledGlyphEntry). Public only because the glyph
   // pipeline lives in free functions in GfxRenderer.cpp; treat as internal.

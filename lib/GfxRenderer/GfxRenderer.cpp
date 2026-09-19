@@ -19,18 +19,20 @@
 
 #include "FontCacheManager.h"
 
-const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const {
+const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const EpdGlyphRef& glyph) const {
   if (fontData->groups != nullptr) {
     auto* fd = fontCacheManager_ ? fontCacheManager_->getDecompressor() : nullptr;
     if (!fd) {
       LOG_ERR("GFX", "Compressed font but no FontDecompressor set");
       return nullptr;
     }
-    uint32_t glyphIndex = static_cast<uint32_t>(glyph - fontData->glyph);
-    // For page-buffer hits the pointer is stable for the page lifetime.
-    // For hot-group hits it is valid only until the next getBitmap() call — callers
-    // must consume it (draw the glyph) before requesting another bitmap.
-    return fd->getBitmap(fontData, glyph, glyphIndex);
+    // The index used to be recovered by subtracting the array base from the returned pointer,
+    // which a packed array makes impossible; EpdGlyphRef carries it instead.
+    //
+    // The returned BITMAP still has the old lifetime: stable for the page on a page-buffer hit,
+    // valid only until the next getBitmap() call on a hot-group hit, so callers must draw it
+    // before asking for another.
+    return fd->getBitmap(fontData, glyph, glyph.index);
   }
   // For SD card fonts, check if the glyph was loaded on demand into the overflow
   // buffer.  getOverflowBitmap() returns:
@@ -38,13 +40,16 @@ const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const Ep
   //   - nullptr for overflow glyphs without bitmap data (e.g. space: width=0, height=0)
   //   - nullptr for non-overflow glyphs (normal prewarmed path)
   // We distinguish overflow-with-no-bitmap from non-overflow by checking isOverflowGlyph().
-  if (fontData->glyphMissCtx) {
+  // sdRecord is the record this ref resolved from, and is null for built-in fonts. The overflow
+  // checks key on its pointer identity to tell a ring-loaded glyph from an array one, which is
+  // why resolution has to carry it rather than just the values.
+  if (fontData->glyphMissCtx && glyph.sdRecord) {
     auto* sdFont = SdCardFont::fromMissCtx(fontData->glyphMissCtx);
-    if (sdFont->isOverflowGlyph(glyph)) {
-      return sdFont->getOverflowBitmap(glyph);  // may be nullptr for zero-width glyphs
+    if (sdFont->isOverflowGlyph(glyph.sdRecord)) {
+      return sdFont->getOverflowBitmap(glyph.sdRecord);  // may be nullptr for zero-width glyphs
     }
   }
-  return &fontData->bitmap[glyph->dataOffset];
+  return &fontData->bitmap[glyph.dataOffset];
 }
 
 void GfxRenderer::ensureFontReady(int fontId, const char* utf8Text) const {
@@ -317,8 +322,8 @@ enum class TextRotation { None, Rotated90CW };
 //
 // PARAMETERS
 // ----------
-//   screenXBase = cursorX + glyph->left  (logical X of glyph pixel [0,0])
-//   screenYBase = cursorY - glyph->top   (logical Y of glyph pixel [0,0])
+//   screenXBase = cursorX + glyph.left  (logical X of glyph pixel [0,0])
+//   screenYBase = cursorY - glyph.top   (logical Y of glyph pixel [0,0])
 
 // Reverse all 8 bits of a byte (bit 7 ↔ bit 0).
 static inline uint8_t reverseBits8(uint8_t b) {
@@ -895,7 +900,7 @@ template <TextRotation rotation>
 static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode renderMode,
                            const EpdFontFamily& fontFamily, const uint32_t cp, int cursorX, int cursorY,
                            const bool pixelState, const EpdFontFamily::Style style) {
-  const EpdGlyph* glyph = fontFamily.getGlyph(cp, style);
+  const EpdGlyphRef glyph = fontFamily.getGlyph(cp, style);
   if (!glyph) {
     LOG_ERR("GFX", "No glyph for codepoint %d", cp);
     return;
@@ -903,10 +908,10 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
 
   const EpdFontData* fontData = fontFamily.getData(style);
   const bool is2Bit = fontData->is2Bit;
-  const uint8_t width = glyph->width;
-  const uint8_t height = glyph->height;
-  const int left = glyph->left;
-  const int top = glyph->top;
+  const uint8_t width = glyph.width;
+  const uint8_t height = glyph.height;
+  const int left = glyph.left;
+  const int top = glyph.top;
 
   // Tiled-grayscale band culling: if this glyph's physical y-extent is entirely
   // outside the active strip, skip it before the expensive bitmap decode. This
@@ -1269,23 +1274,23 @@ static void renderCharAtScale(const GfxRenderer& renderer, GfxRenderer::RenderMo
                               const EpdFontFamily& fontFamily, const uint32_t cp, int cursorX, int cursorY,
                               const bool pixelState, const EpdFontFamily::Style style, const float scale,
                               const uint8_t minRaw2Bit = 1) {
-  const EpdGlyph* glyph = fontFamily.getGlyph(cp, style);
+  const EpdGlyphRef glyph = fontFamily.getGlyph(cp, style);
   if (!glyph) return;
 
   const EpdFontData* fontData = fontFamily.getData(style);
   const uint8_t* bitmap = renderer.getGlyphBitmap(fontData, glyph);
   if (!bitmap) return;
 
-  const int srcW = glyph->width;
-  const int srcH = glyph->height;
+  const int srcW = glyph.width;
+  const int srcH = glyph.height;
   if (srcW <= 0 || srcH <= 0) return;
 
   const int dstW = static_cast<int>(srcW * scale + 0.5f);
   const int dstH = static_cast<int>(srcH * scale + 0.5f);
   if (dstW <= 0 || dstH <= 0) return;
 
-  const int baseX = cursorX + static_cast<int>(glyph->left * scale + 0.5f);
-  const int baseY = cursorY - static_cast<int>(glyph->top * scale + 0.5f);
+  const int baseX = cursorX + static_cast<int>(glyph.left * scale + 0.5f);
+  const int baseY = cursorY - static_cast<int>(glyph.top * scale + 0.5f);
   const bool is2Bit = fontData->is2Bit;
 
   // Downscaling thresholds raw ink levels against minRaw2Bit and always honors the
@@ -1476,11 +1481,11 @@ bool GfxRenderer::getTextInkMetrics(const int fontId, const char* text, const Ep
   uint32_t cp;
   const char* p = text;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&p)))) {
-    const EpdGlyph* glyph = fontIt->second.getGlyph(cp, style);
+    const EpdGlyphRef glyph = fontIt->second.getGlyph(cp, style);
     if (!glyph) continue;
-    // glyph->top: baseline to bitmap top edge; ink below baseline = height - top.
-    *aboveBaseline = std::max(*aboveBaseline, static_cast<int>(glyph->top));
-    *belowBaseline = std::max(*belowBaseline, static_cast<int>(glyph->height) - static_cast<int>(glyph->top));
+    // glyph.top: baseline to bitmap top edge; ink below baseline = height - top.
+    *aboveBaseline = std::max(*aboveBaseline, static_cast<int>(glyph.top));
+    *belowBaseline = std::max(*belowBaseline, static_cast<int>(glyph.height) - static_cast<int>(glyph.top));
     any = true;
   }
   return any;
@@ -1526,11 +1531,11 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   uint32_t prevCp = 0;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
     if (utf8IsCombiningMark(cp)) {
-      const EpdGlyph* combiningGlyph = font.getGlyph(cp, style);
+      const EpdGlyphRef combiningGlyph = font.getGlyph(cp, style);
       if (!combiningGlyph) continue;
-      const int raiseBy = combiningMark::raiseAboveBase(combiningGlyph->top, combiningGlyph->height, lastBaseTop);
-      const int combiningX = combiningMark::centerOver(lastBaseX, lastBaseLeft, lastBaseWidth, combiningGlyph->left,
-                                                       combiningGlyph->width);
+      const int raiseBy = combiningMark::raiseAboveBase(combiningGlyph.top, combiningGlyph.height, lastBaseTop);
+      const int combiningX = combiningMark::centerOver(lastBaseX, lastBaseLeft, lastBaseWidth, combiningGlyph.left,
+                                                       combiningGlyph.width);
       renderCharImpl<TextRotation::None>(*this, renderModeSnapshot, font, cp, combiningX, yPos - raiseBy, black, style);
       continue;
     }
@@ -1551,7 +1556,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);  // snap 12.4 fixed-point to nearest pixel
     }
 
-    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    const EpdGlyphRef glyph = font.getGlyph(cp, style);
     if (!glyph) {
       lastBaseX += fp4::toPixel(prevAdvanceFP);
       prevCp = 0;
@@ -1564,15 +1569,15 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     }
 
     // Folded glyphs render at smallCaps::SCALE, so layout metrics scale to match.
-    const int effLeft = folded ? static_cast<int>(glyph->left * smallCaps::SCALE) : glyph->left;
-    const int effWidth = folded ? static_cast<int>(glyph->width * smallCaps::SCALE + 0.5f) : glyph->width;
-    const int effHeight = folded ? static_cast<int>(glyph->height * smallCaps::SCALE + 0.5f) : glyph->height;
-    const int effTop = folded ? static_cast<int>(glyph->top * smallCaps::SCALE) : glyph->top;
+    const int effLeft = folded ? static_cast<int>(glyph.left * smallCaps::SCALE) : glyph.left;
+    const int effWidth = folded ? static_cast<int>(glyph.width * smallCaps::SCALE + 0.5f) : glyph.width;
+    const int effHeight = folded ? static_cast<int>(glyph.height * smallCaps::SCALE + 0.5f) : glyph.height;
+    const int effTop = folded ? static_cast<int>(glyph.top * smallCaps::SCALE) : glyph.top;
 
     lastBaseLeft = effLeft;
     lastBaseWidth = effWidth;
     lastBaseTop = effTop;
-    lastBaseAdvanceFP = glyph->advanceX;
+    lastBaseAdvanceFP = glyph.advanceX;
 
     // SUP/SUB glyph scaling is no longer applied here: superscript/subscript words carry
     // an explicit per-word size percentage (ChapterHtmlSlimParser), so they arrive via
@@ -1638,7 +1643,7 @@ void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, con
     const bool folded = smallCapsStyle && smallCaps::fold(cp);
     const float effScale = folded ? scale * smallCaps::SCALE : scale;
 
-    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    const EpdGlyphRef glyph = font.getGlyph(cp, style);
     if (!glyph) {
       prevCp = cp;
       continue;
@@ -1654,7 +1659,7 @@ void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, con
     renderCharAtScale(*this, renderModeSnapshot, font, cp, cursorX, yPos, black, style, effScale,
                       /*minRaw2Bit=*/(folded || isSupSub) ? 2 : 1);
 
-    const int scaledAdvanceFP = static_cast<int>(glyph->advanceX * effScale + 0.5f);
+    const int scaledAdvanceFP = static_cast<int>(glyph.advanceX * effScale + 0.5f);
     cursorFP += scaledAdvanceFP;
     prevCp = cp;
   }
@@ -3160,8 +3165,8 @@ int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style styl
     return 0;
   }
 
-  const EpdGlyph* spaceGlyph = fontIt->second.getGlyph(' ', style);
-  return spaceGlyph ? fp4::toPixel(spaceGlyph->advanceX) : 0;  // snap 12.4 fixed-point to nearest pixel
+  const EpdGlyphRef spaceGlyph = fontIt->second.getGlyph(' ', style);
+  return spaceGlyph ? fp4::toPixel(spaceGlyph.advanceX) : 0;  // snap 12.4 fixed-point to nearest pixel
 }
 
 int GfxRenderer::getSpaceAdvance(const int fontId, const uint32_t leftCp, const uint32_t rightCp,
@@ -3169,8 +3174,8 @@ int GfxRenderer::getSpaceAdvance(const int fontId, const uint32_t leftCp, const 
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) return 0;
   const auto& font = fontIt->second;
-  const EpdGlyph* spaceGlyph = font.getGlyph(' ', style);
-  const int32_t spaceAdvanceFP = spaceGlyph ? static_cast<int32_t>(spaceGlyph->advanceX) : 0;
+  const EpdGlyphRef spaceGlyph = font.getGlyph(' ', style);
+  const int32_t spaceAdvanceFP = spaceGlyph ? static_cast<int32_t>(spaceGlyph.advanceX) : 0;
   // Combine space advance + flanking kern into one fixed-point sum before snapping.
   // Snapping the combined value avoids the +/-1 px error from snapping each component separately.
   const int32_t kernFP = static_cast<int32_t>(font.getKerning(leftCp, ' ', style)) +
@@ -3220,14 +3225,14 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
       widthPx += fp4::toPixel(prevAdvanceFP + kernFP);  // snap 12.4 fixed-point to nearest pixel
     }
 
-    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    const EpdGlyphRef glyph = font.getGlyph(cp, style);
     if (!glyph) {
       widthPx += fp4::toPixel(prevAdvanceFP);
       prevCp = 0;
       prevAdvanceFP = 0;
       continue;
     }
-    prevAdvanceFP = glyph->advanceX;
+    prevAdvanceFP = glyph.advanceX;
     // SUP/SUB no longer halve here — superscript/subscript words are measured at their
     // explicit per-word scale by the layout code, matching drawTextScaled exactly.
     if (folded) {
@@ -3299,12 +3304,12 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
   uint32_t prevCp = 0;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
     if (utf8IsCombiningMark(cp)) {
-      const EpdGlyph* combiningGlyph = font.getGlyph(cp, style);
+      const EpdGlyphRef combiningGlyph = font.getGlyph(cp, style);
       if (!combiningGlyph) continue;
-      const int raiseBy = combiningMark::raiseAboveBase(combiningGlyph->top, combiningGlyph->height, lastBaseTop);
+      const int raiseBy = combiningMark::raiseAboveBase(combiningGlyph.top, combiningGlyph.height, lastBaseTop);
       const int combiningX = x - raiseBy;
       const int combiningY = combiningMark::centerOverRotated90CW(lastBaseY, lastBaseLeft, lastBaseWidth,
-                                                                  combiningGlyph->left, combiningGlyph->width);
+                                                                  combiningGlyph.left, combiningGlyph.width);
       renderCharImpl<TextRotation::Rotated90CW>(*this, getRenderMode(), font, cp, combiningX, combiningY, black, style);
       continue;
     }
@@ -3318,7 +3323,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       lastBaseY -= fp4::toPixel(prevAdvanceFP + kernFP);       // snap 12.4 fixed-point to nearest pixel
     }
 
-    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    const EpdGlyphRef glyph = font.getGlyph(cp, style);
     if (!glyph) {
       lastBaseY -= fp4::toPixel(prevAdvanceFP);
       prevCp = 0;
@@ -3330,10 +3335,10 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       continue;
     }
 
-    lastBaseLeft = glyph->left;
-    lastBaseWidth = glyph->width;
-    lastBaseTop = glyph->top;
-    lastBaseAdvanceFP = glyph->advanceX;
+    lastBaseLeft = glyph.left;
+    lastBaseWidth = glyph.width;
+    lastBaseTop = glyph.top;
+    lastBaseAdvanceFP = glyph.advanceX;
     prevAdvanceFP = lastBaseAdvanceFP;
 
     renderCharImpl<TextRotation::Rotated90CW>(*this, getRenderMode(), font, cp, x, lastBaseY, black, style);

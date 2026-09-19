@@ -19,8 +19,12 @@ self-contained header. This runs afterwards over the finished set, which is also
 it never computes a table, it only notices that two faces emitted the same bytes and keeps one.
 Every rewrite is verified to resolve to identical content before anything is written.
 
-Idempotent: running it on an already-deduped tree is a no-op, so convert-builtin-fonts.sh can call
-it unconditionally.
+Idempotent, and genuinely so: a previous run is UNDONE first (see expand_previous_run) and the
+whole set is then deduped from scratch. That matters for the interesting input, a tree where only
+some faces are new -- generating one extra size and re-running used to rewrite the shared header
+with only the tables that size happened to duplicate, dropping the ones every other face was still
+referencing and leaving a tree that did not link. The docstring claimed idempotency before it was
+true; adding the 24 pt faces is what found that out.
 
 Usage:  python dedupe_font_tables.py <builtinFonts dir>
 """
@@ -52,10 +56,54 @@ CANDIDATE_SUFFIXES = (
 # `static const <type> <name>[<optional length>] = { ... };`
 ARRAY_RE = re.compile(r"static const (\w[\w ]*?) (\w+)\[(\d*)\] = \{(.*?)\n\};\n", re.S)
 
+# The same, as this script itself writes it into SHARED_HEADER. Shared by the expand pass that
+# reads a previous run back and the verify pass that re-reads what this run wrote.
+SHARED_ARRAY_RE = re.compile(r"inline constexpr (\w[\w ]*?) (\w+)\[\] = \{(.*?)\n\};", re.S)
+
 
 def normalised(body: str) -> str:
     """The values alone: comments and whitespace carry no meaning here."""
     return re.sub(r"\s+", "", re.sub(r"//[^\n]*", "", body))
+
+
+def expand_previous_run(directory):
+    """Inline any table a previous run hoisted, so pass 1 always sees a self-contained tree.
+
+    fontconvert.py names a face's tables `<stem><Suffix>`, and the suffix survives in the shared
+    name (`epdSharedFontIntervals_<digest>`), so the original local name is reconstructible. That
+    is what makes undoing cheap enough to do unconditionally -- cheaper, and far easier to be sure
+    of, than teaching the dedup to merge with whatever it finds already hoisted.
+    """
+    shared_path = os.path.join(directory, SHARED_HEADER)
+    if not os.path.exists(shared_path):
+        return 0
+    shared_src = open(shared_path, encoding="utf-8").read()
+    bodies = {
+        m.group(2): (m.group(1).strip(), m.group(3))
+        for m in re.finditer(SHARED_ARRAY_RE, shared_src)
+    }
+    expanded = 0
+    for path in font_headers(directory):
+        src = open(path, encoding="utf-8", errors="surrogateescape").read()
+        referenced = sorted(set(re.findall(r"\bepdSharedFont\w+\b", src)))
+        if not referenced:
+            continue
+        stem = os.path.basename(path)[:-2]
+        definitions = []
+        for shared_name in referenced:
+            ctype, body = bodies[shared_name]
+            suffix = shared_name[len("epdSharedFont") :].rsplit("_", 1)[0]
+            local = f"{stem}{suffix}"
+            definitions.append(f"static const {ctype} {local}[] = {{{body}\n}};\n")
+            src = re.sub(rf"\b{re.escape(shared_name)}\b", local, src)
+            expanded += 1
+        # Ahead of the EpdFontData initialiser that reads them, which is the last thing in the file.
+        anchor = re.search(r"^static const EpdFontData ", src, re.M)
+        assert anchor, f"{path}: no EpdFontData definition to insert the re-inlined tables before"
+        src = src[: anchor.start()] + "".join(definitions) + src[anchor.start() :]
+        src = src.replace(f'#include "{SHARED_HEADER}"\n', "")
+        open(path, "w", encoding="utf-8", errors="surrogateescape", newline="").write(src)
+    return expanded
 
 
 def font_headers(directory):
@@ -65,6 +113,11 @@ def font_headers(directory):
 
 
 def main(directory):
+    # Pass 0: undo any previous run, so everything below sees one consistent kind of input.
+    reinlined = expand_previous_run(directory)
+    if reinlined:
+        print(f"dedupe_font_tables: re-inlined {reinlined} references from a previous run", file=sys.stderr)
+
     # Pass 1: collect every candidate array, keyed by (type, normalised content).
     occurrences = defaultdict(list)  # key -> [(path, name, decl_text, body)]
     sources = {}
@@ -144,8 +197,7 @@ def main(directory):
     # same bytes it had before. This is the check that makes the rewrite trustworthy rather than
     # merely plausible.
     shared_src = open(shared_path, encoding="utf-8").read()
-    shared_bodies = {m.group(1): normalised(m.group(2))
-                     for m in re.finditer(r"inline constexpr \w[\w ]*? (\w+)\[\] = \{(.*?)\n\};", shared_src, re.S)}
+    shared_bodies = {m.group(2): normalised(m.group(3)) for m in re.finditer(SHARED_ARRAY_RE, shared_src)}
     for path, original in sources.items():
         before = {}
         for m in ARRAY_RE.finditer(original):

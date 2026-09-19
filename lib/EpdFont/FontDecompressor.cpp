@@ -165,7 +165,7 @@ bool FontDecompressor::GroupStream::skipTo(const uint32_t offset) {
   return true;
 }
 
-bool FontDecompressor::GroupStream::extractGlyph(const uint32_t alignedOffset, const EpdGlyph& glyph,
+bool FontDecompressor::GroupStream::extractGlyph(const uint32_t alignedOffset, const EpdGlyphRef& glyph,
                                                  uint8_t* packedDst) {
   if (glyph.width == 0 || glyph.height == 0) return true;  // no payload; consumes nothing
   const uint32_t rowStride = (glyph.width + 3u) / 4u;
@@ -205,7 +205,7 @@ bool FontDecompressor::GroupStream::extractGlyph(const uint32_t alignedOffset, c
 uint32_t FontDecompressor::getAlignedOffset(const EpdFontData* fontData, uint16_t groupIndex, uint32_t glyphIndex) {
   uint32_t offset = 0;
 
-  auto accumGlyph = [&](const EpdGlyph& g) {
+  auto accumGlyph = [&](const EpdGlyphRef& g) {
     if (g.width > 0 && g.height > 0) {
       offset += ((g.width + 3) / 4) * g.height;
     }
@@ -215,14 +215,14 @@ uint32_t FontDecompressor::getAlignedOffset(const EpdFontData* fontData, uint16_
     // Frequency-grouped: scan glyphs before glyphIndex that belong to this group
     for (uint32_t i = 0; i < glyphIndex; i++) {
       if (fontData->glyphToGroup[i] == groupIndex) {
-        accumGlyph(fontData->glyph[i]);
+        accumGlyph(epdResolveGlyph(fontData, i));
       }
     }
   } else {
     // Contiguous-group: sum aligned sizes of preceding glyphs in the group
     const EpdFontGroup& group = fontData->groups[groupIndex];
     for (uint32_t i = group.firstGlyphIndex; i < glyphIndex; i++) {
-      accumGlyph(fontData->glyph[i]);
+      accumGlyph(epdResolveGlyph(fontData, i));
     }
   }
 
@@ -231,13 +231,20 @@ uint32_t FontDecompressor::getAlignedOffset(const EpdFontData* fontData, uint16_
 
 // --- getBitmap: page buffer → transient ring + streamed compact ---
 
-const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const EpdGlyph* glyph, uint32_t glyphIndex) {
+// dataLength is derived rather than stored (see EpdGlyphPacked), and deliberately NOT carried on
+// EpdGlyphRef: the measurement path resolves a glyph per character and would pay the multiply
+// without ever reading the result. The bitmap paths, which are the only ones that want it, ask.
+static inline uint16_t dataLengthOf(const EpdFontData* fontData, const EpdGlyphRef& g) {
+  return glyphDataBytes(g.width, g.height, fontData->is2Bit);
+}
+
+const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const EpdGlyphRef& glyph, uint32_t glyphIndex) {
   const uint32_t tStart = micros();
   stats.getBitmapCalls++;
 
   if (!fontData->groups || fontData->groupCount == 0) {
     stats.getBitmapTimeUs += micros() - tStart;
-    return &fontData->bitmap[glyph->dataOffset];
+    return &fontData->bitmap[glyph.dataOffset];
   }
 
   // Check page buffer slots (populated by prewarmCache — one slot per distinct EpdFontData,
@@ -292,8 +299,9 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
   stats.cacheMisses++;
   const EpdFontGroup& group = fontData->groups[groupIndex];
 
-  if (glyph->dataLength > HOT_GLYPH_BUF_SIZE) {
-    LOG_ERR("FDC", "Glyph dataLength %u exceeds HOT_GLYPH_BUF_SIZE %u", glyph->dataLength, HOT_GLYPH_BUF_SIZE);
+  const uint16_t glyphBytes = dataLengthOf(fontData, glyph);
+  if (glyphBytes > HOT_GLYPH_BUF_SIZE) {
+    LOG_ERR("FDC", "Glyph dataLength %u exceeds HOT_GLYPH_BUF_SIZE %u", glyphBytes, HOT_GLYPH_BUF_SIZE);
     stats.getBitmapTimeUs += micros() - tStart;
     return nullptr;
   }
@@ -347,7 +355,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
   const uint32_t tDecomp = millis();
   GroupStream stream;
   if (!stream.begin(fontData, group, ring, ringBytes) ||
-      !stream.extractGlyph(alignedOff, *glyph, _fallbackCache[lruIndex].buffer)) {
+      !stream.extractGlyph(alignedOff, glyph, _fallbackCache[lruIndex].buffer)) {
     stats.decompressTimeMs += millis() - tDecomp;
     LOG_ERR("FDC", "Streaming group %u failed at glyph %lu", groupIndex, glyphIndex);
     stats.getBitmapTimeUs += micros() - tStart;
@@ -409,9 +417,9 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     int32_t glyphIdx = findGlyphIndex(fontData, cp);
     if (glyphIdx < 0) continue;
 
-    const EpdGlyph& glyph = fontData->glyph[glyphIdx];
+    const EpdGlyphRef glyph = epdResolveGlyph(fontData, glyphIdx);
     // Whitespace/empty glyphs have no bitmap payload and do not need prewarm storage.
-    if (glyph.dataLength == 0 || glyph.width == 0 || glyph.height == 0) continue;
+    if (glyph.width == 0 || glyph.height == 0) continue;  // no payload; dataLength would be 0 too
 
     // Deduplicate against already prewarmed slots
     bool alreadyCached = false;
@@ -477,8 +485,8 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
 
       int32_t outIdx = findGlyphIndex(fontData, fontData->ligaturePairs[li].ligatureCp);
       if (outIdx < 0) continue;
-      const EpdGlyph& outGlyph = fontData->glyph[outIdx];
-      if (outGlyph.dataLength == 0 || outGlyph.width == 0 || outGlyph.height == 0) continue;
+      const EpdGlyphRef outGlyph = epdResolveGlyph(fontData, outIdx);
+      if (outGlyph.width == 0 || outGlyph.height == 0) continue;  // no payload
 
       bool found = false;
       for (uint16_t i = 0; i < glyphCount; i++) {
@@ -543,7 +551,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
   bool groupCapWarned = false;
 
   for (uint16_t i = 0; i < glyphCount; i++) {
-    totalBytes += fontData->glyph[neededGlyphs[i]].dataLength;
+    totalBytes += dataLengthOf(fontData, epdResolveGlyph(fontData, neededGlyphs[i]));
     const uint16_t gi = getGroupIndex(fontData, neededGlyphs[i]);
     neededGlyphGroups[i] = gi;
     bool found = false;
@@ -676,7 +684,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
       const uint8_t gpPos = groupIdToPos[gi];
       if (gpPos == 0xFF) continue;  // not a needed group
 
-      const EpdGlyph& glyph = fontData->glyph[i];
+      const EpdGlyphRef glyph = epdResolveGlyph(fontData, i);
 
       // Binary search in sorted slot.glyphs to find if glyph i is needed
       int left = 0, right = (int)slot.glyphCount - 1;
@@ -705,7 +713,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
       uint32_t alignedOff = 0;
       for (uint16_t j = 0; j < group.glyphCount; j++) {
         const uint32_t glyphI = group.firstGlyphIndex + j;
-        const EpdGlyph& glyph = fontData->glyph[glyphI];
+        const EpdGlyphRef glyph = epdResolveGlyph(fontData, glyphI);
 
         int left = 0, right = (int)slot.glyphCount - 1;
         while (left <= right) {
@@ -783,13 +791,13 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
       if (slot.glyphs[i].bufferOffset != UINT32_MAX) continue;  // already extracted
       if (slot.glyphs[i].groupIndex != groupIdx) continue;
 
-      const EpdGlyph& glyph = fontData->glyph[slot.glyphs[i].glyphIndex];
+      const EpdGlyphRef glyph = epdResolveGlyph(fontData, slot.glyphs[i].glyphIndex);
       if (!stream.extractGlyph(slot.glyphs[i].alignedOffset, glyph, &slot.buffer[writeOffset])) {
         LOG_ERR("FDC", "Streaming group %u failed after %u of %u glyph(s)", groupIdx, extracted, owed);
         break;
       }
       slot.glyphs[i].bufferOffset = writeOffset;
-      writeOffset += glyph.dataLength;
+      writeOffset += dataLengthOf(fontData, glyph);
       extracted++;
     }
     stats.decompressTimeMs += millis() - tDecomp;

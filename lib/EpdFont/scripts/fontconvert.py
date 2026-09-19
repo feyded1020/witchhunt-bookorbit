@@ -1207,9 +1207,33 @@ def cp_label(cp):
         return '<backslash>'
     return chr(cp) if 0x20 < cp < 0x7F else f'U+{cp:04X}'
 
-print(f"static const EpdGlyph {font_name}Glyphs[] = {{")
-for i, g in enumerate(glyph_props):
-    print ("    { " + ", ".join([f"{a}" for a in list(g[:-1])]),"},", f"// {cp_label(g.code_point)}")
+# EpdGlyphPacked: 8 bytes instead of EpdGlyph's 16. dataLength is derived on device from
+# width * height * bpp, left/top are narrowed to int8 and dataOffset to uint16. Each of those is
+# CHECKED here rather than assumed, because every one of them fails silently at runtime -- a
+# truncated offset reads a neighbouring glyph's bitmap, which renders as the wrong character
+# rather than as a crash. See EpdGlyphPacked in EpdFontData.h.
+bpp = 2 if is2Bit else 1
+for g in glyph_props:
+    derived = (g.width * g.height * bpp + 7) // 8
+    if derived != g.data_length:
+        sys.exit(f"{font_name}: U+{g.code_point:04X} dataLength {g.data_length} != derived {derived}. "
+                 f"The bitmap packing is no longer a continuous bit stream, so EpdGlyphPacked cannot "
+                 f"derive it -- restore the stored field or fix the packer.")
+    if not (-128 <= g.left <= 127):
+        sys.exit(f"{font_name}: U+{g.code_point:04X} left {g.left} does not fit int8_t")
+    if not (-128 <= g.top <= 127):
+        sys.exit(f"{font_name}: U+{g.code_point:04X} top {g.top} does not fit int8_t")
+    if not (0 <= g.data_offset <= 0xFFFF):
+        sys.exit(f"{font_name}: U+{g.code_point:04X} dataOffset {g.data_offset} exceeds uint16. An "
+                 f"uncompressed font is capped at 64 KB of bitmap data by EpdGlyphPacked; either "
+                 f"compress this face or widen that field to a uint24.")
+    if not (0 <= g.advance_x <= 0xFFFF):
+        sys.exit(f"{font_name}: U+{g.code_point:04X} advanceX {g.advance_x} exceeds uint16")
+
+print(f"static const EpdGlyphPacked {font_name}Glyphs[] = {{")
+for g in glyph_props:
+    print(f"    {{ {g.width}, {g.height}, {g.advance_x}, {g.left}, {g.top}, {g.data_offset} }},"
+          f" // {cp_label(g.code_point)}")
 print ("};\n");
 
 print(f"static const EpdUnicodeInterval {font_name}Intervals[] = {{")
@@ -1296,6 +1320,7 @@ if ligature_pairs:
 
 print(f"static const EpdFontData {font_name} = {{")
 print(f"    {font_name}Bitmaps,")
+print("    nullptr,  // glyph: the 16-byte EpdGlyph array is the .cpfont form, SD-card fonts only")
 print(f"    {font_name}Glyphs,")
 print(f"    {font_name}Intervals,")
 print(f"    {len(intervals)},")
