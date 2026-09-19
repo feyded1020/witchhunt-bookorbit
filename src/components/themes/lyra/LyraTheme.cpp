@@ -254,8 +254,9 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<std::string(int index)>& rowSubtitle,
                          const std::function<UIIcon(int index)>& rowIcon,
                          const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
-  int rowHeight =
-      (rowSubtitle != nullptr) ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
+  const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
+  const UiFontLadder::Step growth = UITheme::fontGrowth();
+  int rowHeight = (rowSubtitle != nullptr) ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight;
   int pageItems = rect.height / rowHeight;
   // Never paint more rows than the touch band can register: a painted row past the cap is drawn
   // but recorded by nothing, so it answers to no tap. That is not hypothetical -- the reader
@@ -362,15 +363,18 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     if (rowSubtitle != nullptr) {
       std::string subtitleText = rowSubtitle(i);
       const auto nl = subtitleText.find('\n');
+      // The three offsets are tuned to overlap the line boxes slightly, so they are kept as-is
+      // and each line is pushed down by the growth of the lines ABOVE it at the current UI font
+      // size. Re-deriving them from line heights instead would undo that tuning.
       if (nl != std::string::npos) {
         // Two-line subtitle: first line (author) at +24, second line (series) at +40
         auto line1 = renderer.truncatedText(SMALL_FONT_ID, subtitleText.substr(0, nl).c_str(), rowTextWidth);
-        renderer.drawText(SMALL_FONT_ID, textX, itemY + 24, line1.c_str(), true);
+        renderer.drawText(SMALL_FONT_ID, textX, itemY + 24 + growth.body, line1.c_str(), true);
         auto line2 = renderer.truncatedText(SMALL_FONT_ID, subtitleText.substr(nl + 1).c_str(), rowTextWidth);
-        renderer.drawText(SMALL_FONT_ID, textX, itemY + 40, line2.c_str(), true);
+        renderer.drawText(SMALL_FONT_ID, textX, itemY + 40 + growth.body + growth.small, line2.c_str(), true);
       } else {
         auto subtitle = renderer.truncatedText(SMALL_FONT_ID, subtitleText.c_str(), rowTextWidth);
-        renderer.drawText(SMALL_FONT_ID, textX, itemY + 30, subtitle.c_str(), true);
+        renderer.drawText(SMALL_FONT_ID, textX, itemY + 30 + growth.body, subtitle.c_str(), true);
       }
     }
 
@@ -403,9 +407,10 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   const int pageHeight = renderer.getScreenHeight();
   constexpr int buttonWidth = 80;
   constexpr int smallButtonHeight = 15;
-  constexpr int buttonHeight = LyraMetrics::values.buttonHintsHeight;
-  constexpr int buttonY = LyraMetrics::values.buttonHintsHeight;  // Distance from bottom
-  constexpr int textYOffset = 7;                                  // Distance from top of button to text baseline
+  // Read live rather than from the constexpr table: the strip grows with the UI font size.
+  const int buttonHeight = UITheme::getInstance().getMetrics().buttonHintsHeight;
+  const int buttonY = buttonHeight;  // Distance from bottom
+  constexpr int textYOffset = 7;     // Distance from top of button to text baseline
   // Hand-tuned for the widths named in ButtonHintLayout; other panels spread evenly.
   constexpr int x4ButtonPositions[] = {58, 146, 254, 342};
   constexpr int x3ButtonPositions[] = {65, 157, 291, 383};
@@ -722,7 +727,7 @@ void LyraTheme::drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) c
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
-  int rowHeight = LyraMetrics::values.menuRowHeight;
+  int rowHeight = UITheme::getInstance().getMetrics().menuRowHeight;
   int rowSpacing = LyraMetrics::values.menuSpacing;
   if (buttonCount > 0 && rect.height > 0) {
     const int defaultHeight = buttonCount * rowHeight + std::max(0, buttonCount - 1) * rowSpacing;

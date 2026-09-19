@@ -46,6 +46,7 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
+#include "UiFontScale.h"
 #include "WeatherSettingsStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
@@ -177,6 +178,11 @@ EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
 EpdFont ui12RegularFont(&inter_ui_12_regular);
 EpdFont ui12BoldFont(&inter_ui_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+
+// Only reachable through the LARGE step of the UI font ladder (see applyUiFontScale()).
+EpdFont ui14RegularFont(&inter_ui_14_regular);
+EpdFont ui14BoldFont(&inter_ui_14_bold);
+EpdFontFamily ui14FontFamily(&ui14RegularFont, &ui14BoldFont);
 
 // SilentRestart.h definitions. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
@@ -632,6 +638,33 @@ void enterDeepSleep(bool fromTimeout = false, BootDiag::SleepTrigger trigger = B
   powerManager.startDeepSleep(gpio, keepLpAlive);
 }
 
+// The UI font ladder. Each logical slot holds the next family up at the LARGE step; the ladder
+// stays inside Inter (plus Noto Sans 8 at the bottom of the default step) on purpose, because
+// every alternative built-in face is a COMPRESSED 2-bit font. UI screens do not prewarm the
+// glyph cache the way the reader does, so a compressed UI font would inflate a whole DEFLATE
+// group per glyph on every menu repaint — the regression that stalled crosspoint-reader#3083.
+//
+// Line heights are 23/25/30 px at the default step and 25/30/35 px at the large one, so the two
+// larger slots each gain a clean 5 px. UiFontLadder::applyTo() adds those pixels to every metric
+// that has to hold a line of the text in question.
+void applyUiFontScale() {
+  const bool large = SETTINGS.uiFontSize == CrossPointSettings::UI_FONT_SIZE_LARGE;
+  renderer.replaceFont(SMALL_FONT_ID, large ? ui10FontFamily : smallFontFamily);
+  renderer.replaceFont(UI_10_FONT_ID, large ? ui12FontFamily : ui10FontFamily);
+  renderer.replaceFont(UI_12_FONT_ID, large ? ui14FontFamily : ui12FontFamily);
+
+  // UiFontLadder::STEPS is what the themes size their rows from, so it has to describe the
+  // fonts that were just bound. Regenerating a face can change its advanceY, and a skew here
+  // would show up as clipped or floating menu text on every screen with no other symptom.
+  const UiFontLadder::Step& step = UiFontLadder::STEPS[large ? 1 : 0];
+  const int live[] = {renderer.getLineHeight(SMALL_FONT_ID), renderer.getLineHeight(UI_10_FONT_ID),
+                      renderer.getLineHeight(UI_12_FONT_ID)};
+  if (live[0] != step.small || live[1] != step.body || live[2] != step.title) {
+    LOG_ERR("MAIN", "UI font ladder step %d stale: table %d/%d/%d, fonts %d/%d/%d", large ? 1 : 0, step.small,
+            step.body, step.title, live[0], live[1], live[2]);
+  }
+}
+
 void setupDisplayAndFonts(bool seamless = false, bool skipSdFontDiscovery = false) {
   display.begin(seamless);
   renderer.begin();
@@ -655,9 +688,9 @@ void setupDisplayAndFonts(bool seamless = false, bool skipSdFontDiscovery = fals
   renderer.insertFont(NOTOSANS_14_FONT_ID, notosans14FontFamily);
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
-  renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
-  renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
-  renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+  // The three UI slots are bound by the font ladder rather than registered here, so the first
+  // bind and every later rebind run the same code path.
+  applyUiFontScale();
 
   // Discover SD card fonts (under /.crosspoint/fonts/) and load the family
   // currently selected in settings (if any). Safe to call without an SD card.

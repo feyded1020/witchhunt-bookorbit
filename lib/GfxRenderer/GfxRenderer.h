@@ -186,6 +186,15 @@ class GfxRenderer {
   // Setup
   void begin();  // must be called right after display.begin()
   void insertFont(int fontId, EpdFontFamily font);
+  // Rebinds an already-registered ID to a different family, where insertFont() deliberately
+  // refuses a duplicate. Used by the UI font ladder: the three UI font IDs are LOGICAL slots
+  // whose family depends on SETTINGS.uiFontSize, so switching the setting rebinds them in
+  // place rather than teaching ~600 call sites about a second set of IDs. Registers the ID if
+  // it is not bound yet, so the first bind and every later one go through one call.
+  void replaceFont(int fontId, EpdFontFamily font) {
+    fontMap.insert_or_assign(fontId, font);
+    invalidateScaledGlyphCache();
+  }
   void removeFont(int fontId) {
     fontMap.erase(fontId);
     invalidateScaledGlyphCache();

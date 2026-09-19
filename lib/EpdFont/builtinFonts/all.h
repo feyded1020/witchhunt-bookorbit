@@ -24,6 +24,8 @@
 #include <builtinFonts/inter_ui_10_regular.h>
 #include <builtinFonts/inter_ui_12_bold.h>
 #include <builtinFonts/inter_ui_12_regular.h>
+#include <builtinFonts/inter_ui_14_bold.h>
+#include <builtinFonts/inter_ui_14_regular.h>
 #include <builtinFonts/notosans_10_bold.h>
 #include <builtinFonts/notosans_10_bolditalic.h>
 #include <builtinFonts/notosans_10_italic.h>
