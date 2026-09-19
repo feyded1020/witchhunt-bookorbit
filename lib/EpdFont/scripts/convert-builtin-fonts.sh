@@ -98,5 +98,21 @@ done
 python fontconvert.py notosans_8_regular 8 ../builtinFonts/source/NotoSans/NotoSans-Regular.ttf > ../builtinFonts/notosans_8_regular.h
 
 echo ""
+echo "Deduplicating tables shared between faces..."
+# fontconvert.py writes each face independently, so every size of a family repeats the tables
+# that describe the TYPEFACE rather than the size -- codepoint coverage, kern class assignment,
+# the ligature set. Only the kern values scale with size. This pass runs over the finished set
+# and keeps one copy of each; it never computes a table, so it cannot change any bytes.
+# Idempotent, so re-running the conversion is safe.
+# Snapshot first so the dedup can be PROVEN byte-equivalent rather than assumed. The verifier
+# is a separate program that re-reads both trees from disk: one that shared the transformer's
+# parsing would agree with it about a misparse.
+PREDEDUPE="$(mktemp -d)"
+cp ../builtinFonts/*.h "$PREDEDUPE/"
+python dedupe_font_tables.py ../builtinFonts/
+python verify_font_dedup.py ../builtinFonts/ "$PREDEDUPE"
+rm -rf "$PREDEDUPE"
+
+echo ""
 echo "Running compression verification..."
 python verify_compression.py ../builtinFonts/
