@@ -2560,6 +2560,12 @@ static FontSizeLadder buildReaderFontSizeLadder(const int bodyFontId) {
   static constexpr uint8_t kFamilies[] = {CrossPointSettings::BOOKERLY, CrossPointSettings::NOTOSANS};
   const auto& rungs = CrossPointSettings::FONT_SIZE_RUNGS;
   constexpr int rungCount = CrossPointSettings::FONT_SIZE_RUNG_COUNT;
+  // FontSizeLadder is fixed-capacity and drops extra rungs without a word, so the size that
+  // would be lost is the one added last -- the largest, which is exactly the one a heading is
+  // most likely to want. Caught here rather than at runtime.
+  static_assert(rungCount <= FontSizeLadder::kMaxRungs,
+                "FontSizeLadder::kMaxRungs is smaller than the reader ladder; raise it or headings "
+                "will silently resample from a smaller face");
 
   FontSizeLadder ladder;
   for (const uint8_t family : kFamilies) {

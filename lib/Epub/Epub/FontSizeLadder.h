@@ -16,7 +16,12 @@
 // Deterministic from the body fontId by construction, so it is deliberately NOT
 // part of the section-cache property hash (fontId already is).
 struct FontSizeLadder {
-  static constexpr int kMaxRungs = 5;  // built-in families ship 10/12/14/16/18 pt
+  // Capacity, not a description of the shipped set -- naming the sizes here is what let this go
+  // stale. addRung() drops anything past it SILENTLY, so a family that grew a size simply lost
+  // its largest rung and every heading that wanted it resampled from a smaller face instead.
+  // Exactly that happened when the 24 pt rung was added. The app asserts its own ladder fits
+  // (see buildReaderFontSizeLadder), which is the check that would have caught it.
+  static constexpr int kMaxRungs = 6;
 
   struct Rung {
     int32_t fontId = 0;    // 32-bit font-id hash (fontIds.h); never truncate
