@@ -206,8 +206,8 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, const char* wantedFam
   // for it exists (GfxRenderer::renderCharAtScale) but the reader has no base-size scale yet.
   const auto* best = family->pickClosestSize(targetPt);
   if (best && best->pointSize != targetPt) {
-    LOG_DBG("SDFS", "%s has no %u pt face (closest %u pt); using the built-in family at %u pt instead",
-            wantedFamily, targetPt, best->pointSize, targetPt);
+    LOG_DBG("SDFS", "%s has no %u pt face (closest %u pt); using the built-in family at %u pt instead", wantedFamily,
+            targetPt, best->pointSize, targetPt);
     return;
   }
 

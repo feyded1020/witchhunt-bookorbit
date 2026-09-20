@@ -326,8 +326,8 @@ inline EpdGlyphRef epdResolveGlyph(const EpdFontData* data, const uint32_t index
   }
   const EpdGlyph& g = data->glyph[index];
   return EpdGlyphRef{&g,  // SD-card fonts only: the overflow-ring checks key on this pointer
-                     g.advanceX, static_cast<uint16_t>(index),  g.width,
-                     g.height,   static_cast<int8_t>(g.left),   static_cast<int8_t>(g.top),
+                     g.advanceX, static_cast<uint16_t>(index), g.width,
+                     g.height,   static_cast<int8_t>(g.left),  static_cast<int8_t>(g.top),
                      true};
 }
 

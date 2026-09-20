@@ -331,8 +331,7 @@ static void checkWidestGlyph(const char* label, const EpdFontData* data, const u
   const uint8_t* bm = decompressor.getBitmap(data, g, g.index);
 
   Serial.printf("CHECK widest_glyph      %-18s U+%04lX %ux%u needs=%uB buf=%uB  %s\n", label, (unsigned long)cp,
-                (unsigned)g.width, (unsigned)g.height, (unsigned)need,
-                (unsigned)FontDecompressor::HOT_GLYPH_BUF_SIZE,
+                (unsigned)g.width, (unsigned)g.height, (unsigned)need, (unsigned)FontDecompressor::HOT_GLYPH_BUF_SIZE,
                 bm ? "PASS" : "FAIL (renders blank on a prewarm miss)");
   if (bm) sink += bm[0];
   decompressor.clearCache();
@@ -476,15 +475,15 @@ static void resamplePoint(const int sw, const int sh, const int dw, const int dh
 // 26/20 = 13/10). An arbitrary CSS size is not a nice rational and keeps the general path.
 static constexpr int kMaxPhase = 16;  // p for the ladder ratios: 11, 6, 13
 struct Phase {
-  int16_t src0;   // first source pixel this phase touches, relative to the period's base
-  uint8_t w[2];   // enlargement touches at most two source pixels per axis (q < p)
+  int16_t src0;  // first source pixel this phase touches, relative to the period's base
+  uint8_t w[2];  // enlargement touches at most two source pixels per axis (q < p)
   uint8_t n;
 };
 
 static bool buildPhases(const int p, const int q, Phase* out) {
   if (p > kMaxPhase || q >= p) return false;  // enlargement only; reduction touches more pixels
   for (int x = 0; x < p; ++x) {
-    const int lo = x * q;             // in 1/p-source-pixel units
+    const int lo = x * q;  // in 1/p-source-pixel units
     const int hi = lo + q;
     const int k0 = lo / p, k1 = (hi - 1) / p;
     out[x].src0 = static_cast<int16_t>(k0);
@@ -622,10 +621,10 @@ static void benchGlyphResample(const char* label, const EpdFontData* data, const
   // Both methods at every ratio, and a per-DESTINATION-PIXEL rate as well as the per-glyph cost:
   // the per-glyph figure scales with glyph area, so comparing sizes needs the rate, and the rate
   // is what multiplies out to a page of ~400 glyphs.
-  Serial.printf("BENCH glyph_resample    %-18s x%.2f  %2dx%-2d -> %2dx%-2d  area=%4lldus  point=%4lldus  "
-                "area_per_px=%3lldns\n",
-                label, scale, sw, sh, dw, dh, areaUs / REPS, pointUs / REPS,
-                (areaUs * 1000) / (REPS * dw * dh));
+  Serial.printf(
+      "BENCH glyph_resample    %-18s x%.2f  %2dx%-2d -> %2dx%-2d  area=%4lldus  point=%4lldus  "
+      "area_per_px=%3lldns\n",
+      label, scale, sw, sh, dw, dh, areaUs / REPS, pointUs / REPS, (areaUs * 1000) / (REPS * dw * dh));
 }
 
 // Polyphase against the 16.16 area path at the same ratio: how much faster, and -- first --
@@ -668,11 +667,12 @@ static void benchPolyphase(const char* label, const EpdFontData* data, const int
   const int64_t polyUs = timerElapsedUs();
   sink += dstCov[0];
 
-  Serial.printf("BENCH polyphase         %-18s %2d/%-2d %5.3fx  area=%4lldus  poly=%4lldus  x%.1f faster  "
-                "poly_per_px=%3lldns   differs=%d/%d px (max %d level)\n",
-                label, p, q, static_cast<double>(p) / q, areaUs / REPS, polyUs / REPS,
-                polyUs ? static_cast<double>(areaUs) / polyUs : 0.0, (polyUs * 1000) / (REPS * dw * dh), differing,
-                dw * dh, maxDelta);
+  Serial.printf(
+      "BENCH polyphase         %-18s %2d/%-2d %5.3fx  area=%4lldus  poly=%4lldus  x%.1f faster  "
+      "poly_per_px=%3lldns   differs=%d/%d px (max %d level)\n",
+      label, p, q, static_cast<double>(p) / q, areaUs / REPS, polyUs / REPS,
+      polyUs ? static_cast<double>(areaUs) / polyUs : 0.0, (polyUs * 1000) / (REPS * dw * dh), differing, dw * dh,
+      maxDelta);
 }
 
 // How close a resampled master lands to the real face at that size.
@@ -680,8 +680,8 @@ static void benchPolyphase(const char* label, const EpdFontData* data, const int
 // Resampled to the REAL glyph's dimensions on purpose: that isolates SHAPE fidelity from the
 // separate question of whether a scaled advance rounds to the same box, which is reported
 // alongside as dim= so the two are not conflated.
-static void checkResampleFidelity(const char* label, const EpdFontData* src, const EpdFontData* ref,
-                                  const char* chars, const bool forceArea = false) {
+static void checkResampleFidelity(const char* label, const EpdFontData* src, const EpdFontData* ref, const char* chars,
+                                  const bool forceArea = false) {
   const uint8_t maxLevel = ref->is2Bit ? 3 : 1;
   Serial.printf("-- resample fidelity: %s --\n", label);
   long totalAbs = 0, totalPx = 0;
@@ -712,8 +712,8 @@ static void checkResampleFidelity(const char* label, const EpdFontData* src, con
     // The box a naive scale would have produced, for comparison with the real one.
     const float sc = static_cast<float>(rh) / static_cast<float>(sh);
     const int naiveW = static_cast<int>(sw * sc + 0.5f);
-    Serial.printf("   '%c'  %2dx%-2d -> %2dx%-2d  MAD=%4.1f%%  exact=%3d%%  ink=%+5.1f%%  dim=%+d\n", *p, sw, sh, rw, rh,
-                  100.0f * absSum / (px * maxLevel), static_cast<int>(100L * exact / px),
+    Serial.printf("   '%c'  %2dx%-2d -> %2dx%-2d  MAD=%4.1f%%  exact=%3d%%  ink=%+5.1f%%  dim=%+d\n", *p, sw, sh, rw,
+                  rh, 100.0f * absSum / (px * maxLevel), static_cast<int>(100L * exact / px),
                   refInk ? 100.0f * (gotInk - refInk) / refInk : 0.0f, naiveW - rw);
   }
   if (totalPx) {
@@ -814,8 +814,8 @@ static void sweepResampleFidelity(const char* chars) {
   for (int k = 0; k < n; ++k) {
     char worst = '?';
     int worstTenths = 0;
-    const int tenths = resampleErrorTenths(kFaces[pairs[k].i].data, kFaces[pairs[k].j].data, chars, &worst,
-                                           &worstTenths);
+    const int tenths =
+        resampleErrorTenths(kFaces[pairs[k].i].data, kFaces[pairs[k].j].data, chars, &worst, &worstTenths);
     if (tenths < 0) continue;
     Serial.printf("   %2u -> %2u  %5.3f  %4.1f%%  '%c' %4.1f%%\n", kFaces[pairs[k].i].pt, kFaces[pairs[k].j].pt,
                   pairs[k].ratioMilli / 1000.0f, tenths / 10.0f, worst, worstTenths / 10.0f);

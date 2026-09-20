@@ -293,10 +293,10 @@ inline std::vector<SettingInfo> buildSettingsList() {
   {
     // Labels, not enumValues: these read "12pt", "14pt" ... straight off
     // CrossPointSettings::FONT_SIZE_RUNGS, so a rung added or changed there needs no edit here.
-    auto row = SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize, {}, "fontSize",
-                                 StrId::STR_CAT_READER)
-                   .withSubmenu(StrId::STR_MENU_READER_FONT)
-                   .withSelectorActivity();
+    auto row =
+        SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize, {}, "fontSize", StrId::STR_CAT_READER)
+            .withSubmenu(StrId::STR_MENU_READER_FONT)
+            .withSelectorActivity();
     row.enumLabels = CrossPointSettings::fontSizeLabels();
     settings.push_back(std::move(row));
   }

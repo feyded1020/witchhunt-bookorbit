@@ -72,8 +72,7 @@ void FontScalingTestActivity::renderContent() const {
 
   GUI.drawHeader(renderer,
                  Rect{contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 notoSans_ ? "Noto Sans 10-26pt (R real / S scaled)" : "Bookerly 10-26pt (R real / S scaled)",
-                 nullptr);
+                 notoSans_ ? "Noto Sans 10-26pt (R real / S scaled)" : "Bookerly 10-26pt (R real / S scaled)", nullptr);
 
   const int leftX = contentRect.x + metrics.verticalSpacing * 2;
   const int bottom = contentRect.y + contentRect.height;
@@ -115,6 +114,5 @@ void FontScalingTestActivity::render(RenderLock&&) {
   // rather than behind SETTINGS.textAntiAliasing: a comparison made with AA off would say nothing
   // about how the reader looks for anyone who leaves it on, which is the default.
   renderer.setFastGrayscaleLut(SETTINGS.fastAntiAliasing);
-  renderer.renderGrayscalePlanesSequential([this](GfxRenderer::RenderMode) { renderContent(); },
-                                           [] { return false; });
+  renderer.renderGrayscalePlanesSequential([this](GfxRenderer::RenderMode) { renderContent(); }, [] { return false; });
 }

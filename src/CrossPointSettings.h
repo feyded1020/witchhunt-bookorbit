@@ -183,8 +183,8 @@ class CrossPointSettings {
     uint8_t points;  ///< the point size its faces are generated at
   };
   static constexpr ReaderFontRung FONT_SIZE_RUNGS[] = {
-      {PT_10, 10},        {PT_12, 12},   {PT_14, 14},  {PT_16, 16},   {PT_18, 18},
-      {PT_20, 20},    {PT_22, 22}, {PT_24, 24}, {PT_26, 26},
+      {PT_10, 10}, {PT_12, 12}, {PT_14, 14}, {PT_16, 16}, {PT_18, 18},
+      {PT_20, 20}, {PT_22, 22}, {PT_24, 24}, {PT_26, 26},
   };
   static constexpr int FONT_SIZE_RUNG_COUNT = static_cast<int>(sizeof(FONT_SIZE_RUNGS) / sizeof(FONT_SIZE_RUNGS[0]));
 

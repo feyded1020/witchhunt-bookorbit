@@ -221,19 +221,18 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
 
   // Reader font size: cycles default(-1) then the FONT_SIZE values in enum order, labelled with
   // their point sizes from CrossPointSettings::FONT_SIZE_RUNGS.
-  auto fontSizeSetting = SettingInfo::DynamicEnumCtx(
-                              StrId::STR_FONT_SIZE, {}, self,
-                              [](const void* ctx) -> uint8_t {
-                                const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
-                                return (s->pendingFontSizeOverride < 0)
-                                           ? 0
-                                           : static_cast<uint8_t>(s->pendingFontSizeOverride + 1);
-                              },
-                              [](void* ctx, uint8_t v) {
-                                auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
-                                s->pendingFontSizeOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
-                              })
-                              .withSelectorActivity();
+  auto fontSizeSetting =
+      SettingInfo::DynamicEnumCtx(
+          StrId::STR_FONT_SIZE, {}, self,
+          [](const void* ctx) -> uint8_t {
+            const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
+            return (s->pendingFontSizeOverride < 0) ? 0 : static_cast<uint8_t>(s->pendingFontSizeOverride + 1);
+          },
+          [](void* ctx, uint8_t v) {
+            auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
+            s->pendingFontSizeOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
+          })
+          .withSelectorActivity();
   fontSizeSetting.enumLabels = CrossPointSettings::fontSizeLabels(tr(STR_DEFAULT_VALUE));
   settingsItems.push_back(std::move(fontSizeSetting));
 

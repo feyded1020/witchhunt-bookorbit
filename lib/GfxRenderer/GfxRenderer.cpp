@@ -1557,8 +1557,8 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       const EpdGlyphRef combiningGlyph = font.getGlyph(cp, style);
       if (!combiningGlyph) continue;
       const int raiseBy = combiningMark::raiseAboveBase(combiningGlyph.top, combiningGlyph.height, lastBaseTop);
-      const int combiningX = combiningMark::centerOver(lastBaseX, lastBaseLeft, lastBaseWidth, combiningGlyph.left,
-                                                       combiningGlyph.width);
+      const int combiningX =
+          combiningMark::centerOver(lastBaseX, lastBaseLeft, lastBaseWidth, combiningGlyph.left, combiningGlyph.width);
       renderCharImpl<TextRotation::None>(*this, renderModeSnapshot, font, cp, combiningX, yPos - raiseBy, black, style);
       continue;
     }

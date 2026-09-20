@@ -306,7 +306,6 @@ int CrossPointSettings::getBuiltinReaderFontId(uint8_t family, uint8_t size) {
 
 constexpr CrossPointSettings::ReaderFontRung CrossPointSettings::FONT_SIZE_RUNGS[];
 
-
 int CrossPointSettings::getTallerBuiltinReaderFontId(const uint8_t family, const uint8_t size, const uint8_t stepUp,
                                                      uint8_t* const actualStep) {
   // Ascending pixel ladder, from the one table that defines it. Enum order now matches, but read

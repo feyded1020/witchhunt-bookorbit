@@ -107,8 +107,7 @@ TEST(FontSizeLadder, MigrationIsOnlyAppliedToOlderFiles) {
 TEST(FontSizeLadder, MigrationIsAPermutationSoNoTwoSizesCollapse) {
   std::set<uint8_t> seen;
   for (uint8_t stored = 0; stored < 5; ++stored) {
-    EXPECT_TRUE(seen.insert(S::remapLegacyFontSize(stored, 0)).second)
-        << "two v0 values migrate to the same size";
+    EXPECT_TRUE(seen.insert(S::remapLegacyFontSize(stored, 0)).second) << "two v0 values migrate to the same size";
   }
 }
 
