@@ -2,6 +2,70 @@
 
 User-facing changes only. Full commit history is in git log.
 
+## 2.31 — 2026-09-20
+
+Everything since 2.30. Four larger reading sizes, a text size for the menus, and a firmware that came out smaller than 2.30 despite gaining both.
+
+### Bigger text
+
+- **Four new reading sizes: 20, 22, 24 and 26 pt**, available as the default size and as a per-book override. 18 pt was the ceiling, so a reader who cannot comfortably read it had nothing to move up to. 20 pt is a real typeface cut at that size — eight new faces, two families in four styles. 22, 24 and 26 pt enlarge the 20 pt master, because cutting all three for real would cost about 1.9 MB of flash the device does not have. The enlargement is area-weighted, and each distinct letter on a page is enlarged once and reused for the rest of that page.
+- **Sizes are labelled by their point size** — 10pt through 26pt — instead of Tiny / Small / Medium / Large / X-Large. The adjectives ran out at "extra large", and they never said what they meant: "medium" was whatever 14 pt happened to be. Four places in the firmware kept their own copy of the list, two of which had gone stale, and one had them out of order — the picker read "12pt 14pt 16pt 18pt 10pt". The list is now derived from the single table that defines the ladder, so a size can only be added in one place. Your saved size is carried across, so every book keeps the size it was being read at.
+- **Headings are sharper.** A heading is drawn by snapping its requested size to the nearest real face and enlarging whatever is left over. With the ladder stopping at 18 pt, a heading that wanted 25 pt took the 18 pt face and enlarged it by nearly half. There are rungs above it to land on now, so most headings are enlarged by a few percent or not at all.
+- **A font installed on the card renders at every size too.** No `.cpfont` in existence ships anything above 18 pt, so the new sizes were unreachable on an installed font: the reader quietly put your typeface back to a built-in one. Your chosen typeface is now scaled from its closest face to the size you asked for, rather than being replaced.
+- **Fix: changing the font or size from the reader menu did nothing until the book was closed and reopened** — and on a card font a size change did worse than nothing, silently swapping your typeface for the built-in one. Both symptoms, "nothing happens" and "it reverts to the default font", were the same bug seen from two sides: nothing re-loaded the font when an override changed, and the lookup that hands the font out accepts only an exact size match.
+- Fix: a card font family that did not ship the size you asked for was read into memory in full and then not used.
+- **New: Font Scaling Test** (Settings → System). Draws the whole ladder, 10 through 26 pt, for both built-in families, marking which sizes are real cuts and which are enlarged. It is here because the measurements cannot settle the question: they average out over a letter's whole area, and what a reader actually notices is edge definition and stem weight, which is exactly what enlarging trades away. So the decision rests on looking at it, on the panel, at its real resolution.
+
+### The menus
+
+- **New: UI Font Size** (Settings → Display: Normal / Large). Menu rows on a high-resolution panel are small and fiddly to hit with a finger. Large moves every menu, header and list row up one step. The reader's own status bar is deliberately left alone: it sets the text area a book is laid out into, and scaling it would re-paginate your whole library.
+- Fix: in French, Brazilian Portuguese, Russian, Ukrainian and Belarusian, the setting that sets the size of the text *in a book* was labelled as the size of the text in the menus. It has always been the reader's size; the label was wrong, and with a real menu text size now sitting a tab away the two would have read alike.
+- **Settings toggles are drawn as switches** rather than the words ON and OFF. Twenty-eight rows. Fix: Quick Resume on Timeout was the one on/off setting that kept showing text, because it was declared as a two-option list whose two options happened to be Off and On.
+- **Every yes/no question has buttons on it now.** Clearing the cache, repairing the screen, confirming a firmware update and the general confirmation prompt all drew a centred question with nothing to press — the button-hint strip along the bottom was the only affordance, which on a device you are using with a finger is no affordance at all. The hint strip stays everywhere: it labels the physical keys, and on a device without a touchscreen it is the only affordance there is.
+- **The reading-light pull-down is a drawer.** Swiping down from the top edge opened the Reading light settings screen — and opened it wrong: a screen titled "Reading light" whose single row was also "Reading light", costing a second tap to reach the controls. It is now a panel pulled over the page, only as tall as its contents, with the rest of the screen left standing.
+- **Fix: a button press in a list could be missed entirely.** Moving the selection held the screen-drawing lock for the whole redraw, and buttons are read once per pass through the main loop — so a press that both started and ended inside that window was never seen at all. The longer the list, the slower the redraw, and the more presses went missing.
+- Fix (touch): the first row of a list could sit hidden above a blank row until the next redraw, because the page size was worked out from a two-line row height where the list draws single-line rows. Seen in the reader menu's font size picker as soon as it grew to ten entries.
+- **Fix: a partial repaint could draw on top of the previous screen.** Handing back the second framebuffer — which the home screen does while loading covers, and the reader does around building a chapter — threw away the frame that was actually on the panel, so anything that repainted part of the screen rather than all of it composited over a stale one.
+
+### Speed
+
+- **The font list is usable again.** Moving the cursor one row cost seconds: the preview re-read the font from the card, re-rendered the sample, and rewrote the whole 3.5 MB flash font cache — once per row. That last one also destroyed the selected font's cached copy, so merely opening the list made the next book you opened pay to rebuild it. Previews are now kept on the card and blitted back, about 120 ms a row with nothing allocated at all. On entry, any that are missing are built in one announced pass — "Creating font preview N/M", six families in around four seconds — and Back cancels it, after which the rest build as you browse.
+- **Going in and out of a settings submenu no longer costs a two-second refresh each time.** The X3 clears accumulated ghosting with a slower refresh whenever a screen replaces something else, and settings asked for one on every return from a child screen, even when one had run three screens earlier and the panel was already clean. It is now spent only once several fast refreshes have gone by.
+- Reads from the SD card transfer a sector in batches instead of one byte at a time — which is glyphs, chapter caches, cover images and the book itself.
+- Trimming a label that is too long for its row is four to five times cheaper, and more than that the more there is to trim.
+
+### Fixes
+
+- **Fix: the web file browser could fail to reach Wi-Fi at all on an X3**, showing a plain connect timeout with nothing in the log to explain it. Joining a network is itself memory-hungry, and the radio was being brought up while a 52 KB framebuffer and the loaded font were still resident. Of the eight screens that use Wi-Fi, four freed that memory only after the join had succeeded, which is too late to help the join. The memory is now released at the point the radio comes up, which covers all of them.
+- **Fix: a device left sitting in an OPDS catalogue never went to sleep**, and ran at full speed until the battery was flat. Browsing a catalogue, reading a book's details and looking at an error message are all screens you read, and they sleep like any other now; only the states with a transfer actually in flight keep the device awake.
+
+### Room on the device
+
+2.30 shipped with the firmware filling 96.7% of the space allotted to it — 219 KB spare on a 16 MB device. That margin is what a wireless update has to fit inside, and it was nearly gone. 2.31 adds an entire new typeface size and a second menu text size and still lands at 92.8%, with about 470 KB spare. Three changes paid for it, and none of them is visible while reading:
+
+- **The other 23 languages ship compressed**, and whichever one you have selected is unpacked into a reserved slot in flash. Every language used to sit in the firmware in full, at all times, and a reader uses one. 232 KB.
+- **Font data that describes the typeface rather than the size is stored once per family** instead of once per face — which characters it covers, the kerning classes, the ligatures. Across 55 faces that was 226 KB of byte-for-byte duplication.
+- **Each letter's record is 6 bytes rather than 16.** Most of what was stored in it can be worked out from the letter's own width and height. About 480 KB, and looking a letter up is roughly 10% quicker as well, so this is not the trade it looks like.
+
+### With thanks to
+
+Where the code here is someone else's it is credited in the source file it lives in; where the idea is theirs and the code is ours, the source says that too.
+
+- **Justin Mitchell** (@itsthisjustin) — the reading-light drawer's behaviour, and routing a held finger to a slider (crosspoint-reader #2983).
+- **Jay Silverman** (@Techneaux) — the diagnosis behind lists dropping button presses (#3534).
+- **Sung-jin Brian Hong** (@serialx) — giving a laid-out page's elements a single owner (#3518).
+- **Uri Tauber** (@uritaube) — letting the OPDS catalogue sleep like any other screen (#3547).
+- **Osakana Taro** (@osakanataro) — batching the SD card's SPI reads (#3501).
+- The size ladder's idea — snap to a real face and scale only the remainder — is from **CidVonHighwind/microreader**.
+
+### Upgrade notes
+
+- **Chapters are re-indexed once per book the first time you open them**, because headings now reach the new larger faces and so break across lines differently. Your place in every book is kept.
+- **Your reading size is carried over**, both the global one and any per-book override, even though the sizes were renumbered to put them in order.
+- **If you read in a language other than English, the first boot after this update takes about a second longer** while that language is unpacked into flash. It happens once per update that changes any text, and not at all if none of the text changed. English is unaffected.
+- **The first font load after this update is slower.** The flash font cache is rebuilt from the `.cpfont` files on your card, because the language slot now sits at the end of the same area of flash. Nothing you installed is lost — the flash copy was only ever a cache of what is on the card.
+- The three new labels — UI Font Size, Font Scaling Test and the font-preview progress notice — are translated in German, French, Spanish, Italian, Dutch, Portuguese (PT and BR), Polish, Russian, Ukrainian, Belarusian, Slovenian and Swedish. Turkish and Vietnamese show the English text for those rows until a native speaker fills them in; the eight partly-translated languages are unchanged.
+
 ## 2.30 — 2026-09-16
 
 Everything since 2.26. Two new devices, touch control throughout, and a long run of fixes to the boot and sleep paths.
