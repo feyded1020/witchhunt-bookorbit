@@ -571,6 +571,11 @@ class EpubReaderActivity final : public Activity {
   int8_t bookInlineFootnotePreviewsOverride = -1;
 
   // Bookmarks (starred pages)
+  // "Nothing was uploaded" notice for a sync that was never answered; drawn once from loop().
+  static constexpr unsigned long SYNC_NOTICE_MS = 2500;
+  bool pendingSyncNotice = false;
+  unsigned long syncNoticeShownAtMs = 0;
+
   BookmarkStore bookmarkStore;
   // Highlights (text ranges) for this book; synced to BookOrbit as annotations.
   HighlightStore highlightStore;

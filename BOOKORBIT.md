@@ -17,6 +17,11 @@ CrossInk-Bookorbit (MIT) and adapted to Witch Hunt's network stack, stores and U
 | **Bookmarks**: two-way | The existing star-page bookmarks sync both ways, deletions included. Bookmarks made on the web land in the right chapter and settle on the exact page the first time you open that chapter. |
 | **Catalog** | Home → *BookOrbit* (appears once an account is set), or Settings → BookOrbit Sync → *Browse Catalog*. Same layout as CrossInk-Bookorbit: the server's sections with book counts (continue reading, recently added, libraries, collections, authors, series, all books), then *On device* and *In progress* (these two also work offline), then search. Books already on the SD card are marked • and open directly; others download and open. |
 
+If the apply/upload question is left unanswered, the device stays awake for five minutes rather
+than sleeping mid-decision (sleeping there would abandon the sync). After that it is allowed to
+sleep, the sync is recorded as unfinished, and the next time you open that book the reader says
+**"Not synced - progress stayed on this device"** so nothing fails silently.
+
 Matching is by the book file's content hash (KOReader's "Binary" method), so the same EPUB file
 must be on the reader and in BookOrbit. Books downloaded from the catalog always match.
 

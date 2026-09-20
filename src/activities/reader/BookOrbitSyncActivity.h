@@ -60,7 +60,17 @@ class BookOrbitSyncActivity final : public Activity {
   void render(RenderLock&&) override;
   // UPLOADING belongs here too: sleeping mid-PUT drops the connection with the write in
   // flight, and the user is not touching buttons while it runs.
-  bool preventAutoSleep() override { return state == CONNECTING || state == SYNCING || state == UPLOADING; }
+  //
+  // The two screens that ask the user a question hold sleep off as well, but only for
+  // DECISION_KEEP_AWAKE_MS: sleeping there abandons the sync silently (deep sleep boots fresh
+  // into the reader and nothing relaunches this screen), while holding it off forever would let
+  // a forgotten prompt flatten the battery. After the window the sync is marked ABANDONED and
+  // the reader reports it.
+  bool preventAutoSleep() override {
+    if (state == CONNECTING || state == SYNCING || state == UPLOADING) return true;
+    if (state != SHOWING_RESULT && state != NO_REMOTE_PROGRESS) return false;
+    return decisionShownAtMs != 0 && millis() - decisionShownAtMs < DECISION_KEEP_AWAKE_MS;
+  }
 
  private:
   enum State {
@@ -121,6 +131,15 @@ class BookOrbitSyncActivity final : public Activity {
   static constexpr int OPTION_SYNC_BEHAVIOR = 2;
   static constexpr int OPTION_COUNT = 3;
   int selectedOption = 0;
+
+  // How long a pending apply/upload question keeps the device awake before it is abandoned.
+  static constexpr unsigned long DECISION_KEEP_AWAKE_MS = 5UL * 60UL * 1000UL;
+  // millis() when the current question first went up; 0 when no question is pending.
+  unsigned long decisionShownAtMs = 0;
+  // True once the question has been recorded as abandoned, so it is written once.
+  bool decisionAbandoned = false;
+  // Tracks the pending question: starts the timer, and records the abandon when it runs out.
+  void serviceDecisionTimeout();
 
   // Timestamp when completion state was entered (for auto-close)
   unsigned long uploadCompleteTime = 0;

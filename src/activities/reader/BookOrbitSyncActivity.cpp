@@ -988,7 +988,34 @@ void BookOrbitSyncActivity::computeRemoteChapter() {
                            : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(remotePosition.spineIndex + 1));
 }
 
+void BookOrbitSyncActivity::serviceDecisionTimeout() {
+  const bool asking = state == SHOWING_RESULT || state == NO_REMOTE_PROGRESS;
+  if (!asking) {
+    decisionShownAtMs = 0;
+    decisionAbandoned = false;
+    return;
+  }
+  if (decisionShownAtMs == 0) {
+    decisionShownAtMs = millis();
+    // Recorded up front: the user can also put the device to sleep with the power button, which
+    // never comes back here. Answering the question overwrites this outcome.
+    auto& sync = APP_STATE.koReaderSyncSession;
+    if (sync.active && sync.outcome != KOReaderSyncOutcomeState::ABANDONED) {
+      sync.outcome = KOReaderSyncOutcomeState::ABANDONED;
+      APP_STATE.saveToFile();
+    }
+    return;
+  }
+  if (!decisionAbandoned && millis() - decisionShownAtMs >= DECISION_KEEP_AWAKE_MS) {
+    decisionAbandoned = true;  // sleep is no longer held off; the outcome is already recorded
+    LOG_INF("BookOrbit", "No answer in %lu s; letting the device sleep with the sync unfinished",
+            DECISION_KEEP_AWAKE_MS / 1000UL);
+  }
+}
+
 void BookOrbitSyncActivity::loop() {
+  serviceDecisionTimeout();
+
   if (state == NO_CREDENTIALS || state == SYNC_FAILED || state == UPLOAD_COMPLETE || state == APPLY_COMPLETE ||
       state == SYNC_COMPLETE) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {

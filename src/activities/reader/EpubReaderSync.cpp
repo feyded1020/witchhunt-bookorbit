@@ -175,6 +175,16 @@ void EpubReaderActivity::applyPendingSyncSession() {
   LOG_DBG("ERS", "Applying pending sync session outcome=%d path=%s", static_cast<int>(sync.outcome),
           sync.epubPath.c_str());
 
+  // The sync screen asked a question and never got an answer (abandoned after its keep-awake
+  // window, or the device slept / was powered off while it waited). Nothing reached the server,
+  // and this is the only place left that can say so.
+  if (sync.intent != KOReaderSyncIntentState::AUTO_PULL &&
+      (sync.outcome == KOReaderSyncOutcomeState::ABANDONED || sync.outcome == KOReaderSyncOutcomeState::NONE ||
+       sync.outcome == KOReaderSyncOutcomeState::PENDING)) {
+    LOG_INF("ERS", "Sync was never finished; reporting that nothing was uploaded");
+    pendingSyncNotice = true;
+  }
+
   // Upload-complete returns to the same local position the reader already persisted
   // before sync launched, so there is no need to rewrite progress.bin here.
   if (sync.outcome == KOReaderSyncOutcomeState::UPLOAD_COMPLETE) {

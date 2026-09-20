@@ -21,6 +21,10 @@ enum class KOReaderSyncOutcomeState : uint8_t {
   FAILED = 3,
   UPLOAD_COMPLETE = 4,
   APPLIED_REMOTE = 5,
+  // The sync screen asked the user to choose and gave up waiting (see
+  // BookOrbitSyncActivity::DECISION_KEEP_AWAKE_MS). Nothing was uploaded or applied; the reader
+  // says so when the book is next opened.
+  ABANDONED = 6,
 };
 
 // Where BookOrbitSyncActivity lands once a sync completes (or fails/cancels) and the device has

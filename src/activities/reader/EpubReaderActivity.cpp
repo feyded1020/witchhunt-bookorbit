@@ -769,6 +769,19 @@ void EpubReaderActivity::loop() {
   // Debug-only: periodic serial dump of background-work counters (no-op in release).
   serviceBackgroundDebugLog();
 
+  // One-shot notice for a sync that was never answered (see applyPendingSyncSession). Drawn from
+  // loop() under the render lock, once a page is actually on screen, so it composites over the
+  // book rather than over a half-built frame.
+  if (pendingSyncNotice && readerPhase_ == ReaderPhase::READING && syncNoticeShownAtMs == 0) {
+    RenderLock lock(*this);
+    GUI.drawPopup(renderer, tr(STR_SYNC_NOT_UPLOADED));
+    syncNoticeShownAtMs = millis();
+  } else if (syncNoticeShownAtMs != 0 && millis() - syncNoticeShownAtMs >= SYNC_NOTICE_MS) {
+    pendingSyncNotice = false;
+    syncNoticeShownAtMs = 0;
+    requestUpdate();  // redraw the page over the popup
+  }
+
   if (pendingProgressSave.pending.load(std::memory_order_acquire)) {
     pendingProgressSave.pending.store(false, std::memory_order_relaxed);
     saveProgress(pendingProgressSave.spineIndex, pendingProgressSave.page, pendingProgressSave.pageCount);
