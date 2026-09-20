@@ -30,7 +30,15 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
-constexpr uint8_t SECTION_FILE_VERSION = 74;  // bumped: the HTML `hidden` attribute now
+constexpr uint8_t SECTION_FILE_VERSION = 75;  // bumped: the reader ladder gained rungs above
+                                              // 18 pt (20/22/24/26), so a heading snaps to a
+                                              // different face and residual than it did under
+                                              // v74 and breaks across lines differently. The
+                                              // ladder is derived from the body fontId and so is
+                                              // deliberately absent from the property hash; the
+                                              // hash therefore still MATCHES, and this version
+                                              // is the only thing that rejects a v74 cache
+                                              // v74: the HTML `hidden` attribute now
                                               // suppresses an element, so a v73 cache still
                                               // holds the laid-out text it should have hidden
                                               // v73: an internal link honours CSS
