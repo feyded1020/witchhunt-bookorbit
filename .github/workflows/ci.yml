@@ -152,6 +152,20 @@ jobs:
           set -euo pipefail
           pio run -e ${{ matrix.env }} 2>&1 | tee pio.log
 
+      # The benchmarks sit outside every board env's build_src_filter, so neither this matrix
+      # nor the host suite ever compiles them -- bench/font_main.cpp broke the moment EpdGlyphRef
+      # lost a field, and nothing noticed until someone tried to flash it. They are a measurement
+      # tool for exactly the trade-offs this project keeps making, so letting them rot costs the
+      # next person the ability to check a claim.
+      #
+      # Compiled, not run: they need a device. Only on the default leg, which already has the C3
+      # toolchain cached, so this adds compile time and no downloads.
+      - name: Build the benchmarks (compile only)
+        if: matrix.env == 'default'
+        run: |
+          set -euo pipefail
+          pio run -e bench_font -e bench 2>&1 | tee bench.log
+
       # A missing terser is only a warning in build_html.py, so that the build
       # still works for contributors without node. In CI it must be an error:
       # silently shipping ~10KB of un-mangled JS is exactly the regression this

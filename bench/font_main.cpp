@@ -28,7 +28,9 @@
 #include <builtinFonts/inter_ui_12_regular.h>
 #include <builtinFonts/inter_ui_14_regular.h>
 #include <builtinFonts/notosans_14_regular.h>
+#include <builtinFonts/notosans_18_regular.h>
 #include <builtinFonts/notosans_24_regular.h>
+#include <cmath>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 
@@ -192,7 +194,10 @@ static void benchUiBitmapFetch(const char* label, const EpdFontData* data, const
       // does not pay a multiply it never reads. See EpdGlyphPacked.
       const uint16_t len = g ? glyphDataBytes(g.width, g.height, data->is2Bit) : 0;
       if (!g || len == 0) continue;
-      const uint8_t* bm = &data->bitmap[g.dataOffset];
+      // Also derived: an uncompressed face keeps its offsets in a side table rather than a
+      // per-glyph field, for the same reason. This IS the UI fetch path, so it goes through the
+      // same accessor GfxRenderer::getGlyphBitmap() uses.
+      const uint8_t* bm = &data->bitmap[epdGlyphBitmapOffset(data, g)];
       for (uint16_t b = 0; b < len; ++b) sink += bm[b];
       if (r == 0) {
         glyphs++;
@@ -332,6 +337,164 @@ static void checkWidestGlyph(const char* label, const EpdFontData* data, const u
 }
 
 // ---------------------------------------------------------------------------
+// 7 + 8. Glyph resampling: what it costs, and how close it lands.
+//
+// The reader can render a glyph at an arbitrary scale (GfxRenderer::renderCharAtScale), which is
+// how headings, per-word CSS sizes and every size an SD font does not ship are drawn. That raises
+// the obvious question about the built-in size ladder: how many of those sizes need to be real
+// faces at all, when 48 reader faces are ~2.3 MB of the image?
+//
+// Answering it needs two numbers nobody had: what a resample costs per glyph, and how far a
+// resampled glyph is from the real face at that size.
+//
+// IMPORTANT, so the figures are not over-read: the resampler below MIRRORS the production rule --
+// area-weighted coverage when enlarging, point sampling when reducing -- but is a SEPARATE
+// implementation. The production one is a static function that writes into a framebuffer or a
+// 1-bit mask, and this benchmark deliberately links no panel. So read the timing as the cost of
+// the arithmetic, and the fidelity as a property of the METHOD rather than a byte-exact audit of
+// that function.
+// ---------------------------------------------------------------------------
+
+// Largest glyph in the built-in set is 71x50; round up and allow headroom for an upscale target.
+static constexpr int kMaxGlyphDim = 112;
+static uint8_t srcCov[kMaxGlyphDim * kMaxGlyphDim];
+static uint8_t dstCov[kMaxGlyphDim * kMaxGlyphDim];
+static uint8_t refCov[kMaxGlyphDim * kMaxGlyphDim];
+
+// Unpack a glyph's bitmap into one coverage byte per pixel (0..3 for 2-bit, 0/1 for 1-bit).
+// Bitmaps are a CONTINUOUS bit stream in glyph order with no row stride -- the same property that
+// lets dataLength and dataOffset both be derived rather than stored.
+//
+// MSB-first, 4 pixels per byte at 2 bpp. Equivalent to GfxRenderer's get2BitPixel(), which reads
+// `(bitmap[pos >> 2] >> ((3 - (pos & 3)) * 2)) & 0x3` -- the generalised form below produces the
+// same shift for every index (0->6, 1->4, 2->2, 3->0, 4->6...), and the same MSB-first order
+// bitmapExtract() uses at 1 bpp. Getting this backwards would not crash, it would quietly
+// invert the fidelity numbers, so it is worth checking against those two rather than trusting.
+static bool unpackGlyph(const uint8_t* bm, const bool is2Bit, const int w, const int h, uint8_t* out) {
+  if (!bm || w <= 0 || h <= 0 || w > kMaxGlyphDim || h > kMaxGlyphDim) return false;
+  const int bpp = is2Bit ? 2 : 1;
+  for (int i = 0; i < w * h; ++i) {
+    const int bit = i * bpp;
+    const uint8_t byte = bm[bit >> 3];
+    const int shift = 8 - bpp - (bit & 7);
+    out[i] = static_cast<uint8_t>((byte >> shift) & (is2Bit ? 0x03 : 0x01));
+  }
+  return true;
+}
+
+// Resample srcCov (sw x sh) into dstCov (dw x dh).
+static void resample(const int sw, const int sh, const int dw, const int dh, const uint8_t maxLevel) {
+  if (dw >= sw) {
+    // Enlarging: area-weighted coverage, so stems keep their weight instead of going blocky.
+    for (int y = 0; y < dh; ++y) {
+      const float sy0 = static_cast<float>(y) * sh / dh, sy1 = static_cast<float>(y + 1) * sh / dh;
+      for (int x = 0; x < dw; ++x) {
+        const float sx0 = static_cast<float>(x) * sw / dw, sx1 = static_cast<float>(x + 1) * sw / dw;
+        float acc = 0.0f, wsum = 0.0f;
+        for (int syi = static_cast<int>(sy0); syi < sh && syi < static_cast<int>(sy1) + 1; ++syi) {
+          const float wy = fminf(sy1, syi + 1.0f) - fmaxf(sy0, static_cast<float>(syi));
+          if (wy <= 0.0f) continue;
+          for (int sxi = static_cast<int>(sx0); sxi < sw && sxi < static_cast<int>(sx1) + 1; ++sxi) {
+            const float wx = fminf(sx1, sxi + 1.0f) - fmaxf(sx0, static_cast<float>(sxi));
+            if (wx <= 0.0f) continue;
+            acc += srcCov[syi * sw + sxi] * wx * wy;
+            wsum += wx * wy;
+          }
+        }
+        const float v = wsum > 0.0f ? acc / wsum : 0.0f;
+        dstCov[y * dw + x] = static_cast<uint8_t>(fminf(v + 0.5f, static_cast<float>(maxLevel)));
+      }
+    }
+    return;
+  }
+  // Reducing: point sampling, which keeps small text crisp rather than washing stems out.
+  for (int y = 0; y < dh; ++y) {
+    const int syi = (y * sh) / dh;
+    for (int x = 0; x < dw; ++x) dstCov[y * dw + x] = srcCov[syi * sw + (x * sw) / dw];
+  }
+}
+
+static bool loadCoverage(const EpdFontData* data, const uint32_t cp, int* w, int* h, uint8_t* out) {
+  const EpdFont font(data);
+  const EpdGlyphRef g = font.getGlyph(cp);
+  if (!g || g.width == 0 || g.height == 0) return false;
+  decompressor.clearCache();
+  const uint8_t* bm = decompressor.getBitmap(data, g, g.index);
+  if (!bm) return false;
+  *w = g.width;
+  *h = g.height;
+  return unpackGlyph(bm, data->is2Bit, g.width, g.height, out);
+}
+
+static void benchGlyphResample(const char* label, const EpdFontData* data, const float scale) {
+  // 'e' is the fairest single glyph for a cost measure: mid-sized, curved, with a counter.
+  int sw = 0, sh = 0;
+  if (!loadCoverage(data, 'e', &sw, &sh, srcCov)) {
+    Serial.printf("BENCH glyph_resample    %-18s SKIPPED (no 'e')\n", label);
+    return;
+  }
+  const int dw = static_cast<int>(sw * scale + 0.5f), dh = static_cast<int>(sh * scale + 0.5f);
+  if (dw > kMaxGlyphDim || dh > kMaxGlyphDim) {
+    Serial.printf("BENCH glyph_resample    %-18s SKIPPED (%dx%d over buffer)\n", label, dw, dh);
+    return;
+  }
+  const uint8_t maxLevel = data->is2Bit ? 3 : 1;
+
+  constexpr int REPS = 200;
+  timerStart();
+  for (int r = 0; r < REPS; ++r) resample(sw, sh, dw, dh, maxLevel);
+  const int64_t us = timerElapsedUs();
+  sink += dstCov[0];
+
+  Serial.printf("BENCH glyph_resample    %-18s x%.2f  %2dx%-2d -> %2dx%-2d  per_glyph=%5lldus\n", label, scale, sw, sh,
+                dw, dh, us / REPS);
+}
+
+// How close a resampled master lands to the real face at that size.
+//
+// Resampled to the REAL glyph's dimensions on purpose: that isolates SHAPE fidelity from the
+// separate question of whether a scaled advance rounds to the same box, which is reported
+// alongside as dim= so the two are not conflated.
+static void checkResampleFidelity(const char* label, const EpdFontData* src, const EpdFontData* ref,
+                                  const char* chars) {
+  const uint8_t maxLevel = ref->is2Bit ? 3 : 1;
+  Serial.printf("-- resample fidelity: %s --\n", label);
+  long totalAbs = 0, totalPx = 0;
+  for (const char* p = chars; *p; ++p) {
+    const uint32_t cp = static_cast<uint32_t>(static_cast<uint8_t>(*p));
+    int sw = 0, sh = 0, rw = 0, rh = 0;
+    if (!loadCoverage(ref, cp, &rw, &rh, refCov) || !loadCoverage(src, cp, &sw, &sh, srcCov)) {
+      Serial.printf("   '%c'  SKIPPED (glyph missing or empty)\n", *p);
+      continue;
+    }
+    if (rw > kMaxGlyphDim || rh > kMaxGlyphDim) continue;
+    resample(sw, sh, rw, rh, maxLevel);
+
+    long absSum = 0, refInk = 0, gotInk = 0, exact = 0;
+    for (int i = 0; i < rw * rh; ++i) {
+      const int d = static_cast<int>(dstCov[i]) - static_cast<int>(refCov[i]);
+      absSum += (d < 0 ? -d : d);
+      refInk += refCov[i];
+      gotInk += dstCov[i];
+      if (d == 0) ++exact;
+    }
+    const int px = rw * rh;
+    totalAbs += absSum;
+    totalPx += px;
+    // The box a naive scale would have produced, for comparison with the real one.
+    const float sc = static_cast<float>(rh) / static_cast<float>(sh);
+    const int naiveW = static_cast<int>(sw * sc + 0.5f);
+    Serial.printf("   '%c'  %2dx%-2d -> %2dx%-2d  MAD=%4.1f%%  exact=%3d%%  ink=%+5.1f%%  dim=%+d\n", *p, sw, sh, rw, rh,
+                  100.0f * absSum / (px * maxLevel), static_cast<int>(100L * exact / px),
+                  refInk ? 100.0f * (gotInk - refInk) / refInk : 0.0f, naiveW - rw);
+  }
+  if (totalPx) {
+    Serial.printf("   OVERALL mean absolute coverage error = %.1f%% of full range\n",
+                  100.0f * totalAbs / (totalPx * maxLevel));
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 void setup() {
   Serial.begin(115200);
@@ -380,6 +543,26 @@ void setup() {
   Serial.println("\n-- Fallback-slot sizing (correctness, not timing) --");
   checkWidestGlyph("bookerly_24_bi", &bookerly_24_bolditalic, 0x01C4);
   checkWidestGlyph("notosans_24", &notosans_24_regular, 0x0489);
+
+  // What a size synthesised by scaling would cost per glyph, at the two ratios that matter:
+  // 18 -> 24 is the upscale that would have avoided shipping the 24 pt faces, and 24 -> 18 the
+  // downscale that would avoid shipping the 18 pt ones (435,735 B, the most expensive middle rung).
+  Serial.println("\n-- Resampling cost (would a synthesised size be affordable?) --");
+  benchGlyphResample("notosans_18", &notosans_18_regular, 24.0f / 18.0f);
+  benchGlyphResample("notosans_24", &notosans_24_regular, 18.0f / 24.0f);
+  benchGlyphResample("notosans_24", &notosans_24_regular, 20.0f / 24.0f);
+  benchGlyphResample("notosans_24", &notosans_24_regular, 22.0f / 24.0f);
+
+  // And how close it lands. Characters chosen for what resampling is worst at rather than for
+  // being common: curves and counters ('e', 'o', 'a'), thin stems and a detached dot ('i', 'l'),
+  // diagonals ('W', 'x'), dense joins ('M'), a descender ('g') and a feature only a few pixels
+  // across ('.'), where losing one pixel is a large relative error.
+  Serial.println();
+  checkResampleFidelity("notosans 18 -> 24 UPSCALE vs the real 24 pt face", &notosans_18_regular,
+                        &notosans_24_regular, "eoaMWilxg.");
+  Serial.println();
+  checkResampleFidelity("notosans 24 -> 18 DOWNSCALE vs the real 18 pt face", &notosans_24_regular,
+                        &notosans_18_regular, "eoaMWilxg.");
 
   Serial.printf("\nfree heap after: %u B   minimum ever: %u B\n", (unsigned)esp_get_free_heap_size(),
                 (unsigned)esp_get_minimum_free_heap_size());
