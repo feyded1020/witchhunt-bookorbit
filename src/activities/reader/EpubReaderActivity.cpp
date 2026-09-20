@@ -2407,6 +2407,18 @@ void EpubReaderActivity::applyBookReaderOverrides(
   ReaderUtils::enforceExitFullRefresh(renderer);
 
   RenderLock lock(*this);
+
+  // The SD font was only ever (re)loaded on BOOK OPEN: ensureSdFontLoadedForPath() is called from
+  // ActivityManager's goToReader/replaceWithReader and nowhere else. Changing the font or the size
+  // from the reader menu therefore left the previously loaded face in place, and because
+  // resolveFontId() demands an exact point-size match, a size change fell back to the built-in
+  // family until the book was closed and reopened. Both symptoms, one missing call.
+  //
+  // Safe here and not earlier: the overrides are already persisted to RECENT_BOOKS above, which is
+  // what the path-based resolution reads, and the RenderLock this holds is the one the cold-load
+  // popup expects its caller to own.
+  if (epub) ensureSdFontLoadedForPath(epub->getPath().c_str());
+
   if (section) {
     const int currentPage = section->currentPage;
     if (!section->hasActiveBuild()) {

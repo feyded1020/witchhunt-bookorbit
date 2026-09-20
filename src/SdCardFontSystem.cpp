@@ -189,10 +189,30 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, const char* wantedFam
   if (!currentFamily.empty()) manager_.unloadAll(renderer);
 
   const auto* family = registry_.findFamily(wantedFamily);
-  if (family) {
-    if (!manager_.loadFamily(*family, renderer, targetPt, onColdLoad, policy)) {
-      LOG_ERR("SDFS", "Failed to load SD font family: %s", wantedFamily);
-    }
+  if (!family) return;
+
+  // The loader and the resolver used to disagree, and the loader lost. loadFamily() takes the
+  // CLOSEST size the family ships, but resolveFontId() below only hands the font out on an EXACT
+  // point-size match -- so a family without the requested size was loaded into RAM and then never
+  // used, and the reader rendered a built-in face instead. Pure waste, and invisible.
+  //
+  // It became reachable when the 24 pt rung was added, because no existing .cpfont ships 24 pt.
+  //
+  // Which way to resolve it is a judgement, not a bug fix: rendering the nearest size would keep
+  // the reader's chosen TYPEFACE but silently ignore the size they asked for, and this rung exists
+  // for people who cannot read the smaller one. So the size wins, the built-in face is used, and
+  // the only thing changed here is that we no longer pay to load a font we will refuse. Scaling
+  // the nearest size to the requested points would satisfy both and is the real fix; the engine
+  // for it exists (GfxRenderer::renderCharAtScale) but the reader has no base-size scale yet.
+  const auto* best = family->pickClosestSize(targetPt);
+  if (best && best->pointSize != targetPt) {
+    LOG_DBG("SDFS", "%s has no %u pt face (closest %u pt); using the built-in family at %u pt instead",
+            wantedFamily, targetPt, best->pointSize, targetPt);
+    return;
+  }
+
+  if (!manager_.loadFamily(*family, renderer, targetPt, onColdLoad, policy)) {
+    LOG_ERR("SDFS", "Failed to load SD font family: %s", wantedFamily);
   }
 }
 
