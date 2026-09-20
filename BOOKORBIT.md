@@ -61,8 +61,14 @@ network feature, so only do it if you have to.
    choose **Custom .bin**, upload `firmware.bin`, connect the X4 Pro by USB and flash.
    (Already on Witch Hunt? Copy `firmware.bin` to the SD card and use **SD Firmware Update**.)
 
-**Don't use the built-in online update check** on this build: it installs official Witch Hunt
-releases, which would replace this build (your books and settings stay on the SD card).
+**The built-in update check now follows this fork**, not upstream Witch Hunt, so Settings ->
+System -> Check for Updates installs BookOrbit builds from
+[this repository's releases](https://github.com/feyded1020/witchhunt-bookorbit/releases).
+
+Versions are `<upstream release>.<fork build>` — 2.31.1 is the first fork build on Witch Hunt
+2.31, and merging upstream 2.32 would start 2.32.1. Release tags are that exact number (no `v`),
+because that is what the on-device version check can read, and the firmware file keeps its fixed
+name `firmware-x4pro.bin` so the updater always finds it.
 
 Before your first flash, note which firmware you are on now and keep its `.bin`, so you can flash
 back to it the same way.

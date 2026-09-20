@@ -23,6 +23,43 @@ It supports the following devices:
 - ESP32C3-based Xteink X4 and X3.
 - ESP32S3-based Xteink X4Pro, LilyGo T5S3 Pro
 
+## What is BookOrbit, and why not just KOReader sync?
+
+[**BookOrbit**](https://bookorbit.app) ([source](https://github.com/bookorbit/bookorbit)) is a
+self-hosted library you run yourself: it stores your books, has its own web reader, and keeps your
+place, your highlights and your reading history in step across everything you read on. Nothing
+goes to a company's cloud — it runs on your own server.
+
+The e-reader is just one window onto that library:
+
+```mermaid
+flowchart LR
+    R["Xteink X4 Pro<br/>(this firmware)"] <--> B(("BookOrbit<br/>your server"))
+    B <--> W["Web reader<br/>(phone, laptop)"]
+    B <--> K["KOReader<br/>(other devices)"]
+    B --> S["Reading stats<br/>streaks, pace"]
+```
+
+Stop reading on the reader at chapter nine, open the web reader on your phone, and you are on
+chapter nine — with the passages you highlighted, and the bookmark you left.
+
+### How that compares
+
+| | Reading position | Highlights | Bookmarks | Reading stats | Browse & download books |
+|---|---|---|---|---|---|
+| **BookOrbit** (this firmware) | both ways | both ways | both ways | yes, time/streaks/pace | yes, from your library |
+| KOReader sync server | both ways | no | no | no | no |
+| OPDS server (e.g. Calibre-Web) | no | no | no | no | yes |
+
+KOReader's sync server does one job well: it remembers how far through a book you are. It has no
+idea what you highlighted, how long you read for, or what else is in your library. BookOrbit covers
+all of it from one place you control — which is why this fork trades KOReader sync for it.
+
+Already a KOReader user? BookOrbit has [its own KOReader
+plugin](https://bookorbit.app/koreader-plugin/), so your phone, your laptop and this reader can all
+share the same library.
+
+
 # Installation
 
 Flashing is done from the browser — no toolchain or driver install needed. Use a Chromium-based browser (Chrome, Edge, Opera) or a recent Firefox version (>151); older versions of Firefox and Safari do not support WebSerial.
