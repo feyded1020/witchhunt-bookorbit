@@ -199,11 +199,57 @@ bool SdCardFontManager::loadFamily(const SdCardFontFamilyInfo& family, GfxRender
 
   loadedFamilyName_ = family.name;
   loadedPointSize_ = selected->pointSize;
+  // A failure here is logged and leaves the target size unresolvable; the face itself is still
+  // loaded and usable at its own size, so it is not a failed load.
+  ensureSizeAlias(renderer, targetPtSize);
   return true;
+}
+
+bool SdCardFontManager::ensureSizeAlias(GfxRenderer& renderer, const uint8_t targetPtSize) {
+  if (loaded_.empty() || loadedPointSize_ == 0 || targetPtSize == 0) return false;
+  if (!renderer_) renderer_ = &renderer;
+
+  if (targetPtSize == loadedPointSize_) {
+    dropSizeAlias(renderer);  // the face serves this size itself
+    return true;
+  }
+  if (aliasFontId_ != 0 && aliasPointSize_ == targetPtSize) return true;
+  dropSizeAlias(renderer);
+
+  const LoadedFont& lf = loaded_.front();
+  const int aliasId = computeFontId(lf.font->contentHash(), loadedFamilyName_.c_str(), targetPtSize);
+  if (renderer.getFontMap().count(aliasId) != 0) {
+    LOG_ERR("SDMGR", "Alias ID %d for %s@%u collides with a registered font; that size stays unavailable", aliasId,
+            loadedFamilyName_.c_str(), targetPtSize);
+    return false;
+  }
+
+  // Same four faces as the native ID: the alias differs only in the base scale the renderer
+  // applies. Registered as an SD alias too, so ensureFontReady() and the prewarm scan find the
+  // SdCardFont behind it -- a scaled ID whose glyphs are never prewarmed thrashes the 8-slot
+  // overflow ring at ~12 ms a miss.
+  EpdFontFamily fontFamily(lf.font->getEpdFont(0), lf.font->getEpdFont(1), lf.font->getEpdFont(2),
+                           lf.font->getEpdFont(3));
+  renderer.registerSdCardFontAlias(aliasId, lf.font);
+  renderer.insertScaledFont(aliasId, fontFamily, static_cast<float>(targetPtSize) / loadedPointSize_);
+  aliasFontId_ = aliasId;
+  aliasPointSize_ = targetPtSize;
+  LOG_INF("SDMGR", "%s: %u pt served by the %u pt face scaled %u/%u (id=%d)", loadedFamilyName_.c_str(), targetPtSize,
+          loadedPointSize_, targetPtSize, loadedPointSize_, aliasId);
+  return true;
+}
+
+void SdCardFontManager::dropSizeAlias(GfxRenderer& renderer) {
+  if (aliasFontId_ == 0) return;
+  renderer.removeFont(aliasFontId_);  // also drops its base scale
+  renderer.unregisterSdCardFont(aliasFontId_);
+  aliasFontId_ = 0;
+  aliasPointSize_ = 0;
 }
 
 void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
   if (!renderer_) renderer_ = &renderer;
+  dropSizeAlias(renderer);
   renderer.clearSdCardFonts();
   for (auto& lf : loaded_) {
     renderer.removeFont(lf.fontId);
@@ -215,7 +261,9 @@ void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
   if (FlashFontPartition::isMapped()) FlashFontPartition::unmap();
 }
 
-int SdCardFontManager::getFontId(const std::string& familyName) const {
+int SdCardFontManager::getFontId(const std::string& familyName, const uint8_t pointSize) const {
   if (familyName != loadedFamilyName_ || loaded_.empty()) return 0;
-  return loaded_.front().fontId;
+  if (pointSize == loadedPointSize_) return loaded_.front().fontId;
+  if (aliasFontId_ != 0 && pointSize == aliasPointSize_) return aliasFontId_;
+  return 0;
 }

@@ -115,7 +115,17 @@ void SettingsSubmenuActivity::render(RenderLock&&) {
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  const bool halfRefresh = gpio.deviceIsX3() && needsHalfRefresh;
+  // Only spend the HALF if enough FAST refreshes have piled up since the last one to have
+  // reintroduced ghosting. needsHalfRefresh is armed on entry AND on returning from every
+  // child activity, so without this gate bouncing in and out of a submenu paid a 2186 ms HALF
+  // per return against a FAST's 435 ms (X3-measured), even when the previous HALF was three
+  // updates ago. Correctness HALFs are armed via setNextDisplayRefreshMode() and bypass this
+  // entirely -- see GfxRenderer::ghostClearingHalfWorthwhile().
+  const bool halfRefresh = gpio.deviceIsX3() && needsHalfRefresh && renderer.ghostClearingHalfWorthwhile();
+  // Cleared whether or not it was spent, i.e. a gated request is DROPPED, not deferred.
+  // Deferring would land the 2.2 s stall a few cursor moves into the screen, which reads as a
+  // freeze; on entry it reads as the screen change it is. The ghosting cost of dropping is
+  // marginal because the gate only fires when a HALF ran within the last few updates.
   needsHalfRefresh = false;
   renderer.displayBuffer(halfRefresh ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
 }

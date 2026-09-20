@@ -8,6 +8,7 @@
 
 #include "../TabbedUiListActivity.h"
 #include "activities/settings/SettingInfo.h"
+#include "components/UITheme.h"
 
 class EpubReaderMenuActivity final : public TabbedUiListActivity {
  public:
@@ -79,7 +80,9 @@ class EpubReaderMenuActivity final : public TabbedUiListActivity {
   freeink::ui::ListNav& activeNav() override { return tabNav[activeTabIndex()]; }
   int tabCount() const override { return visibleTabCount; }
   const char* tabLabel(int slot) const override;
-  int16_t tabBarHeight() const override { return 54; }
+  // Taller than the theme's tab bar because this one carries icons, not just a label. Grows
+  // with the UI font size so the tab labels keep their clearance at the larger step.
+  int16_t tabBarHeight() const override { return static_cast<int16_t>(54 + UITheme::fontGrowth().body); }
   void customizeTabBar(UiScreen& screen, freeink::ui::TabBarProps& props) override;
   void onBackFromTabs() override { onBackPressed(); }
   void drawChrome() override;

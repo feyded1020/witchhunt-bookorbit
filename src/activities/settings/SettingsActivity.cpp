@@ -16,6 +16,7 @@
 #include "SettingsSubmenuActivity.h"
 #include "SliderSettingPicker.h"
 #include "TouchUi.h"
+#include "UiFontScale.h"
 #include "activities/SliderPickerActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -178,6 +179,10 @@ void SettingsActivity::onEnter() {
   // nothing" report already looks.
   addToMoved(systemSettings, std::move(SettingInfo::Action(StrId::STR_BOOT_DIAGNOSTICS, SettingAction::BootDiagnostics)
                                            .withSubcategory(StrId::STR_MENU_SYS_SYSTEM)));
+  // A comparison screen, not a setting: it decides whether the size ladder can ship fewer real
+  // faces and scale the rest, which the coverage metrics in bench/font_main.cpp cannot settle.
+  addToMoved(systemSettings, std::move(SettingInfo::Action(StrId::STR_FONT_SCALING_TEST, SettingAction::FontScalingTest)
+                                           .withSubcategory(StrId::STR_MENU_SYS_SYSTEM)));
 
   SettingInfo::prepareSubmenus(displaySettings, submenuData);
   SettingInfo::prepareSubmenus(readerSettings, submenuData);
@@ -200,6 +205,10 @@ void SettingsActivity::onEnter() {
 
 void SettingsActivity::onExit() {
   TabbedUiListActivity::onExit();
+  // Both read SETTINGS, so they are independent — but they are a pair: the ladder binds the UI
+  // fonts and reload() re-derives the metrics sized to hold them. Changing one without the other
+  // leaves rows that clip their own text.
+  applyUiFontScale();               // Re-bind the UI font ladder in case the size was changed
   UITheme::getInstance().reload();  // Re-apply theme in case it was changed
 }
 
@@ -407,7 +416,17 @@ void SettingsActivity::render(RenderLock&&) {
   }
   drawFooter();
 
-  const bool halfRefresh = gpio.deviceIsX3() && needsHalfRefresh;
+  // Only spend the HALF if enough FAST refreshes have piled up since the last one to have
+  // reintroduced ghosting. needsHalfRefresh is armed on entry AND on returning from every
+  // child activity, so without this gate bouncing in and out of a submenu paid a 2186 ms HALF
+  // per return against a FAST's 435 ms (X3-measured), even when the previous HALF was three
+  // updates ago. Correctness HALFs are armed via setNextDisplayRefreshMode() and bypass this
+  // entirely -- see GfxRenderer::ghostClearingHalfWorthwhile().
+  const bool halfRefresh = gpio.deviceIsX3() && needsHalfRefresh && renderer.ghostClearingHalfWorthwhile();
+  // Cleared whether or not it was spent, i.e. a gated request is DROPPED, not deferred. Deferring
+  // would land the 2.2 s stall a few cursor moves into the screen, which reads as a freeze; on
+  // entry it reads as the screen change it is. The ghosting cost of dropping is marginal because
+  // the gate only fires when a HALF ran within the last few updates.
   needsHalfRefresh = false;
   renderer.displayBuffer(halfRefresh ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
 }

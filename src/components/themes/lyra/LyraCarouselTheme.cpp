@@ -93,8 +93,9 @@ constexpr int kCenterOutlineW = 4;  // white ring around centre cover
 constexpr int kMenuIconSize = 32;  // must match actual bitmap dimensions
 constexpr int kMenuIconPad = 14;   // symmetric vertical padding → tile height = 60
 constexpr int kHighlightPad = 12;  // horizontal padding around the icon on each side
-// Row is anchored to the bottom of the screen, just above button hints
-constexpr int kButtonHintsH = LyraCarouselMetrics::values.buttonHintsHeight;
+// Row is anchored to the bottom of the screen, just above button hints. Read live rather than
+// from the constexpr table: the strip grows with the UI font size.
+int buttonHintsHeight() { return UITheme::getInstance().getMetrics().buttonHintsHeight; }
 
 int lastCarouselSelectorIndex = -1;
 
@@ -609,7 +610,7 @@ void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int but
   const int screenW = renderer.getScreenWidth();
   const int tileH = kMenuIconPad + kMenuIconSize + kMenuIconPad;
   // Anchor row just above button hints, ignoring rect.y which may be off-screen for large cover tiles
-  const int rowY = renderer.getScreenHeight() - kButtonHintsH - tileH;
+  const int rowY = renderer.getScreenHeight() - buttonHintsHeight() - tileH;
 
   // How many icons fit side-by-side? Each needs at least (kMenuIconSize + 2*kHighlightPad).
   const int minTileW = kMenuIconSize + 2 * kHighlightPad;
@@ -692,8 +693,9 @@ void LyraCarouselTheme::drawList(const GfxRenderer& renderer, Rect rect, int ite
   constexpr int maxValWidth = 200;
   constexpr int cornerRadius = 6;
 
-  const int rowHeight = (rowSubtitle != nullptr) ? LyraCarouselMetrics::values.listWithSubtitleRowHeight
-                                                 : LyraCarouselMetrics::values.listRowHeight;
+  const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
+  const UiFontLadder::Step growth = UITheme::fontGrowth();
+  const int rowHeight = (rowSubtitle != nullptr) ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight;
   // Never paint more rows than the touch band can register — see BaseTheme::drawList.
   const int pageItems = std::min(rect.height / rowHeight, ListTouchBand::kMaxRows);
   if (pageItems <= 0 || itemCount <= 0 || rowTitle == nullptr) {
@@ -787,7 +789,8 @@ void LyraCarouselTheme::drawList(const GfxRenderer& renderer, Rect rect, int ite
     if (rowSubtitle != nullptr) {
       std::string subtitleText = rowSubtitle(i);
       auto subtitle = renderer.truncatedText(SMALL_FONT_ID, subtitleText.c_str(), rowTextWidth);
-      renderer.drawText(SMALL_FONT_ID, textX, itemY + 30, subtitle.c_str(), !sel);
+      // Pushed down by however much the title line above it grew at the current UI font size.
+      renderer.drawText(SMALL_FONT_ID, textX, itemY + 30 + growth.body, subtitle.c_str(), !sel);
     }
 
     if (!valueText.empty()) {

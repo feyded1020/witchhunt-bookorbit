@@ -95,14 +95,11 @@ std::string fontFamilyOptionLabel(uint8_t i) {
   return sdIdx < families.size() ? families[sdIdx].name : std::string();
 }
 
-// Map fontSize enum (SMALL=0, MEDIUM=1, LARGE=2, EXTRA_LARGE=3, TINY=4) to point sizes.
-static constexpr uint8_t FONT_SIZE_TO_PT[] = {12, 14, 16, 18, 10};
+// The point size the selected reader size renders at. Reads the one ladder table rather than a
+// local copy keyed on enum VALUE -- that copy silently went stale whenever a size was added.
+static uint8_t targetPtSizeFromEnum(uint8_t fontSizeEnum);
 
-static uint8_t targetPtSizeFromSettings() {
-  uint8_t e = SETTINGS.fontSize;
-  if (e >= sizeof(FONT_SIZE_TO_PT)) e = 1;  // default to MEDIUM
-  return FONT_SIZE_TO_PT[e];
-}
+static uint8_t targetPtSizeFromSettings() { return targetPtSizeFromEnum(SETTINGS.fontSize); }
 
 void SdCardFontSystem::begin(GfxRenderer& renderer) {
   (void)renderer;
@@ -138,7 +135,12 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
     }
     const auto* best = family->pickClosestSize(targetPt);
     const uint8_t bestPt = best ? best->pointSize : 0;
-    if (bestPt == manager_.currentPointSize()) return;  // already loaded with the right size
+    if (bestPt == manager_.currentPointSize()) {
+      // Right face already loaded; only the target size may have moved (a size change from
+      // the reader menu lands here), and that is an alias, not a reload.
+      manager_.ensureSizeAlias(renderer, targetPt);
+      return;
+    }
     LOG_DBG("SDFS", "Reloading %s: size %u -> %u (target %u)", wantedFamily, manager_.currentPointSize(), bestPt,
             targetPt);
   }
@@ -161,9 +163,9 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
   }
 }
 
-static uint8_t targetPtSizeFromEnum(uint8_t fontSizeEnum) {
-  if (fontSizeEnum >= sizeof(FONT_SIZE_TO_PT)) fontSizeEnum = 1;  // default to MEDIUM
-  return FONT_SIZE_TO_PT[fontSizeEnum];
+static uint8_t targetPtSizeFromEnum(const uint8_t fontSizeEnum) {
+  const uint8_t pt = CrossPointSettings::fontSizePoints(fontSizeEnum);
+  return pt != 0 ? pt : CrossPointSettings::fontSizePoints(CrossPointSettings::PT_14);
 }
 
 uint8_t SdCardFontSystem::targetPointSize(const uint8_t fontSizeEnum) { return targetPtSizeFromEnum(fontSizeEnum); }
@@ -186,25 +188,36 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, const char* wantedFam
       return;
     }
     const auto* best = family->pickClosestSize(targetPt);
-    if (best && best->pointSize == manager_.currentPointSize()) return;
+    if (best && best->pointSize == manager_.currentPointSize()) {
+      manager_.ensureSizeAlias(renderer, targetPt);  // same face, possibly a new target size
+      return;
+    }
   }
 
   if (!currentFamily.empty()) manager_.unloadAll(renderer);
 
   const auto* family = registry_.findFamily(wantedFamily);
-  if (family) {
-    if (!manager_.loadFamily(*family, renderer, targetPt, onColdLoad, policy)) {
-      LOG_ERR("SDFS", "Failed to load SD font family: %s", wantedFamily);
-    }
+  if (!family) return;
+
+  // The loader and the resolver used to disagree, and the loader lost. loadFamily() takes the
+  // CLOSEST size the family ships, but resolveFontId() only handed the font out on an EXACT
+  // point-size match -- so a family without the requested size was loaded into RAM and then never
+  // used, and the reader rendered a built-in face instead. It became reachable when the ladder
+  // grew past 18 pt, because no existing .cpfont ships anything larger.
+  //
+  // Both now agree: the closest face is loaded and the requested size is served from it, scaled,
+  // under an alias ID (SdCardFontManager::ensureSizeAlias). The chosen typeface AND the chosen
+  // size, which is what the setting promised.
+  if (!manager_.loadFamily(*family, renderer, targetPt, onColdLoad, policy)) {
+    LOG_ERR("SDFS", "Failed to load SD font family: %s", wantedFamily);
   }
 }
 
 int SdCardFontSystem::resolveFontId(const char* familyName, uint8_t fontSizeEnum) const {
-  // The manager loads exactly one size for the active SD family. Resolve only
-  // if the requested family matches the loaded family and the requested size
-  // matches the loaded size. otherwise return 0 so callers can fall back.
+  // The manager loads exactly one face for the active SD family and serves ONE target size from
+  // it: the face's own, or a scaled alias made by ensureLoaded(). Anything else returns 0 so the
+  // caller falls back to a built-in family at the true size -- a nearby SD size is never handed
+  // out in place of the one asked for.
   if (!familyName || familyName[0] == '\0') return 0;
-  if (manager_.currentFamilyName() != familyName) return 0;
-  if (manager_.currentPointSize() != targetPtSizeFromEnum(fontSizeEnum)) return 0;
-  return manager_.getFontId(familyName);
+  return manager_.getFontId(familyName, targetPtSizeFromEnum(fontSizeEnum));
 }

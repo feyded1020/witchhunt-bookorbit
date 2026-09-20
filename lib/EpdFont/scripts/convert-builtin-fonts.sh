@@ -2,11 +2,9 @@
 
 set -e
 
-cd "$(dirname "$0")"
-
-READER_FONT_STYLES=("Regular" "Italic" "Bold" "BoldItalic")
-BOOKERLY_FONT_SIZES=(10 12 14 16 18)
-NOTOSANS_FONT_SIZES=(10 12 14 16 18)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/font-sizes.sh"
+cd "$SCRIPT_DIR"
 
 for size in ${BOOKERLY_FONT_SIZES[@]}; do
   for style in ${READER_FONT_STYLES[@]}; do
@@ -61,8 +59,6 @@ for size in ${NOTOSANS_FONT_SIZES[@]}; do
   done
 done
 
-UI_FONT_SIZES=(10 12)
-UI_FONT_STYLES=("Regular" "Bold")
 UI_LANG_INTERVALS=(
   "0x0000,0x007F"
   "0x0080,0x00FF"
@@ -96,6 +92,22 @@ for size in ${UI_FONT_SIZES[@]}; do
 done
 
 python fontconvert.py notosans_8_regular 8 ../builtinFonts/source/NotoSans/NotoSans-Regular.ttf > ../builtinFonts/notosans_8_regular.h
+
+echo ""
+echo "Deduplicating tables shared between faces..."
+# fontconvert.py writes each face independently, so every size of a family repeats the tables
+# that describe the TYPEFACE rather than the size -- codepoint coverage, kern class assignment,
+# the ligature set. Only the kern values scale with size. This pass runs over the finished set
+# and keeps one copy of each; it never computes a table, so it cannot change any bytes.
+# Idempotent, so re-running the conversion is safe.
+# Snapshot first so the dedup can be PROVEN byte-equivalent rather than assumed. The verifier
+# is a separate program that re-reads both trees from disk: one that shared the transformer's
+# parsing would agree with it about a misparse.
+PREDEDUPE="$(mktemp -d)"
+cp ../builtinFonts/*.h "$PREDEDUPE/"
+python dedupe_font_tables.py ../builtinFonts/
+python verify_font_dedup.py ../builtinFonts/ "$PREDEDUPE"
+rm -rf "$PREDEDUPE"
 
 echo ""
 echo "Running compression verification..."

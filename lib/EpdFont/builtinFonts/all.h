@@ -20,10 +20,16 @@
 #include <builtinFonts/bookerly_18_bolditalic.h>
 #include <builtinFonts/bookerly_18_italic.h>
 #include <builtinFonts/bookerly_18_regular.h>
+#include <builtinFonts/bookerly_20_bold.h>
+#include <builtinFonts/bookerly_20_bolditalic.h>
+#include <builtinFonts/bookerly_20_italic.h>
+#include <builtinFonts/bookerly_20_regular.h>
 #include <builtinFonts/inter_ui_10_bold.h>
 #include <builtinFonts/inter_ui_10_regular.h>
 #include <builtinFonts/inter_ui_12_bold.h>
 #include <builtinFonts/inter_ui_12_regular.h>
+#include <builtinFonts/inter_ui_14_bold.h>
+#include <builtinFonts/inter_ui_14_regular.h>
 #include <builtinFonts/notosans_10_bold.h>
 #include <builtinFonts/notosans_10_bolditalic.h>
 #include <builtinFonts/notosans_10_italic.h>
@@ -45,3 +51,7 @@
 #include <builtinFonts/notosans_18_bolditalic.h>
 #include <builtinFonts/notosans_18_italic.h>
 #include <builtinFonts/notosans_18_regular.h>
+#include <builtinFonts/notosans_20_bold.h>
+#include <builtinFonts/notosans_20_bolditalic.h>
+#include <builtinFonts/notosans_20_italic.h>
+#include <builtinFonts/notosans_20_regular.h>

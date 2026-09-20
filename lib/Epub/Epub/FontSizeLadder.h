@@ -11,12 +11,37 @@
 // settings-agnostic — the same contract the old HeadingFonts struct had.
 // Each rung is a registered fontId plus its size as a percent of the body font
 // (the body font itself is the 100% rung). SD-card fonts ship a single loaded
-// size, so their ladder is empty and everything resolves to the scale fallback.
+// size, so their ladder is empty and everything resolves to the scale fallback
+// (their body ID may itself carry a base scale when the card lacks the chosen
+// size -- SdCardFontManager::ensureSizeAlias -- which compounds like any other).
 //
 // Deterministic from the body fontId by construction, so it is deliberately NOT
-// part of the section-cache property hash (fontId already is).
+// part of the section-cache property hash (fontId already is). That holds WITHIN a
+// firmware version and not across one: adding or removing a rung changes which face
+// a heading resolves to for an unchanged body fontId, so the hash still matches a
+// cache laid out by the old ladder. Changing the shipped rungs is therefore a cache
+// format change and MUST bump SECTION_FILE_VERSION -- adding 20/22/24/26 pt did.
+// Some rungs have no face of their own: 22/24/26 pt render the 20 pt master scaled (see
+// GfxRenderer::insertScaledFont). This struct does not need to know which, and that is worth
+// stating because an earlier note here said the opposite.
+//
+// The worry was double resampling: resolve() landing on a synthesised rung and then applying a
+// residual on top, scaling an already-scaled glyph. That would be real if the scale lived in the
+// glyph data. It lives on the FONT ID instead, and GfxRenderer compounds it with whatever residual
+// the caller passes -- drawTextScaled(id24, ..., 1.1f) is ONE resample of the 20 pt master at
+// 1.2 x 1.1, never a resample of a resample. So a synthesised rung is as good a source as a real
+// one, resolve() can treat every rung alike, and no per-rung flag is needed.
+//
+// What does still hold: the rung's sizePct is the rung's nominal size, so the residual resolve()
+// hands back is correct whether the rung is real or scaled. And kMaxRungs is a CAPACITY, not a
+// description of the shipped set -- see the note on it.
 struct FontSizeLadder {
-  static constexpr int kMaxRungs = 5;  // built-in families ship 10/12/14/16/18 pt
+  // Capacity, not a description of the shipped set -- naming the sizes here is what let this go
+  // stale. addRung() drops anything past it SILENTLY, so a family that grew a size simply lost
+  // its largest rung and every heading that wanted it resampled from a smaller face instead.
+  // Exactly that happened when the 24 pt rung was added. The app asserts its own ladder fits
+  // (see buildReaderFontSizeLadder), which is the check that would have caught it.
+  static constexpr int kMaxRungs = 9;
 
   struct Rung {
     int32_t fontId = 0;    // 32-bit font-id hash (fontIds.h); never truncate

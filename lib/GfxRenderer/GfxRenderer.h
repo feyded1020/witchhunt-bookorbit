@@ -70,10 +70,19 @@ class GfxRenderer {
   size_t bwBufferChunkSize = BW_BUFFER_CHUNK_SIZE;
   std::vector<uint8_t*> bwBufferChunks;
   std::map<int, EpdFontFamily> fontMap;
+  // Font IDs that render another family's faces at a fixed scale -- see insertScaledFont(). Only
+  // synthesised sizes appear here, so the map is empty on a build that ships every size for real
+  // and the lookup is a miss that costs one comparison.
+  std::map<int, float> fontBaseScales;
   // Mutable because ensureFontReady() is const (called from layout code that
   // holds a const GfxRenderer&) but triggers SD card reads and heap allocation
   // inside the SdCardFont objects. Same pragmatic compromise as fontCacheManager_.
   mutable std::map<int, SdCardFont*> sdCardFonts_;
+  // Scaled alias IDs (SdCardFontManager::ensureSizeAlias) and the SdCardFont behind each. Kept
+  // apart from sdCardFonts_ on purpose: the per-font maintenance loops (metadata drop/restore,
+  // cache clear, stats) walk sdCardFonts_ and must visit a font ONCE, while the per-ID lookups
+  // (ensureFontReady, the prewarm scan) go through sdCardFontFor() and see both.
+  mutable std::map<int, SdCardFont*> sdCardFontAliases_;
 
   // Mutable because drawText() is const but needs to delegate scan-mode
   // recording to the (non-const) FontCacheManager. Same pragmatic compromise
@@ -127,6 +136,18 @@ class GfxRenderer {
   // not the arena, was the binding constraint.
   static constexpr uint8_t SCALED_GLYPH_MAX_ENTRIES = 80;
   static constexpr uint16_t SCALED_GLYPH_ARENA_BYTES = 3584;
+  // What the arena has to hold once a BODY size is synthesised (see insertScaledFont): every
+  // glyph on the page goes through the resampler, at the 20 pt master's glyph size times the
+  // base scale. Measured over a realistic 62-glyph page: 7,820 B at 26 pt Bookerly, 6,659 B at
+  // 24 pt -- 1.9-2.2x the arena above, which was sized for CSS-scaled body text with ~40 B
+  // masks. Overflowing it resets the cache mid-page, so the working set resamples two or three
+  // times per page instead of once, and at ~1 ms per glyph at these sizes that is 60-120 ms a
+  // page turn on exactly the sizes added for readers who need them most.
+  //
+  // Chosen only when a scaled font is registered, so a build that ships every size for real
+  // keeps the smaller block. +4,608 B, permanent, taken at reader entry like the rest of it.
+  static constexpr uint16_t SCALED_GLYPH_ARENA_BYTES_SYNTH = 8192;
+  mutable uint16_t scaledGlyphArenaBytes_ = SCALED_GLYPH_ARENA_BYTES;  // actual size once allocated
   // One outsized glyph (a large heading) must not evict a page's whole body-text
   // working set, so anything above this renders uncached.
   static constexpr uint16_t SCALED_GLYPH_MAX_MASK_BYTES = 512;
@@ -149,6 +170,21 @@ class GfxRenderer {
   // paths (otherwise a HALF set before a triggerDisplay() render would persist and leak onto a
   // later displayBuffer() turn).
   HalDisplay::RefreshMode consumeRefreshOverride(HalDisplay::RefreshMode requested) const;
+
+  // FAST refreshes shipped since the last HALF or FULL. Saturating uint8: the only question ever
+  // asked of it is "at least N?", and N is single digits. Starts saturated so a repaint issued
+  // before any refresh has happened still gets its ghost-clearing HALF.
+  mutable uint8_t fastRefreshesSinceFull_ = 0xFF;
+  // Counts one shipped frame. Called from every path that reaches the panel, with the EFFECTIVE
+  // mode (i.e. after consumeRefreshOverride), because an armed override is what actually drives
+  // the waveform and therefore what actually clears the ghosting.
+  void noteRefresh(HalDisplay::RefreshMode effectiveMode) const {
+    if (effectiveMode == HalDisplay::FAST_REFRESH) {
+      if (fastRefreshesSinceFull_ < 0xFF) fastRefreshesSinceFull_++;
+    } else {
+      fastRefreshesSinceFull_ = 0;
+    }
+  }
 
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
@@ -186,9 +222,60 @@ class GfxRenderer {
   // Setup
   void begin();  // must be called right after display.begin()
   void insertFont(int fontId, EpdFontFamily font);
+  // Rebinds an already-registered ID to a different family, where insertFont() deliberately
+  // refuses a duplicate. Used by the UI font ladder: the three UI font IDs are LOGICAL slots
+  // whose family depends on SETTINGS.uiFontSize, so switching the setting rebinds them in
+  // place rather than teaching ~600 call sites about a second set of IDs. Registers the ID if
+  // it is not bound yet, so the first bind and every later one go through one call.
+  void replaceFont(int fontId, EpdFontFamily font) {
+    fontMap.insert_or_assign(fontId, font);
+    // A rebound ID is a REAL face again. Leaving a base scale behind would keep scaling it.
+    fontBaseScales.erase(fontId);
+    invalidateScaledGlyphCache();
+  }
   void removeFont(int fontId) {
     fontMap.erase(fontId);
+    fontBaseScales.erase(fontId);
     invalidateScaledGlyphCache();
+  }
+
+  /// Registers a font ID that has NO faces of its own: it renders `font` scaled by `scale`.
+  ///
+  /// This is how the reader offers sizes above its largest real face — 22/24/26 pt come off the
+  /// 20 pt master at x1.10, x1.20 and x1.30. Shipping them as real faces costs ~1.9 MB the app
+  /// partition does not have; scaling costs nothing but the resample, which measures ~1.4 us per
+  /// glyph and is cached per distinct glyph per page (see ScaledGlyphEntry).
+  ///
+  /// Why the scale lives HERE rather than being passed by the reader: a distinct font ID is
+  /// already the unit everything downstream keys on. Layout asks getTextWidth(id), pagination
+  /// hashes the id into the section cache property block, and the on-disk section header stores
+  /// it — so a synthesised size caches separately from its master with no extra plumbing, and
+  /// ~600 existing call sites keep working unchanged. Passing the scale through the reader
+  /// instead would mean touching every one of them and the cache key besides.
+  ///
+  /// The base scale COMPOUNDS with a per-block CSS scale rather than replacing it: a heading at
+  /// 1.6em inside 24 pt body text resolves to one resample at 1.2 x 1.6, not two.
+  ///
+  /// NOT for UI font IDs. FreeInkUI (freeink-sdk) centres icons by reading a glyph's raw width,
+  /// left and top straight out of getFontMap(), which for a synthesised ID are the master's and
+  /// would place every icon wrong. Reader sizes only; the UI ladder rebinds real faces.
+  void insertScaledFont(int fontId, EpdFontFamily font, float scale) {
+    fontMap.insert_or_assign(fontId, font);
+    if (scale > 0.99f && scale < 1.01f) {
+      fontBaseScales.erase(fontId);  // a scale of 1 is a real face; do not pay for the lookup
+    } else {
+      fontBaseScales.insert_or_assign(fontId, scale);
+    }
+    invalidateScaledGlyphCache();
+  }
+
+  /// The scale `fontId` renders its master at, or exactly 1.0f for a font with real faces.
+  ///
+  /// Callers that need a size in pixels should use the ordinary accessors, which already apply
+  /// this; it is exposed for the few places that must know a size is synthesised at all.
+  float fontBaseScale(int fontId) const {
+    const auto it = fontBaseScales.find(fontId);
+    return it == fontBaseScales.end() ? 1.0f : it->second;
   }
   void setFontCacheManager(FontCacheManager* m) { fontCacheManager_ = m; }
   FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
@@ -205,16 +292,32 @@ class GfxRenderer {
     sdCardFonts_[fontId] = font;
     invalidateScaledGlyphCache();
   }
+  // A second ID served by an already-registered SdCardFont, at a base scale set separately via
+  // insertScaledFont(). See the note on sdCardFontAliases_ for why this is not registerSdCardFont().
+  void registerSdCardFontAlias(int fontId, SdCardFont* font) {
+    sdCardFontAliases_[fontId] = font;
+    invalidateScaledGlyphCache();
+  }
   void unregisterSdCardFont(int fontId) {
     sdCardFonts_.erase(fontId);
+    sdCardFontAliases_.erase(fontId);
     invalidateScaledGlyphCache();
   }
   void clearSdCardFonts() {
     sdCardFonts_.clear();
+    sdCardFontAliases_.clear();
     invalidateScaledGlyphCache();
   }
   const std::map<int, SdCardFont*>& getSdCardFonts() const { return sdCardFonts_; }
-  bool isSdCardFont(int fontId) const { return sdCardFonts_.count(fontId) > 0; }
+  const std::map<int, SdCardFont*>& getSdCardFontAliases() const { return sdCardFontAliases_; }
+  bool isSdCardFont(int fontId) const { return sdCardFontFor(fontId) != nullptr; }
+  // The SdCardFont serving fontId, whether native or alias; nullptr for a built-in font.
+  SdCardFont* sdCardFontFor(int fontId) const {
+    auto it = sdCardFonts_.find(fontId);
+    if (it != sdCardFonts_.end()) return it->second;
+    it = sdCardFontAliases_.find(fontId);
+    return it != sdCardFontAliases_.end() ? it->second : nullptr;
+  }
 
   // Ensure glyph metrics are loaded for the given text before layout measurement.
   // No-op for built-in fonts (map lookup finds nothing and returns immediately).
@@ -299,6 +402,26 @@ class GfxRenderer {
   // uses its own requested mode. Use when the armed override should move to a later refresh — e.g.
   // the reader keeps the indexing popup FAST but forces the following content page to HALF itself.
   void clearRefreshOverride() const { consumeRefreshOverride(HalDisplay::FAST_REFRESH); }
+
+  // FAST refreshes a non-reader screen may accumulate before another ghost-clearing HALF earns
+  // its cost. Deliberately far below the reader's refreshFrequencyPages (15): a page turn
+  // replaces every word on the panel where a menu repaint changes a highlight bar and a few
+  // rows, so UI ghosting builds more slowly -- but UI text is also read from close up, so this
+  // stays conservative rather than maximal.
+  static constexpr uint8_t GHOST_CLEARING_FAST_BUDGET = 4;
+  // True when enough FAST refreshes have accumulated since the last HALF/FULL that another
+  // ghost-clearing HALF is worth its cost. Measured on an X3: HALF 2186 ms against FAST 435 ms.
+  //
+  // Non-reader screens arm a HALF whenever they repaint everything after something else was on
+  // the panel -- SettingsActivity does it on entry AND on returning from every child activity --
+  // so bouncing in and out of a submenu paid ~2.2 s per return even when the HALF three updates
+  // earlier had already cleared the panel.
+  //
+  // This gates ONLY that hygiene HALF. The correctness ones -- a stale differential baseline
+  // after a framebuffer release, a reader exit -- are armed through setNextDisplayRefreshMode(),
+  // and consumeRefreshOverride() replaces the requested mode outright, so they are unreachable
+  // from here and cannot be suppressed.
+  bool ghostClearingHalfWorthwhile() const { return fastRefreshesSinceFull_ >= GHOST_CLEARING_FAST_BUDGET; }
   // Make the write framebuffer match the currently displayed frame. Call before
   // a partial repaint that patches a few regions and re-displays without
   // re-rendering the full frame: displayBuffer() ends with swapBuffers(), so
@@ -448,6 +571,14 @@ class GfxRenderer {
 
   // Text
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  // Unscaled primitives. The public accessors above apply the font's base scale; these do not,
+  // and exist so the *Scaled paths can compound base x residual without applying base twice.
+  int rawTextWidth(int fontId, const char* text, EpdFontFamily::Style style) const;
+  int scaledTextAdvanceX(const EpdFontFamily& font, const char* text, EpdFontFamily::Style style, float scale) const;
+  int rawLineHeight(int fontId) const;
+  int rawFontAscenderSize(int fontId) const;
+  void drawTextAtScale(int fontId, int x, int y, const char* text, bool black, EpdFontFamily::Style style,
+                       float totalScale) const;
   int getTextWidthScaled(int fontId, const char* text, EpdFontFamily::Style style, float scale) const;
   // Ink extents of `text` relative to its baseline, from glyph bitmap metrics:
   // aboveBaseline = tallest glyph ink top, belowBaseline = deepest ink below the
@@ -799,7 +930,7 @@ class GfxRenderer {
   void cleanupGrayscaleWithPreviousBuffer() const;
 
   // Font helpers
-  const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;
+  const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyphRef& glyph) const;
 
   // Scaled-glyph mask cache (see ScaledGlyphEntry). Public only because the glyph
   // pipeline lives in free functions in GfxRenderer.cpp; treat as internal.

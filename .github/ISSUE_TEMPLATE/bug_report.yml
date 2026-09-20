@@ -1,28 +1,28 @@
 name: Bug Report
 description: Report an issue or unexpected behavior
-title: "Short, descriptive title of the issue"
+title: "[BUG]: "
 labels: ["bug", "triage"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report this bug! Please fill out the details below.
+        Thanks for taking the time to report this bug! Please fill out the details below to help us diagnose the problem.
 
   - type: input
     id: version
     attributes:
-      label: Affected Version
-      description: What version of the project/library are you using? (e.g., v1.2.3, master branch commit SHA)
-      placeholder: Ex. v1.2.3
+      label: Affected Firmware Version
+      description: What version or commit SHA are you running?
+      placeholder: e.g. v1.2.3 or 1f2e3d4
     validations:
       required: true
 
   - type: input
-    id: Device
+    id: device
     attributes:
-      label: Device
-      description: What device are you using? (e.g., X3, X4, locked/unlocked, etc.)
-      placeholder: Ex. X3
+      label: Device / Hardware Model
+      description: What device or target board are you using? (e.g. X3, X4, X4Pro, LilyGo T5)
+      placeholder: e.g. X4
     validations:
       required: true
 
@@ -31,7 +31,6 @@ body:
     attributes:
       label: Describe the Bug
       description: A clear and concise description of what the bug is.
-      placeholder:
     validations:
       required: true
 
@@ -41,9 +40,9 @@ body:
       label: Steps to Reproduce
       description: Clearly list the steps necessary to reproduce the unexpected behavior.
       placeholder: |
-        1. Go to '...'
-        2. Select '...'
-        3. Crash
+        1. Press physical power button
+        2. Open book '...'
+        3. Device hangs on page turn
     validations:
       required: true
 
@@ -58,6 +57,9 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: Relevant Log Output/Screenshots
-      description: If applicable, error messages, or log output to help explain your problem. You can drag and drop images here.
+      label: Serial Logs & Screenshots
+      description: |
+        Paste serial port logs or drop error screenshots here.
+        Need help capturing serial output? Follow our step-by-step guide:
+        [docs/debugging.md](https://github.com/jpirnay/witchhunt-reader/blob/main/docs/debugging.md)
       render: shell

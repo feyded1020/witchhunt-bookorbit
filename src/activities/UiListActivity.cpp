@@ -72,13 +72,14 @@ bool UiListActivity::routeListTouch() {
   return static_cast<bool>(route);
 }
 
+// No RenderLock. `selected` is atomic, and requestSelection() defers the viewport
+// pull to the next build, where ListNav::syncToProps consumes followOnBuild -- so
+// nothing here touches the render task's `top`. The lock used to park the loop task
+// for the whole screen build, and buttons are sampled once per loop pass from level
+// state with no queue: a press that both started and ended inside that window was
+// never seen at all. Long lists, where the build is slowest, dropped the most.
 void UiListActivity::moveSelectionTo(const int index) {
-  {
-    RenderLock lock(*this);
-    auto& currentNav = activeNav();
-    currentNav.selected = index;
-    currentNav.follow(listCount());
-  }
+  activeNav().requestSelection(index);
   onSelectionChanged(index);
   requestUpdate();
 }
@@ -107,26 +108,39 @@ void UiListActivity::loop() {
 void UiListActivity::navigateButtons() {
   const int count = listCount();
   auto& currentNav = activeNav();
+  // Page by inputPageRows(), not pageRows(): the latter reads the render task's
+  // drawnRows directly, which a build in flight is writing. inputPageRows() is the
+  // atomic that onListRendered() publishes for exactly this caller. It can be one
+  // build old while a refresh runs; the next layout's feedback corrects the viewport.
   buttonNavigator.onNextRelease(
       [this, count, &currentNav] { moveSelectionTo(ButtonNavigator::nextIndex(currentNav.selected, count)); });
   buttonNavigator.onPreviousRelease(
       [this, count, &currentNav] { moveSelectionTo(ButtonNavigator::previousIndex(currentNav.selected, count)); });
   buttonNavigator.onNextContinuous([this, count, &currentNav] {
-    moveSelectionTo(ButtonNavigator::nextPageIndex(currentNav.selected, count, currentNav.pageRows()));
+    moveSelectionTo(ButtonNavigator::nextPageIndex(currentNav.selected, count, currentNav.inputPageRows()));
   });
   buttonNavigator.onPreviousContinuous([this, count, &currentNav] {
-    moveSelectionTo(ButtonNavigator::previousPageIndex(currentNav.selected, count, currentNav.pageRows()));
+    moveSelectionTo(ButtonNavigator::previousPageIndex(currentNav.selected, count, currentNav.inputPageRows()));
   });
 }
 
 void UiListActivity::syncListViewport(UiScreen& screen, fui::ListProps& props, const bool hasSubtitle) {
-  int16_t rowHeight = screen.theme().rowHeight;
   if (!mappedInput.hasTouch()) {
     const auto& metrics = UITheme::getInstance().getMetrics();
-    rowHeight = static_cast<int16_t>(hasSubtitle ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight);
-    props.rowHeight = rowHeight;
+    props.rowHeight = static_cast<int16_t>(hasSubtitle ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight);
   }
-  activeNav().syncToProps(screen.body(), rowHeight, screen.theme().listRowGap, listCount(), props);
+  // Measure the page with the row height and gap the list will actually DRAW with, which is
+  // what resolveListProps() decides (the touch minimums and the touch row gap) -- the same call
+  // the SDK's own Screen::syncListViewport() makes. The theme's rowHeight token this used on a
+  // touch panel is the two-line label + subtitle height, about a third taller than a single-line
+  // row, so a ten-row picker was measured at nine: the follow-on-open scrolled the selected last
+  // row into view one row further than needed, and the first row -- "Default" in the reader
+  // menu's size picker -- opened off-screen above a blank row. The next rebuild took the real
+  // page size from onListRendered() and quietly put it back, which made it look like a refresh
+  // bug rather than a measurement one. Non-touch is unchanged: its explicit rowHeight is kept
+  // by resolveListProps() and its gap was the theme's listRowGap already.
+  props = screen.resolveListProps(props);
+  activeNav().syncToProps(screen.body(), props.rowHeight, props.rowGap, listCount(), props);
 }
 
 void UiListActivity::drawChrome() {

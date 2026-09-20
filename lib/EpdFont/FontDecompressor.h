@@ -27,7 +27,19 @@ class FontDecompressor {
   // fontconvert.py mirrors this constant and refuses to generate a font that would overflow it,
   // so the next oversized glyph is a build error rather than an invisible blank; the host test
   // checks the shipped fonts against it from the other side.
-  static constexpr uint16_t HOT_GLYPH_BUF_SIZE = 576;
+  // 640, raised from 576 to admit the 20 pt reader faces. The binding glyph is U+01C4 (DZ
+  // digraph) in bookerly_20_bolditalic at 60x41, which packs to 615 bytes; 640 is the next
+  // multiple of 64 above it.
+  //
+  // The cap is set by the widest glyph in the whole coverage, not by anything a reader meets --
+  // that digraph appears in Serbo-Croatian and essentially nowhere else, and at 18 pt it was the
+  // blocker too. Costs FALLBACK_CACHE_SLOTS x 64 = 256 B of .bss, which buys a larger reader
+  // font for people who cannot read 18 pt.
+  //
+  // Measured, not guessed: an earlier attempt at this constant was set from a 22 pt probe and was
+  // wrong for the size that actually shipped. bench/font_main.cpp checks the binding glyph on
+  // hardware, because an undersized buffer does not error -- the glyph renders BLANK.
+  static constexpr uint16_t HOT_GLYPH_BUF_SIZE = 640;
 
   FontDecompressor() = default;
   ~FontDecompressor();
@@ -41,7 +53,7 @@ class FontDecompressor {
   // compacts the requested glyph. The returned pointer is valid only until the
   // next getBitmap call or cache eviction; callers must copy bitmap data if a
   // longer lifetime is required.
-  const uint8_t* getBitmap(const EpdFontData* fontData, const EpdGlyph* glyph, uint32_t glyphIndex);
+  const uint8_t* getBitmap(const EpdFontData* fontData, const EpdGlyphRef& glyph, uint32_t glyphIndex);
 
   // Free all cached data (page buffers).
   void clearCache();
@@ -175,7 +187,7 @@ class FontDecompressor {
 
     // Compact one glyph from the stream into `packedDst` (glyph.dataLength bytes).
     // Zero-size glyphs consume nothing and succeed.
-    bool extractGlyph(uint32_t alignedOffset, const EpdGlyph& glyph, uint8_t* packedDst);
+    bool extractGlyph(uint32_t alignedOffset, const EpdGlyphRef& glyph, uint8_t* packedDst);
 
     // Bytes of the group decoded so far — the CPU actually spent, for stats.
     uint32_t consumed() const { return pos_; }

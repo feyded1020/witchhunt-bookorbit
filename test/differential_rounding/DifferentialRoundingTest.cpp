@@ -299,18 +299,20 @@ TEST(EpdFont, KernLookupEmptyRowIsZero) {
 }
 
 TEST(EpdFont, GlyphLookup) {
-  ASSERT_NE(testFont().getGlyph('T'), nullptr);
-  ASSERT_NE(testFont().getGlyph('a'), nullptr);
-  ASSERT_NE(testFont().getGlyph('o'), nullptr);
-  ASSERT_NE(testFont().getGlyph('x'), nullptr);
-  EXPECT_EQ(testFont().getGlyph('T')->advanceX, 137);
-  EXPECT_EQ(testFont().getGlyph('a')->advanceX, 130);
-  EXPECT_EQ(testFont().getGlyph('o')->advanceX, 145);
-  EXPECT_EQ(testFont().getGlyph('x')->advanceX, 136);
+  // getGlyph() returns a resolved value rather than a pointer -- built-in and SD-card fonts store
+  // glyph records in different shapes -- so presence is `.valid` (or the explicit operator bool).
+  ASSERT_TRUE(testFont().getGlyph('T').valid);
+  ASSERT_TRUE(testFont().getGlyph('a').valid);
+  ASSERT_TRUE(testFont().getGlyph('o').valid);
+  ASSERT_TRUE(testFont().getGlyph('x').valid);
+  EXPECT_EQ(testFont().getGlyph('T').advanceX, 137);
+  EXPECT_EQ(testFont().getGlyph('a').advanceX, 130);
+  EXPECT_EQ(testFont().getGlyph('o').advanceX, 145);
+  EXPECT_EQ(testFont().getGlyph('x').advanceX, 136);
 
-  // No U+FFFD in font, so unknown codepoints return nullptr
-  EXPECT_EQ(testFont().getGlyph('Z'), nullptr);
-  EXPECT_EQ(testFont().getGlyph('b'), nullptr);
+  // No U+FFFD in font, so unknown codepoints resolve to nothing
+  EXPECT_FALSE(testFont().getGlyph('Z').valid);
+  EXPECT_FALSE(testFont().getGlyph('b').valid);
 }
 
 // Known-value regression tests.  Expected widths are computed by hand using

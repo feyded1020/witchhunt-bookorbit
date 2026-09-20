@@ -267,6 +267,8 @@ inline std::vector<SettingInfo> buildSettingsList() {
                                         StrId::STR_THEME_LYRA_CAROUSEL},
                                        "uiTheme", StrId::STR_CAT_DISPLAY)
                          .withSelectorActivity());
+  settings.push_back(SettingInfo::Enum(StrId::STR_UI_FONT_SIZE, &CrossPointSettings::uiFontSize,
+                                       {StrId::STR_NORMAL, StrId::STR_LARGE}, "uiFontSize", StrId::STR_CAT_DISPLAY));
 
   // --- Reader ---
   // General reader settings
@@ -286,12 +288,16 @@ inline std::vector<SettingInfo> buildSettingsList() {
                          .withSubcategory(StrId::STR_MENU_READER_FONT)
                          .withSubmenu(StrId::STR_MENU_READER_FONT)
                          .withSelectorActivity());
-  settings.push_back(
-      SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
-                        {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE, StrId::STR_TINY},
-                        "fontSize", StrId::STR_CAT_READER)
-          .withSubmenu(StrId::STR_MENU_READER_FONT)
-          .withSelectorActivity());
+  {
+    // Labels, not enumValues: these read "12pt", "14pt" ... straight off
+    // CrossPointSettings::FONT_SIZE_RUNGS, so a rung added or changed there needs no edit here.
+    auto row =
+        SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize, {}, "fontSize", StrId::STR_CAT_READER)
+            .withSubmenu(StrId::STR_MENU_READER_FONT)
+            .withSelectorActivity();
+    row.enumLabels = CrossPointSettings::fontSizeLabels();
+    settings.push_back(std::move(row));
+  }
   settings.push_back(SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
                                          StrId::STR_CAT_READER)
                          .withSubmenu(StrId::STR_MENU_READER_FONT));
@@ -315,12 +321,14 @@ inline std::vector<SettingInfo> buildSettingsList() {
                                               StrId::STR_CAT_READER)
                          .withSubmenu(StrId::STR_MENU_TXT_FONT)
                          .withSelectorActivity());
-  settings.push_back(
-      SettingInfo::Enum(StrId::STR_TXT_FONT_SIZE, &CrossPointSettings::txtFontSize,
-                        {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE, StrId::STR_TINY},
-                        "txtFontSize", StrId::STR_CAT_READER)
-          .withSubmenu(StrId::STR_MENU_TXT_FONT)
-          .withSelectorActivity());
+  {
+    auto row = SettingInfo::Enum(StrId::STR_TXT_FONT_SIZE, &CrossPointSettings::txtFontSize, {}, "txtFontSize",
+                                 StrId::STR_CAT_READER)
+                   .withSubmenu(StrId::STR_MENU_TXT_FONT)
+                   .withSelectorActivity();
+    row.enumLabels = CrossPointSettings::fontSizeLabels();
+    settings.push_back(std::move(row));
+  }
   settings.push_back(SettingInfo::Enum(StrId::STR_PARA_ALIGNMENT, &CrossPointSettings::paragraphAlignment,
                                        {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER,
                                         StrId::STR_ALIGN_RIGHT, StrId::STR_BOOK_S_STYLE},

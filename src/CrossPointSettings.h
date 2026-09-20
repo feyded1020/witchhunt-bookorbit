@@ -2,7 +2,10 @@
 #include <HalStorage.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <iosfwd>
+#include <string>
+#include <vector>
 
 class CrossPointSettings {
  private:
@@ -96,13 +99,148 @@ class CrossPointSettings {
   // Font family options (built-in fonts only; SD card fonts use sdFontFamilyName)
   enum FONT_FAMILY { BOOKERLY = 0, NOTOSANS = 1, FONT_FAMILY_COUNT };
   static constexpr uint8_t BUILTIN_FONT_COUNT = FONT_FAMILY_COUNT;
-  // Font size options
-  enum FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, TINY = 4, FONT_SIZE_COUNT };
-  // The sizes in ASCENDING VISUAL order, which the enum is not: TINY was appended
-  // as 4 rather than inserted before SMALL, so persisted values would have shifted.
-  // Anything that means "one size bigger" — a pinch, a font-size shortcut — must
-  // step through this, never through enum arithmetic.
-  static constexpr uint8_t FONT_SIZE_LADDER[] = {TINY, SMALL, MEDIUM, LARGE, EXTRA_LARGE};
+  // Font size options, in ASCENDING PIXEL ORDER, which is also the order the settings UI shows
+  // them in -- a row's option index IS its stored value everywhere (device selector, web API,
+  // settings JSON), so the two cannot be allowed to disagree.
+  //
+  // These values are PERSISTED and they were NOT always in this order. PT_10 was appended as 4
+  // and sat between PT_18 and nothing, so the picker read "Small Medium Large X-Large
+  // Tiny". That was tolerable while the labels were adjectives; it is plainly broken once they
+  // read "12pt 14pt 16pt 18pt 10pt". Rather than add an index-to-value indirection for the sake
+  // of one misplaced entry, the values are renumbered and old files are migrated on load -- see
+  // FONT_SIZE_ORDER_VERSION and remapLegacyFontSize().
+  //
+  // Named by POINT SIZE, not by adjective. The adjectives were never accurate -- "medium" was
+  // whatever 14 pt happened to be -- they ran out at "extra large" and degenerated into XX_LARGE,
+  // and the labels a reader sees have been point sizes since the UI stopped guessing at names.
+  // Only the VALUES are persisted, never the identifiers, so the rename cost nothing.
+  //
+  // PT_22/24/26 have no faces of their own: they render the 20 pt master scaled (see
+  // GfxRenderer::insertScaledFont). In every other respect they are ordinary rungs -- selectable
+  // as the default size, available as a per-book override, and cached separately because each
+  // carries its own font ID.
+  enum FONT_SIZE {
+    PT_10 = 0,
+    PT_12 = 1,
+    PT_14 = 2,
+    PT_16 = 3,
+    PT_18 = 4,
+    PT_20 = 5,
+    PT_22 = 6,
+    PT_24 = 7,
+    PT_26 = 8,
+    FONT_SIZE_COUNT
+  };
+
+  /// Bumped when FONT_SIZE values are renumbered. A settings or recent-books file stamped lower
+  /// than this holds values from the older numbering and is remapped as it loads.
+  ///
+  /// 1 = PT_10 moved from 4 to 0 and everything below it shifted up one, so the enum runs in
+  /// pixel order.
+  static constexpr uint8_t FONT_SIZE_ORDER_VERSION = 1;
+
+  /// A persisted FONT_SIZE from a file stamped `fileVersion`, in today's numbering.
+  ///
+  /// Out-of-range input is returned untouched rather than guessed at: it is either a
+  /// hand-edited file or a value from a firmware newer than this one, and both are better left
+  /// for the caller's own clamp to deal with.
+  static constexpr uint8_t remapLegacyFontSize(const uint8_t stored, const uint8_t fileVersion) {
+    if (fileVersion >= FONT_SIZE_ORDER_VERSION) return stored;
+    // v0: PT_12=0 PT_14=1 PT_16=2 PT_18=3 PT_10=4. PT_20 did not exist.
+    switch (stored) {
+      case 0:
+        return PT_12;
+      case 1:
+        return PT_14;
+      case 2:
+        return PT_16;
+      case 3:
+        return PT_18;
+      case 4:
+        return PT_10;
+      default:
+        return stored;
+    }
+  }
+
+  /// The reader size ladder: every rung in ASCENDING PIXEL order, paired with the point size its
+  /// faces are generated at.
+  ///
+  /// ONE table because there were four — this list, a copy in getTallerBuiltinReaderFontId(), the
+  /// point-size map in SdCardFontSystem.cpp, and the pair of arrays in
+  /// EpubReaderActivity::buildReaderFontSizeLadder(). Adding PT_20 meant updating all of them,
+  /// and each failed differently and silently when missed: "one size bigger" would skip the new
+  /// rung, SD fonts would load the wrong point size, the heading ladder would ignore it.
+  ///
+  /// Rung order and enum value now agree, which is what lets the settings UI use the value as an
+  /// option index. Keep them in step: a rung inserted in the middle needs an
+  /// FONT_SIZE_ORDER_VERSION bump and a remapLegacyFontSize() case, exactly as PT_10 did.
+  ///
+  /// Adding a size at the TOP is: append a rung here, add the case to getBuiltinReaderFontId(),
+  /// generate the faces, register them in main.cpp.
+  struct ReaderFontRung {
+    uint8_t size;    ///< a FONT_SIZE value
+    uint8_t points;  ///< the point size its faces are generated at
+  };
+  static constexpr ReaderFontRung FONT_SIZE_RUNGS[] = {
+      {PT_10, 10}, {PT_12, 12}, {PT_14, 14}, {PT_16, 16}, {PT_18, 18},
+      {PT_20, 20}, {PT_22, 22}, {PT_24, 24}, {PT_26, 26},
+  };
+  static constexpr int FONT_SIZE_RUNG_COUNT = static_cast<int>(sizeof(FONT_SIZE_RUNGS) / sizeof(FONT_SIZE_RUNGS[0]));
+
+  /// The point size a FONT_SIZE renders at, or 0 if it names no rung.
+  static constexpr uint8_t fontSizePoints(const uint8_t size) {
+    for (const ReaderFontRung& r : FONT_SIZE_RUNGS) {
+      if (r.size == size) return r.points;
+    }
+    return 0;
+  }
+  /// Every FONT_SIZE value must name exactly one rung. The settings UI indexes its label list by
+  /// enum VALUE, so a value with no rung would render as a blank, selectable row.
+  static constexpr bool ladderCoversEveryFontSize() {
+    for (int v = 0; v < FONT_SIZE_COUNT; ++v) {
+      if (fontSizePoints(static_cast<uint8_t>(v)) == 0) return false;
+    }
+    return true;
+  }
+
+  /// What a font-size row displays: the point size itself, "14pt".
+  ///
+  /// Not "Tiny/Small/Medium/Large/X-Large" any more. Those stopped carrying information once the
+  /// ladder reached six rungs -- there is no honest adjective after "extra large" -- and they were
+  /// hand-listed as StrId vectors in four separate places, indexed by enum value, which is the
+  /// same shape as the point-size copy that had already gone stale. Deriving the label from
+  /// FONT_SIZE_RUNGS means changing a rung is one edit. It also just tells a reader who needs
+  /// 20 pt what they are choosing.
+  ///
+  /// Empty if `size` names no rung. Untranslated: the numeral carries the meaning and "pt" is the
+  /// unit in every locale this ships with.
+  ///
+  /// Inline for the same reason stepFontSize() is: the ladder is exactly the kind of thing a host
+  /// test should hold still, and linking the NVS half of CrossPointSettings.cpp to reach it would
+  /// mean it never got one.
+  static std::string fontSizeLabel(const uint8_t size) {
+    const uint8_t pt = fontSizePoints(size);
+    if (pt == 0) return {};
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%upt", static_cast<unsigned>(pt));
+    return buf;
+  }
+
+  /// The whole label list for a font-size row, ready to assign to SettingInfo::enumLabels.
+  ///
+  /// Indexed by enum VALUE, which since the renumbering is also ladder order. `defaultLabel`, when
+  /// given, is the "Default" entry the per-book override rows carry at index 0, which shifts
+  /// every real value up by one.
+  static std::vector<std::string> fontSizeLabels(const char* const defaultLabel = nullptr) {
+    const size_t shift = defaultLabel ? 1 : 0;
+    std::vector<std::string> labels(static_cast<size_t>(FONT_SIZE_COUNT) + shift);
+    if (defaultLabel) labels[0] = defaultLabel;
+    // By enum VALUE. ladderCoversEveryFontSize() guarantees that leaves no slot empty.
+    for (const ReaderFontRung& r : FONT_SIZE_RUNGS) labels[r.size + shift] = fontSizeLabel(r.size);
+    return labels;
+  }
+
   // `size` moved `delta` steps along the ladder and clamped at both ends. Clamped
   // rather than wrapped: a pinch that has reached the largest size should stay
   // there, not jump to the smallest.
@@ -111,10 +249,9 @@ class CrossPointSettings {
   // of CrossPointSettings.cpp — the ladder order is exactly the kind of thing a
   // test should hold still.
   static constexpr uint8_t stepFontSize(const uint8_t size, const int delta) {
-    constexpr int len = static_cast<int>(sizeof(FONT_SIZE_LADDER) / sizeof(FONT_SIZE_LADDER[0]));
     int idx = -1;
-    for (int i = 0; i < len; ++i) {
-      if (FONT_SIZE_LADDER[i] == size) {
+    for (int i = 0; i < FONT_SIZE_RUNG_COUNT; ++i) {
+      if (FONT_SIZE_RUNGS[i].size == size) {
         idx = i;
         break;
       }
@@ -124,8 +261,8 @@ class CrossPointSettings {
     if (idx < 0) return size;
     int target = idx + delta;
     if (target < 0) target = 0;
-    if (target > len - 1) target = len - 1;
-    return FONT_SIZE_LADDER[target];
+    if (target > FONT_SIZE_RUNG_COUNT - 1) target = FONT_SIZE_RUNG_COUNT - 1;
+    return FONT_SIZE_RUNGS[target].size;
   }
   enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
   enum PARAGRAPH_ALIGNMENT {
@@ -142,6 +279,15 @@ class CrossPointSettings {
 
   // UI Theme
   enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, LYRA_CAROUSEL = 3 };
+
+  // Size of the menu/chrome text. Each step rebinds the three logical UI font IDs one rung up
+  // the Inter ladder (applyUiFontScale() in main.cpp) and adds the matching number of pixels to
+  // every metric that has to hold a line of UI text (UiFontLadder::applyTo() in UiFontScale.h).
+  //
+  // Deliberately does NOT touch the reader's own font or its status bar: those feed the text
+  // viewport, and changing the viewport invalidates every book's pagination cache. This setting
+  // is about making menu rows easier to hit, not about re-laying-out books.
+  enum UI_FONT_SIZE { UI_FONT_SIZE_DEFAULT = 0, UI_FONT_SIZE_LARGE = 1, UI_FONT_SIZE_COUNT };
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
@@ -290,11 +436,11 @@ class CrossPointSettings {
   // A folder NAME, not a path: DictionaryRegistry::resolveBasePath rejects
   // separators and dot prefixes so a hand-edited value cannot escape the roots.
   char dictionaryName[32] = "";
-  uint8_t fontSize = MEDIUM;
+  uint8_t fontSize = PT_14;
   // Reader font settings (TXT / MD) — defaults to EPUB settings when not explicitly set
   uint8_t txtFontFamily = NOTOSANS;
   char txtSdFontFamilyName[32] = "";
-  uint8_t txtFontSize = MEDIUM;
+  uint8_t txtFontSize = PT_14;
   uint8_t lineSpacing = NORMAL;
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout in minutes (0 = never sleep, 1-60).
@@ -341,6 +487,8 @@ class CrossPointSettings {
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // UI Theme
   uint8_t uiTheme = LYRA;
+  // Menu/chrome text size (UI_FONT_SIZE)
+  uint8_t uiFontSize = UI_FONT_SIZE_DEFAULT;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // --- Frontlight / backlight (boards with FrontlightConfig; T5S3, X4 Pro) ---
@@ -703,7 +851,7 @@ class CrossPointSettings {
   static int getBuiltinReaderFontId(uint8_t family, uint8_t size);
   // Heading sizing: return the built-in fontId `stepUp` sizes taller than `size` for
   // `family`, clamped at the largest size. Steps walk the ascending-pixel ladder
-  // (TINY<SMALL<MEDIUM<LARGE<EXTRA_LARGE), not the FONT_SIZE enum order. `actualStep`
+  // (PT_10<PT_12<PT_14<PT_16<PT_18), not the FONT_SIZE enum order. `actualStep`
   // (out) receives how many steps were actually taken before the cap (so the caller can
   // compute a residual multiplier when clamped). Returns 0 for unknown families.
   static int getTallerBuiltinReaderFontId(uint8_t family, uint8_t size, uint8_t stepUp, uint8_t* actualStep = nullptr);
@@ -745,6 +893,13 @@ class CrossPointSettings {
   unsigned long getSleepTimeoutMs() const;
   int getRefreshFrequency() const;
 };
+
+// Outside the class because a constexpr member cannot be called in a static_assert within its
+// own definition -- the class is still incomplete there.
+static_assert(CrossPointSettings::FONT_SIZE_RUNG_COUNT == static_cast<int>(CrossPointSettings::FONT_SIZE_COUNT) &&
+                  CrossPointSettings::ladderCoversEveryFontSize(),
+              "every FONT_SIZE must appear exactly once in FONT_SIZE_RUNGS; the settings UI indexes its label "
+              "list by enum value and a gap would render as a blank, selectable row");
 
 // Helper macro to access settings
 #define SETTINGS CrossPointSettings::getInstance()
