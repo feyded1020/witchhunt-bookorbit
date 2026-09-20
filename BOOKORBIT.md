@@ -83,6 +83,12 @@ python3 -m venv .venv && .venv/bin/pip install platformio
 
 The app slot is 6,553,600 bytes; see the commit log for the size of each build.
 
+## Busy indicator
+
+A screen change that takes a moment (leaving a book, opening the library) shows a small black
+square in the bottom right corner until the next screen is drawn, so a press never looks ignored.
+Settings -> Display -> Show Busy Indicator turns it off.
+
 ## What was removed or changed from Witch Hunt
 
 - **KOReader Sync is gone** (client, credential store, settings). BookOrbit's sync replaces it,

@@ -278,6 +278,15 @@ void ActivityManager::loop() {
     }
   }
 
+  // A queued transition runs on this task and can take a second or more: tearing the reader
+  // down, writing progress, building the next screen. Nothing reaches the panel while that
+  // happens, so a press looks like it was ignored and people press again. Mark the corner first
+  // -- one small partial-window refresh, well under a full redraw, and whatever the next screen
+  // paints covers it.
+  if (pendingAction != PendingAction::None) {
+    showTransitionMark();
+  }
+
   while (pendingAction != PendingAction::None) {
     if (pendingAction == PendingAction::Pop) {
       // Exclusive: this branch destroys currentActivity, so it must also outwait an
@@ -907,6 +916,24 @@ void ActivityManager::dispatchHintStripTap() {
 }
 
 #endif  // CP_TOUCH_UI
+
+void ActivityManager::showTransitionMark() {
+  if (!SETTINGS.inputFeedback) return;
+
+  RenderLock lock;
+  // The write buffer holds the frame from two refreshes ago (displayBuffer swaps), so patching
+  // it without syncing first would ship something stale to the panel.
+  renderer.syncWriteBufferFromDisplayed();
+
+  constexpr int size = 18;
+  constexpr int inset = 10;
+  const int x = renderer.getScreenWidth() - size - inset;
+  const int y = renderer.getScreenHeight() - size - inset;
+  // White plate under a black square: legible over a page of text or an empty menu alike.
+  renderer.fillRoundedRect(x - 2, y - 2, size + 4, size + 4, 4, Color::White);
+  renderer.fillRoundedRect(x, y, size, size, 3, Color::Black);
+  renderer.displayWindow(x - 2, y - 2, size + 4, size + 4);
+}
 
 void ActivityManager::requestUpdate(bool immediate) {
   if (immediate) {
