@@ -453,6 +453,82 @@ static void resamplePoint(const int sw, const int sh, const int dw, const int dh
   }
 }
 
+// Polyphase resample for an EXACT rational ratio p/q, i.e. dst = src * p / q.
+//
+// Jens' observation: scale up by a factor, then down by another, and the arithmetic stays
+// integer. That is the rational decomposition, and it is not an approximation of area weighting --
+// it IS area weighting, with the overlap weights expressed as small integers instead of 16.16
+// fractions. The equivalence is checked below rather than asserted.
+//
+// Why it is worth a separate path when the fixed-point version already has no floats: that
+// version still carries, per destination pixel, an int64 multiply-accumulate (overlaps reach
+// 65536, so raw * hOv * wOv needs 64 bits) and a 64-bit divide to requantise. Both vanish here.
+//
+// Work in units of 1/p of a source pixel. Destination pixel x spans [x*q, x*q + q); source pixel
+// k spans [k*p, k*p + p). Every bound is an integer, the overlaps are integers summing to q, and
+// with raw <= 3 the 2D accumulator peaks at 3*q*q -- 300 for q=10, so 16 bits is plenty and the
+// multiplies are single-cycle 32-bit on RV32IMC.
+//
+// And the pattern is PERIODIC with period p, because (x*q) mod p cycles with that period once
+// p/q is in lowest terms. So the per-axis weights are a p-entry table built once, and the inner
+// loop is a lookup plus a couple of multiply-adds. That periodicity is only available because the
+// ladder's ratios are ours to choose and are exact small rationals (22/20 = 11/10, 24/20 = 6/5,
+// 26/20 = 13/10). An arbitrary CSS size is not a nice rational and keeps the general path.
+static constexpr int kMaxPhase = 16;  // p for the ladder ratios: 11, 6, 13
+struct Phase {
+  int16_t src0;   // first source pixel this phase touches, relative to the period's base
+  uint8_t w[2];   // enlargement touches at most two source pixels per axis (q < p)
+  uint8_t n;
+};
+
+static bool buildPhases(const int p, const int q, Phase* out) {
+  if (p > kMaxPhase || q >= p) return false;  // enlargement only; reduction touches more pixels
+  for (int x = 0; x < p; ++x) {
+    const int lo = x * q;             // in 1/p-source-pixel units
+    const int hi = lo + q;
+    const int k0 = lo / p, k1 = (hi - 1) / p;
+    out[x].src0 = static_cast<int16_t>(k0);
+    out[x].n = static_cast<uint8_t>(k1 - k0 + 1);
+    if (out[x].n > 2) return false;
+    for (int k = k0; k <= k1; ++k) {
+      const int a = lo > k * p ? lo : k * p;
+      const int b = hi < (k + 1) * p ? hi : (k + 1) * p;
+      out[x].w[k - k0] = static_cast<uint8_t>(b - a);
+    }
+  }
+  return true;
+}
+
+static bool resamplePolyphase(const int sw, const int sh, const int dw, const int dh, const int p, const int q,
+                              const uint8_t maxLevel) {
+  static Phase px[kMaxPhase], py[kMaxPhase];
+  if (!buildPhases(p, q, px) || !buildPhases(p, q, py)) return false;
+  const int area = q * q;
+  for (int y = 0; y < dh; ++y) {
+    const Phase& fy = py[y % p];
+    const int sy0 = (y / p) * q + fy.src0;
+    for (int x = 0; x < dw; ++x) {
+      const Phase& fx = px[x % p];
+      const int sx0 = (x / p) * q + fx.src0;
+      int acc = 0;
+      for (int iy = 0; iy < fy.n; ++iy) {
+        const int syy = sy0 + iy;
+        if (syy >= sh) break;
+        const uint8_t* row = &srcCov[syy * sw];
+        const int wy = fy.w[iy];
+        for (int ix = 0; ix < fx.n; ++ix) {
+          const int sxx = sx0 + ix;
+          if (sxx >= sw) break;
+          acc += row[sxx] * wy * fx.w[ix];
+        }
+      }
+      const int lvl = (acc + area / 2) / area;
+      dstCov[y * dw + x] = static_cast<uint8_t>(lvl < maxLevel ? lvl : maxLevel);
+    }
+  }
+  return true;
+}
+
 // The rule production applies: area-weighted when enlarging, point-sampled when reducing.
 static void resample(const int sw, const int sh, const int dw, const int dh, const uint8_t maxLevel) {
   if (dw >= sw)
@@ -505,6 +581,53 @@ static void benchGlyphResample(const char* label, const EpdFontData* data, const
                 "area_per_px=%3lldns\n",
                 label, scale, sw, sh, dw, dh, areaUs / REPS, pointUs / REPS,
                 (areaUs * 1000) / (REPS * dw * dh));
+}
+
+// Polyphase against the 16.16 area path at the same ratio: how much faster, and -- first --
+// whether it computes the same pixels. A speedup from a different answer is not a speedup.
+static void benchPolyphase(const char* label, const EpdFontData* data, const int p, const int q) {
+  int sw = 0, sh = 0;
+  if (!loadCoverage(data, 'e', &sw, &sh, srcCov)) {
+    Serial.printf("BENCH polyphase         %-18s SKIPPED (no 'e')\n", label);
+    return;
+  }
+  const int dw = sw * p / q, dh = sh * p / q;
+  if (dw > kMaxGlyphDim || dh > kMaxGlyphDim) {
+    Serial.printf("BENCH polyphase         %-18s SKIPPED (%dx%d over buffer)\n", label, dw, dh);
+    return;
+  }
+  const uint8_t maxLevel = data->is2Bit ? 3 : 1;
+
+  // Area path first, stashed so the polyphase output can be diffed against it.
+  resampleArea(sw, sh, dw, dh, maxLevel);
+  for (int i = 0; i < dw * dh; ++i) refCov[i] = dstCov[i];
+  if (!resamplePolyphase(sw, sh, dw, dh, p, q, maxLevel)) {
+    Serial.printf("BENCH polyphase         %-18s SKIPPED (%d/%d not a supported ratio)\n", label, p, q);
+    return;
+  }
+  int differing = 0, maxDelta = 0;
+  for (int i = 0; i < dw * dh; ++i) {
+    const int d = static_cast<int>(dstCov[i]) - static_cast<int>(refCov[i]);
+    const int ad = d < 0 ? -d : d;
+    if (ad) ++differing;
+    if (ad > maxDelta) maxDelta = ad;
+  }
+
+  constexpr int REPS = 200;
+  timerStart();
+  for (int r = 0; r < REPS; ++r) resampleArea(sw, sh, dw, dh, maxLevel);
+  const int64_t areaUs = timerElapsedUs();
+  sink += dstCov[0];
+  timerStart();
+  for (int r = 0; r < REPS; ++r) resamplePolyphase(sw, sh, dw, dh, p, q, maxLevel);
+  const int64_t polyUs = timerElapsedUs();
+  sink += dstCov[0];
+
+  Serial.printf("BENCH polyphase         %-18s %2d/%-2d %5.3fx  area=%4lldus  poly=%4lldus  x%.1f faster  "
+                "poly_per_px=%3lldns   differs=%d/%d px (max %d level)\n",
+                label, p, q, static_cast<double>(p) / q, areaUs / REPS, polyUs / REPS,
+                polyUs ? static_cast<double>(areaUs) / polyUs : 0.0, (polyUs * 1000) / (REPS * dw * dh), differing,
+                dw * dh, maxDelta);
 }
 
 // How close a resampled master lands to the real face at that size.
@@ -729,6 +852,15 @@ void setup() {
   Serial.println();
   checkResampleFidelity("notosans 24 -> 18 DOWNSCALE, area-weighted (for comparison)", &notosans_24_regular,
                         &notosans_18_regular, "eoaMWilxg.", /*forceArea=*/true);
+
+  // The ladder's own ratios, as exact rationals, against the general fixed-point path. These are
+  // the three sizes the plan synthesises from a real 20 pt master: 22, 24, 26.
+  Serial.println();
+  Serial.println("-- polyphase vs the general path, at the ladder's exact ratios --");
+  benchPolyphase("notosans_18", &notosans_18_regular, 11, 10);  // stands in for 22 <- 20
+  benchPolyphase("notosans_18", &notosans_18_regular, 6, 5);    // stands in for 24 <- 20
+  benchPolyphase("notosans_18", &notosans_18_regular, 13, 10);  // stands in for 26 <- 20
+  benchPolyphase("notosans_18", &notosans_18_regular, 4, 3);    // and 24 <- 18, for continuity
 
   // How far ONE master can be stretched before it stops being good enough -- the number that
   // decides how many real faces to ship, rather than whether to ship any.
