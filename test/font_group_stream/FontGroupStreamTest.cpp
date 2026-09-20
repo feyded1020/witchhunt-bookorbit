@@ -75,7 +75,11 @@ const EpdFontData& Font() {
   static const EpdFontData font = [] {
     EpdFontData f{};
     f.bitmap = notosans_14_regularBitmaps;
-    f.glyph = notosans_14_regularGlyphs;
+    f.glyphPacked = notosans_14_regularGlyphs;
+    // MUST be set, and is easy to miss on a hand-built EpdFontData: the packed glyph record does
+    // not store dataLength, it derives it from width * height * bpp, and bpp comes from here.
+    // Leaving the zero-initialised false on a 2-bit font halves every length silently.
+    f.is2Bit = true;
     // Via the struct, not the array symbol: interval tables that several faces emitted
     // identically are hoisted into shared_tables.h by dedupe_font_tables.py, so the per-face
     // name is not guaranteed to exist.
@@ -132,7 +136,7 @@ TEST(FontGroupStream, RingIsSmallerThanTheGroup) {
 TEST(FontGroupStream, EveryGlyphFitsTheFallbackSlot) {
   struct FontUnderTest {
     const char* name;
-    const EpdGlyph* glyphs;
+    const EpdGlyphPacked* glyphs;
     size_t count;
   };
   const FontUnderTest fonts[] = {
@@ -145,8 +149,10 @@ TEST(FontGroupStream, EveryGlyphFitsTheFallbackSlot) {
   for (const auto& f : fonts) {
     uint16_t largest = 0;
     for (size_t i = 0; i < f.count; i++) {
-      largest = std::max(largest, f.glyphs[i].dataLength);
-      ASSERT_LE(f.glyphs[i].dataLength, FontDecompressor::HOT_GLYPH_BUF_SIZE)
+      // Derived, not stored -- see EpdGlyphPacked. Both faces here are 2-bit.
+      const uint16_t dataLength = glyphDataBytes(f.glyphs[i].width, f.glyphs[i].height, /*is2Bit=*/true);
+      largest = std::max(largest, dataLength);
+      ASSERT_LE(dataLength, FontDecompressor::HOT_GLYPH_BUF_SIZE)
           << f.name << " glyph " << i << " (" << +f.glyphs[i].width << "x" << +f.glyphs[i].height
           << ") cannot be served by the fallback cache and will render blank";
     }

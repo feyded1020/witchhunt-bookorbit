@@ -8,14 +8,14 @@
 namespace textTruncation {
 
 bool canTruncate(const EpdFontFamily& font, const EpdFontFamily::Style style) {
-  return font.getGlyph(ELLIPSIS_CP, style) != nullptr;
+  return font.getGlyph(ELLIPSIS_CP, style).valid;
 }
 
 size_t prefixFittingWidth(const EpdFontFamily& font, const char* text, const int maxWidth,
                           const EpdFontFamily::Style style) {
   if (!text || !*text) return 0;
 
-  const EpdGlyph* ellipsisGlyph = font.getGlyph(ELLIPSIS_CP, style);
+  const EpdGlyphRef ellipsisGlyph = font.getGlyph(ELLIPSIS_CP, style);
   if (!ellipsisGlyph) return 0;
 
   const char* cursor = text;
@@ -29,7 +29,7 @@ size_t prefixFittingWidth(const EpdFontFamily& font, const char* text, const int
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&cursor)))) {
     cp = font.applyLigatures(cp, cursor, style);
 
-    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    const EpdGlyphRef glyph = font.getGlyph(cp, style);
     if (!glyph) {
       // Mirror getTextBounds(): flush the pending advance and restart the kern chain.
       penX += fp4::toPixel(prevAdvanceFP);
@@ -43,8 +43,8 @@ size_t prefixFittingWidth(const EpdFontFamily& font, const char* text, const int
       penX += fp4::toPixel(prevAdvanceFP + kernFP);
     }
 
-    minX = std::min(minX, penX + glyph->left);
-    maxX = std::max(maxX, penX + glyph->left + glyph->width);
+    minX = std::min(minX, penX + glyph.left);
+    maxX = std::max(maxX, penX + glyph.left + glyph.width);
 
     // The bare prefix is already too wide, so nothing longer can fit either — and neither can
     // this one once an ellipsis is added. Checked before the speculative step so a string whose
@@ -54,16 +54,16 @@ size_t prefixFittingWidth(const EpdFontFamily& font, const char* text, const int
     // Would the prefix ending here still fit with the ellipsis appended? One speculative step,
     // not a re-measurement: place the ellipsis after this glyph and take its ink.
     const auto ellipsisKernFP = static_cast<int32_t>(font.getKerning(cp, ELLIPSIS_CP, style));
-    const int ellipsisPenX = penX + fp4::toPixel(static_cast<int32_t>(glyph->advanceX) + ellipsisKernFP);
-    const int withEllipsis = std::max(maxX, ellipsisPenX + ellipsisGlyph->left + ellipsisGlyph->width) -
-                             std::min(minX, ellipsisPenX + ellipsisGlyph->left);
+    const int ellipsisPenX = penX + fp4::toPixel(static_cast<int32_t>(glyph.advanceX) + ellipsisKernFP);
+    const int withEllipsis = std::max(maxX, ellipsisPenX + ellipsisGlyph.left + ellipsisGlyph.width) -
+                             std::min(minX, ellipsisPenX + ellipsisGlyph.left);
 
     // Strictly less than, matching the condition the old loop trimmed against. Appending more
     // characters only widens the box, so the first prefix that does not fit ends the search.
     if (withEllipsis >= maxWidth) break;
     bestCut = static_cast<size_t>(cursor - text);
 
-    prevAdvanceFP = glyph->advanceX;
+    prevAdvanceFP = glyph.advanceX;
     prevCp = cp;
   }
 

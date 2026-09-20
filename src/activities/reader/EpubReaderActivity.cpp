@@ -2407,6 +2407,20 @@ void EpubReaderActivity::applyBookReaderOverrides(
   ReaderUtils::enforceExitFullRefresh(renderer);
 
   RenderLock lock(*this);
+
+  // The SD font was only ever (re)loaded on BOOK OPEN: ensureSdFontLoadedForPath() is called from
+  // ActivityManager's goToReader/replaceWithReader and nowhere else. Changing the font or the size
+  // from the reader menu therefore left the previously loaded face in place, and because
+  // resolveFontId() demanded an exact point-size match, a size change fell back to the built-in
+  // family until the book was closed and reopened. Both symptoms, one missing call. The resolver
+  // now serves any size from the loaded face through a scaled alias, but that alias is made by
+  // this very call (SdCardFontManager::ensureSizeAlias), so it is still the fix.
+  //
+  // Safe here and not earlier: the overrides are already persisted to RECENT_BOOKS above, which is
+  // what the path-based resolution reads, and the RenderLock this holds is the one the cold-load
+  // popup expects its caller to own.
+  if (epub) ensureSdFontLoadedForPath(epub->getPath().c_str());
+
   if (section) {
     const int currentPage = section->currentPage;
     if (!section->hasActiveBuild()) {
@@ -2555,20 +2569,26 @@ int EpubReaderActivity::getEffectiveReaderFontId() const {
 // four page slots. Two things changed since: FontCacheManager now prewarms per fontId, and
 // the parser caps sections at ONE auxiliary font (body R/B/I + aux R = exactly four slots).
 static FontSizeLadder buildReaderFontSizeLadder(const int bodyFontId) {
-  static constexpr uint8_t kSizeEnums[] = {CrossPointSettings::TINY, CrossPointSettings::SMALL,
-                                           CrossPointSettings::MEDIUM, CrossPointSettings::LARGE,
-                                           CrossPointSettings::EXTRA_LARGE};
-  static constexpr uint8_t kPointSizes[] = {10, 12, 14, 16, 18};
+  // Sizes and their point values come from CrossPointSettings::FONT_SIZE_RUNGS, the one table
+  // that defines the ladder; this used to keep its own pair of arrays and went stale.
   static constexpr uint8_t kFamilies[] = {CrossPointSettings::BOOKERLY, CrossPointSettings::NOTOSANS};
+  const auto& rungs = CrossPointSettings::FONT_SIZE_RUNGS;
+  constexpr int rungCount = CrossPointSettings::FONT_SIZE_RUNG_COUNT;
+  // FontSizeLadder is fixed-capacity and drops extra rungs without a word, so the size that
+  // would be lost is the one added last -- the largest, which is exactly the one a heading is
+  // most likely to want. Caught here rather than at runtime.
+  static_assert(rungCount <= FontSizeLadder::kMaxRungs,
+                "FontSizeLadder::kMaxRungs is smaller than the reader ladder; raise it or headings "
+                "will silently resample from a smaller face");
 
   FontSizeLadder ladder;
   for (const uint8_t family : kFamilies) {
-    for (size_t i = 0; i < sizeof(kSizeEnums); ++i) {
-      if (CrossPointSettings::getBuiltinReaderFontId(family, kSizeEnums[i]) != bodyFontId) continue;
-      const uint8_t bodyPt = kPointSizes[i];
-      for (size_t j = 0; j < sizeof(kSizeEnums); ++j) {
-        ladder.addRung(CrossPointSettings::getBuiltinReaderFontId(family, kSizeEnums[j]),
-                       static_cast<uint16_t>(kPointSizes[j] * 100 / bodyPt));
+    for (int i = 0; i < rungCount; ++i) {
+      if (CrossPointSettings::getBuiltinReaderFontId(family, rungs[i].size) != bodyFontId) continue;
+      const uint8_t bodyPt = rungs[i].points;
+      for (int j = 0; j < rungCount; ++j) {
+        ladder.addRung(CrossPointSettings::getBuiltinReaderFontId(family, rungs[j].size),
+                       static_cast<uint16_t>(rungs[j].points * 100 / bodyPt));
       }
       return ladder;
     }

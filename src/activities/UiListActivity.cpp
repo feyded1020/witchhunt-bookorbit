@@ -125,13 +125,22 @@ void UiListActivity::navigateButtons() {
 }
 
 void UiListActivity::syncListViewport(UiScreen& screen, fui::ListProps& props, const bool hasSubtitle) {
-  int16_t rowHeight = screen.theme().rowHeight;
   if (!mappedInput.hasTouch()) {
     const auto& metrics = UITheme::getInstance().getMetrics();
-    rowHeight = static_cast<int16_t>(hasSubtitle ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight);
-    props.rowHeight = rowHeight;
+    props.rowHeight = static_cast<int16_t>(hasSubtitle ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight);
   }
-  activeNav().syncToProps(screen.body(), rowHeight, screen.theme().listRowGap, listCount(), props);
+  // Measure the page with the row height and gap the list will actually DRAW with, which is
+  // what resolveListProps() decides (the touch minimums and the touch row gap) -- the same call
+  // the SDK's own Screen::syncListViewport() makes. The theme's rowHeight token this used on a
+  // touch panel is the two-line label + subtitle height, about a third taller than a single-line
+  // row, so a ten-row picker was measured at nine: the follow-on-open scrolled the selected last
+  // row into view one row further than needed, and the first row -- "Default" in the reader
+  // menu's size picker -- opened off-screen above a blank row. The next rebuild took the real
+  // page size from onListRendered() and quietly put it back, which made it look like a refresh
+  // bug rather than a measurement one. Non-touch is unchanged: its explicit rowHeight is kept
+  // by resolveListProps() and its gap was the theme's listRowGap already.
+  props = screen.resolveListProps(props);
+  activeNav().syncToProps(screen.body(), props.rowHeight, props.rowGap, listCount(), props);
 }
 
 void UiListActivity::drawChrome() {

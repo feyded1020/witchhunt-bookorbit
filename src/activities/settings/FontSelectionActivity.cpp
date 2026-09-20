@@ -94,7 +94,10 @@ int FontSelectionActivity::prepareSdPreview(const SdCardFontFamilyInfo& family) 
   }
 
   previewFamily = family.name;
-  previewPointSize = file->pointSize;
+  // The size DRAWN, not the size of the file: a family lacking the selected size renders its
+  // closest face scaled (SdCardFontManager::ensureSizeAlias), so 22 pt and 24 pt from the same
+  // 18 pt file are different pictures and must not share a cache entry.
+  previewPointSize = targetPt;
   previewSourceBytes = file->fileBytes;
 
   FontPreviewCache::Key key;

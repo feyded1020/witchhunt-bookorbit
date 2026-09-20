@@ -152,6 +152,12 @@ jobs:
           set -euo pipefail
           pio run -e ${{ matrix.env }} 2>&1 | tee pio.log
 
+      # No second `pio run` in this job, ever. PlatformIO wipes ALL of .pio/build/ when its
+      # project checksum changes, and that checksum includes the list of files under src/. On a
+      # fresh runner the first run generates src/network/html/*.generated.h AFTER the checksum
+      # is taken, so a second run in the same checkout (a benchmark compile used to sit here)
+      # sees new files, deletes the tree, and the upload below finds no firmware.bin.
+
       # A missing terser is only a warning in build_html.py, so that the build
       # still works for contributors without node. In CI it must be an error:
       # silently shipping ~10KB of un-mangled JS is exactly the regression this

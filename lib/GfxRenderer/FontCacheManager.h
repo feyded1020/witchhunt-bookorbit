@@ -12,7 +12,8 @@ class SdCardFont;
 
 class FontCacheManager {
  public:
-  FontCacheManager(const std::map<int, EpdFontFamily>& fontMap, const std::map<int, SdCardFont*>& sdCardFonts);
+  FontCacheManager(const std::map<int, EpdFontFamily>& fontMap, const std::map<int, SdCardFont*>& sdCardFonts,
+                   const std::map<int, SdCardFont*>& sdCardFontAliases);
 
   void setFontDecompressor(FontDecompressor* d);
 
@@ -75,6 +76,9 @@ class FontCacheManager {
  private:
   const std::map<int, EpdFontFamily>& fontMap_;
   const std::map<int, SdCardFont*>& sdCardFonts_;
+  // Scaled alias IDs -> the same fonts (GfxRenderer::sdCardFontAliases_). Consulted only by the
+  // per-ID prewarm; the per-font loops walk sdCardFonts_ alone so a font is cleared once.
+  const std::map<int, SdCardFont*>& sdCardFontAliases_;
   FontDecompressor* fontDecompressor_ = nullptr;
 
   enum class ScanMode : uint8_t { None, Scanning };

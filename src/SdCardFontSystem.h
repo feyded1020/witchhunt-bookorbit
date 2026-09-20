@@ -40,13 +40,15 @@ class SdCardFontSystem {
     ensureLoaded(renderer, familyName, fontSizeEnum, {}, FlashCachePolicy::ReadOnly);
   }
 
-  /// Physical point size a fontSize enum asks for, before a family's own files
-  /// are consulted. Callers that need the size actually loaded must still run
-  /// it through SdCardFontFamilyInfo::pickClosestSize().
+  /// Physical point size a fontSize enum asks for. This is the size the reader
+  /// renders at; the face actually LOADED is the family's closest
+  /// (SdCardFontFamilyInfo::pickClosestSize()), scaled to this when it differs.
   static uint8_t targetPointSize(uint8_t fontSizeEnum);
 
-  /// Resolve an SD card font ID from family name + fontSize enum.
-  /// Returns 0 if not found. Used by CrossPointSettings::getReaderFontId().
+  /// Resolve an SD card font ID from family name + fontSize enum: the ID that
+  /// renders that family at that size, whether the face itself or its scaled
+  /// alias. Returns 0 if the family is not loaded or that size was not prepared
+  /// by ensureLoaded(). Used by CrossPointSettings::getReaderFontId().
   int resolveFontId(const char* familyName, uint8_t fontSizeEnum) const;
 
   /// Unload any currently loaded SD font family, freeing its heap (intervals,

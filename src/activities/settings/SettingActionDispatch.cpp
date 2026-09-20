@@ -9,6 +9,7 @@
 #include "DictionarySelectionActivity.h"
 #include "EnumSelectionActivity.h"
 #include "FontDownloadActivity.h"
+#include "FontScalingTestActivity.h"
 #include "FontSelectionActivity.h"
 #include "GestureActionsOverviewActivity.h"
 #include "KOReaderSettingsActivity.h"
@@ -67,6 +68,8 @@ std::unique_ptr<Activity> createActivityForAction(SettingAction action, GfxRende
       return std::make_unique<SystemInformationActivity>(renderer, mappedInput);
     case SettingAction::BootDiagnostics:
       return std::make_unique<BootDiagnosticsActivity>(renderer, mappedInput);
+    case SettingAction::FontScalingTest:
+      return std::make_unique<FontScalingTestActivity>(renderer, mappedInput);
     case SettingAction::SyncTime:
       return std::make_unique<SyncTimeActivity>(renderer, mappedInput);
     case SettingAction::DetectTimezone:

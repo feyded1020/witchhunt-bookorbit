@@ -33,25 +33,20 @@ namespace {
 
 struct NamedFont {
   const char* name;
-  const EpdUnicodeInterval* intervals;
-  uint32_t intervalCount;
-  const EpdGlyph* glyphs;
+  const EpdFontData* data;
 };
 
 std::vector<NamedFont> shippedFonts() {
-  // Read through EpdFontData rather than naming the arrays. The per-face table symbols are an
-  // internal detail of the generated headers: dedupe_font_tables.py hoists any that several faces
-  // emitted identically into shared_tables.h, and the per-face name then no longer exists. The
-  // struct carries both the pointer and the count, so it is the stable surface.
+  // Carry the whole EpdFontData and read glyphs through epdResolveGlyph(). Neither naming the
+  // per-face arrays nor reaching for EpdFontData::glyph works: dedupe_font_tables.py hoists
+  // shared tables out of the headers so the per-face symbol may not exist, and `glyph` is the
+  // 16-byte .cpfont form, which is NULL for built-in fonts — they carry `glyphPacked`. The
+  // resolver is the one accessor that does not care which.
   return {
-      {"bookerly_14_regular", bookerly_14_regular.intervals, bookerly_14_regular.intervalCount,
-       bookerly_14_regular.glyph},
-      {"bookerly_18_bolditalic", bookerly_18_bolditalic.intervals, bookerly_18_bolditalic.intervalCount,
-       bookerly_18_bolditalic.glyph},
-      {"notosans_14_regular", notosans_14_regular.intervals, notosans_14_regular.intervalCount,
-       notosans_14_regular.glyph},
-      {"inter_ui_12_regular", inter_ui_12_regular.intervals, inter_ui_12_regular.intervalCount,
-       inter_ui_12_regular.glyph},
+      {"bookerly_14_regular", &bookerly_14_regular},
+      {"bookerly_18_bolditalic", &bookerly_18_bolditalic},
+      {"notosans_14_regular", &notosans_14_regular},
+      {"inter_ui_12_regular", &inter_ui_12_regular},
   };
 }
 
@@ -99,17 +94,18 @@ TEST(DefaultIgnorable, VisibleNeighboursAreNotSweptUp) {
 TEST(DefaultIgnorable, NoShippedFontDrawsAnIgnorableGlyph) {
   size_t inspected = 0;
   for (const auto& font : shippedFonts()) {
-    for (uint32_t i = 0; i < font.intervalCount; ++i) {
-      const EpdUnicodeInterval& interval = font.intervals[i];
+    for (uint32_t i = 0; i < font.data->intervalCount; ++i) {
+      const EpdUnicodeInterval& interval = font.data->intervals[i];
       for (uint32_t cp = interval.first; cp <= interval.last; ++cp) {
         if (!utf8IsDefaultIgnorable(cp)) continue;
-        const EpdGlyph& g = font.glyphs[interval.offset + (cp - interval.first)];
+        const EpdGlyphRef g = epdResolveGlyph(font.data, interval.offset + (cp - interval.first));
         ++inspected;
         // width/height 0 and no bitmap bytes: nothing to draw. advanceX is 0 for these in the
         // source font too, so this assertion does not constrain layout — only ink.
         EXPECT_EQ(g.width, 0) << font.name << " U+" << std::hex << cp << " has a bitmap";
         EXPECT_EQ(g.height, 0) << font.name << " U+" << std::hex << cp << " has a bitmap";
-        EXPECT_EQ(g.dataLength, 0) << font.name << " U+" << std::hex << cp << " has bitmap bytes";
+        EXPECT_EQ(glyphDataBytes(g.width, g.height, font.data->is2Bit), 0)
+            << font.name << " U+" << std::hex << cp << " has bitmap bytes";
         EXPECT_EQ(g.advanceX, 0) << font.name << " U+" << std::hex << cp << " advances the pen";
       }
     }

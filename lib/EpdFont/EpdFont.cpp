@@ -41,7 +41,7 @@ void EpdFont::getTextBounds(const char* string, const int startX, const int star
     // Small-caps: fold lowercase to uppercase and mark this glyph for scaled metrics.
     const bool folded = useSmallCaps && !isCombining && smallCaps::fold(cp);
 
-    const EpdGlyph* glyph = getGlyph(cp);
+    const EpdGlyphRef glyph = getGlyph(cp);
     if (!glyph) {
       lastBaseX += fp4::toPixel(prevAdvanceFP);  // flush pending advance before resetting
       prevCp = 0;
@@ -50,10 +50,10 @@ void EpdFont::getTextBounds(const char* string, const int startX, const int star
     }
 
     // Folded glyphs are drawn at smallCaps::SCALE, so all their metrics scale to match.
-    const int glyphLeft = folded ? static_cast<int>(glyph->left * smallCaps::SCALE) : glyph->left;
-    const int glyphWidth = folded ? static_cast<int>(glyph->width * smallCaps::SCALE + 0.5f) : glyph->width;
-    const int glyphTop = folded ? static_cast<int>(glyph->top * smallCaps::SCALE) : glyph->top;
-    const int glyphHeight = folded ? static_cast<int>(glyph->height * smallCaps::SCALE + 0.5f) : glyph->height;
+    const int glyphLeft = folded ? static_cast<int>(glyph.left * smallCaps::SCALE) : glyph.left;
+    const int glyphWidth = folded ? static_cast<int>(glyph.width * smallCaps::SCALE + 0.5f) : glyph.width;
+    const int glyphTop = folded ? static_cast<int>(glyph.top * smallCaps::SCALE) : glyph.top;
+    const int glyphHeight = folded ? static_cast<int>(glyph.height * smallCaps::SCALE + 0.5f) : glyph.height;
 
     const int raiseBy = isCombining ? combiningMark::raiseAboveBase(glyphTop, glyphHeight, lastBaseTop) : 0;
 
@@ -76,7 +76,7 @@ void EpdFont::getTextBounds(const char* string, const int startX, const int star
     if (!isCombining) {
       lastBaseLeft = glyphLeft;
       lastBaseWidth = glyphWidth;
-      lastBaseAdvanceFP = folded ? scaleAdvanceFP(glyph->advanceX) : glyph->advanceX;  // 12.4 fixed-point
+      lastBaseAdvanceFP = folded ? scaleAdvanceFP(glyph.advanceX) : glyph.advanceX;  // 12.4 fixed-point
       lastBaseTop = glyphTop;
       prevAdvanceFP = lastBaseAdvanceFP;
       prevCp = cp;
@@ -215,9 +215,9 @@ uint32_t EpdFont::applyLigatures(uint32_t cp, const char*& text) const {
 // The real lookup: interval table, then the on-demand loader an SD font
 // installs. No fallbacks -- getGlyph() layers those on top, so a fallback can
 // never recurse back into another fallback.
-const EpdGlyph* EpdFont::findGlyph(const uint32_t cp) const {
+EpdGlyphRef EpdFont::findGlyph(const uint32_t cp) const {
   const int count = data->intervalCount;
-  if (count == 0 && !data->glyphMissHandler) return nullptr;
+  if (count == 0 && !data->glyphMissHandler) return {};
 
   if (count > 0) {
     const EpdUnicodeInterval* intervals = data->intervals;
@@ -232,21 +232,33 @@ const EpdGlyph* EpdFont::findGlyph(const uint32_t cp) const {
     if (it != intervals) {
       const auto& interval = *(it - 1);
       if (cp <= interval.last) {
-        return &data->glyph[interval.offset + (cp - interval.first)];
+        return epdResolveGlyph(data, interval.offset + (cp - interval.first));
       }
     }
   }
 
   // Codepoint not in interval table — try on-demand loading (SD card fonts).
   if (data->glyphMissHandler) {
-    const EpdGlyph* loaded = data->glyphMissHandler(data->glyphMissCtx, cp);
-    if (loaded) return loaded;
+    if (const EpdGlyph* loaded = data->glyphMissHandler(data->glyphMissCtx, cp)) {
+      // A ring entry, not an array one: there is no index to report, and the pointer is what
+      // SdCardFont::isOverflowGlyph() recognises it by.
+      return EpdGlyphRef{loaded,
+                         loaded->advanceX,
+                         0,  // no array index: this glyph is not in the array
+                         loaded->width,
+                         loaded->height,
+                         static_cast<int8_t>(loaded->left),
+                         static_cast<int8_t>(loaded->top),
+                         true};
+    }
   }
-  return nullptr;
+  return {};
 }
 
-const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
-  if (const EpdGlyph* glyph = findGlyph(cp)) return glyph;
+// Reached only when the interval table missed -- see the inline getGlyph() in the header.
+EpdGlyphRef EpdFont::getGlyphSlow(const uint32_t cp) const {
+  // The SD on-demand loader, which findGlyph() consults after the intervals.
+  if (const EpdGlyphRef glyph = findGlyph(cp)) return glyph;
 
   // The font does not have it. Before giving up and drawing a box, try a close
   // relative that most fonts do carry — a dictionary's phonetic transcription is
@@ -255,9 +267,9 @@ const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
   // character is never second-guessed.
   const uint32_t substitute = fallbackGlyphCodepoint(cp);
   if (substitute != cp) {
-    if (const EpdGlyph* glyph = findGlyph(substitute)) return glyph;
+    if (const EpdGlyphRef glyph = findGlyph(substitute)) return glyph;
   }
 
   if (cp != REPLACEMENT_GLYPH) return findGlyph(REPLACEMENT_GLYPH);
-  return nullptr;
+  return {};
 }

@@ -2,11 +2,9 @@
 
 set -e
 
-cd "$(dirname "$0")"
-
-READER_FONT_STYLES=("Regular" "Italic" "Bold" "BoldItalic")
-BOOKERLY_FONT_SIZES=(10 12 14 16 18)
-NOTOSANS_FONT_SIZES=(10 12 14 16 18)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/font-sizes.sh"
+cd "$SCRIPT_DIR"
 
 for size in ${BOOKERLY_FONT_SIZES[@]}; do
   for style in ${READER_FONT_STYLES[@]}; do
@@ -61,8 +59,6 @@ for size in ${NOTOSANS_FONT_SIZES[@]}; do
   done
 done
 
-UI_FONT_SIZES=(10 12 14)
-UI_FONT_STYLES=("Regular" "Bold")
 UI_LANG_INTERVALS=(
   "0x0000,0x007F"
   "0x0080,0x00FF"
