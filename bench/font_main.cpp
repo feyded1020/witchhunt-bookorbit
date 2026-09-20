@@ -24,9 +24,11 @@
 #include <Arduino.h>
 #include <EpdFont.h>
 #include <FontDecompressor.h>
+#include <builtinFonts/bookerly_24_bolditalic.h>
 #include <builtinFonts/inter_ui_12_regular.h>
 #include <builtinFonts/inter_ui_14_regular.h>
 #include <builtinFonts/notosans_14_regular.h>
+#include <builtinFonts/notosans_24_regular.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 
@@ -296,6 +298,40 @@ static void benchReaderPrewarm(const char* label, const EpdFontData* data) {
 }
 
 // ---------------------------------------------------------------------------
+// 6. The widest glyph in the whole coverage, fetched through the FALLBACK path.
+//
+// Not a timing: a correctness check that only hardware can make. FontDecompressor compacts a
+// missed glyph into a fixed FallbackSlot of HOT_GLYPH_BUF_SIZE bytes and gives up if it does not
+// fit -- and "gives up" means the glyph renders BLANK, silently, on any page whose prewarm missed
+// it. fontconvert.py refuses to generate a font that would overflow the constant, but that check
+// only fires at generation time and has been wrong twice by being guessed rather than measured.
+//
+// U+01C4 (DZ digraph) in bookerly_24_bolditalic at 71x50 packs to 888 B and is the glyph that
+// sets the constant. If this prints FAIL, HOT_GLYPH_BUF_SIZE is too small.
+// ---------------------------------------------------------------------------
+
+static void checkWidestGlyph(const char* label, const EpdFontData* data, const uint32_t cp) {
+  const EpdFont font(data);
+  const EpdGlyphRef g = font.getGlyph(cp);
+  if (!g) {
+    Serial.printf("CHECK widest_glyph      %-18s FAIL (U+%04lX not in coverage)\n", label, (unsigned long)cp);
+    return;
+  }
+  const uint16_t need = glyphDataBytes(g.width, g.height, data->is2Bit);
+
+  // Cold on purpose: an empty cache is what forces the fallback slot rather than a page hit.
+  decompressor.clearCache();
+  const uint8_t* bm = decompressor.getBitmap(data, g, g.index);
+
+  Serial.printf("CHECK widest_glyph      %-18s U+%04lX %ux%u needs=%uB buf=%uB  %s\n", label, (unsigned long)cp,
+                (unsigned)g.width, (unsigned)g.height, (unsigned)need,
+                (unsigned)FontDecompressor::HOT_GLYPH_BUF_SIZE,
+                bm ? "PASS" : "FAIL (renders blank on a prewarm miss)");
+  if (bm) sink += bm[0];
+  decompressor.clearCache();
+}
+
+// ---------------------------------------------------------------------------
 
 void setup() {
   Serial.begin(115200);
@@ -329,6 +365,21 @@ void setup() {
   benchTextMeasure("notosans_14/page", &notosans_14_regular, kReaderPage);
   benchReaderBitmapCold("notosans_14", &notosans_14_regular);
   benchReaderPrewarm("notosans_14", &notosans_14_regular);
+
+  // The accessibility size. Worth its own run rather than assuming it scales from 14 pt: its
+  // glyphs are ~3x the area, so the groups are larger and both the streamed bytes and the ring
+  // the decoder has to hold grow with them. If a bigger size were going to cost something, the
+  // cold and prewarm lines here are where it would appear.
+  Serial.println("\n-- Reader face at the new 24 pt rung --");
+  benchGlyphLookup("notosans_24", &notosans_24_regular);
+  benchKerning("notosans_24", &notosans_24_regular);
+  benchTextMeasure("notosans_24/page", &notosans_24_regular, kReaderPage);
+  benchReaderBitmapCold("notosans_24", &notosans_24_regular);
+  benchReaderPrewarm("notosans_24", &notosans_24_regular);
+
+  Serial.println("\n-- Fallback-slot sizing (correctness, not timing) --");
+  checkWidestGlyph("bookerly_24_bi", &bookerly_24_bolditalic, 0x01C4);
+  checkWidestGlyph("notosans_24", &notosans_24_regular, 0x0489);
 
   Serial.printf("\nfree heap after: %u B   minimum ever: %u B\n", (unsigned)esp_get_free_heap_size(),
                 (unsigned)esp_get_minimum_free_heap_size());
