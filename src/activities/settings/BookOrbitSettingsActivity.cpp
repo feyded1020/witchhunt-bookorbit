@@ -75,7 +75,12 @@ std::string BookOrbitSettingsActivity::getItemValueString(int index) const {
   if (item.nameId == StrId::STR_BOOKORBIT_SERVER_URL) {
     auto serverUrl = BOOKORBIT_STORE.getServerUrl();
     // BookOrbit is self-hosted only: there is no default server to fall back to.
-    return serverUrl.empty() ? std::string(tr(STR_NOT_SET)) : serverUrl;
+    if (serverUrl.empty()) return std::string(tr(STR_NOT_SET));
+    // Every request carries the account name and the password hash, so say plainly when they are
+    // going out unencrypted. A LAN address is the usual reason and often an acceptable one, but
+    // it should be a choice rather than a surprise.
+    if (serverUrl.rfind("http://", 0) == 0) return serverUrl + " " + tr(STR_NOT_ENCRYPTED);
+    return serverUrl;
   }
   if (item.nameId == StrId::STR_OPDS_DOWNLOAD_FOLDER) {
     const std::string& folder = BOOKORBIT_STORE.getDownloadFolder();

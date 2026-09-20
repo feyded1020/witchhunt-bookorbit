@@ -78,16 +78,60 @@ void OtaUpdateActivity::confirmScreen(UiScreen& screen, void* user) {
   static_cast<OtaUpdateActivity*>(user)->buildConfirmScreen(screen);
 }
 
+namespace {
+// Release notes are written for a web page, so they arrive with markdown in them. Strip the
+// markup the panel cannot render and keep the words: headings lose their #, bold and code lose
+// their markers, links keep their text, and runs of blank lines collapse.
+std::string plainNotes(const std::string& markdown) {
+  std::string out;
+  out.reserve(markdown.size());
+  bool lineStart = true;
+  for (size_t i = 0; i < markdown.size(); i++) {
+    const char c = markdown[i];
+    if (c == '\n') {
+      // Collapse blank lines: one break between paragraphs is all there is room for.
+      if (!out.empty() && out.back() != '\n') out.push_back('\n');
+      lineStart = true;
+      continue;
+    }
+    if (lineStart && (c == '#' || c == '>' || c == ' ')) continue;  // heading / quote markers
+    if (c == '*' || c == '`' || c == '_') continue;                 // bold, italics, code
+    if (c == '[') {                                                 // [text](url) -> text
+      const size_t close = markdown.find(']', i);
+      const size_t open = close == std::string::npos ? std::string::npos : markdown.find('(', close);
+      if (close != std::string::npos && open == close + 1) {
+        out.append(markdown, i + 1, close - i - 1);
+        const size_t end = markdown.find(')', open);
+        i = end == std::string::npos ? markdown.size() : end;
+        lineStart = false;
+        continue;
+      }
+    }
+    out.push_back(c);
+    lineStart = false;
+  }
+  while (!out.empty() && (out.back() == '\n' || out.back() == ' ')) out.pop_back();
+  return out;
+}
+}  // namespace
+
 void OtaUpdateActivity::buildConfirmScreen(UiScreen& screen) {
   // Two lines in one slot: FUI's layoutText() breaks on \n explicitly
   // (FreeInkUICore.h), so the current and new versions each get their own line without
   // needing a second text slot.
   updateDialogBody = std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION + "\n" +
                      std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion();
+  // What changed, so the answer to "Update?" is an informed one rather than a leap.
+  const std::string notes = plainNotes(updater.getReleaseNotes());
+  if (!notes.empty()) {
+    updateDialogBody += "\n\n" + notes;
+  }
 
   ConfirmDialog::Spec spec;
   spec.headline = tr(STR_NEW_UPDATE);
   spec.message = updateDialogBody.c_str();
+  // Two version lines, a blank, then as much of the notes as fits above the buttons.
+  spec.messageMaxLines = 10;
   spec.cancelLabel = tr(STR_CANCEL);
   spec.acceptLabel = tr(STR_UPDATE);
   spec.cancelAction = ACTION_CANCEL;

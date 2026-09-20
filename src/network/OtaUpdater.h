@@ -10,6 +10,9 @@
 class OtaUpdater {
   bool updateAvailable = false;
   std::string latestVersion;
+  // First few lines of the release notes, for the confirmation dialog. Empty when the release has
+  // none or they could not be read; the dialog then just shows the versions.
+  std::string releaseNotes;
   std::string otaUrl;
   size_t otaSize = 0;
   size_t processedSize = 0;
@@ -56,6 +59,7 @@ class OtaUpdater {
   OtaUpdater() = default;
   bool isUpdateNewer() const;
   const std::string& getLatestVersion() const;
+  const std::string& getReleaseNotes() const { return releaseNotes; }
   OtaUpdaterError checkForUpdate();
   OtaUpdaterError beginInstallUpdate();
   OtaUpdaterError performInstallUpdateStep();
