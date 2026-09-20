@@ -32,16 +32,25 @@ class FontScalingTestActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
+  enum class Mode : uint8_t {
+    Styles,       ///< one specimen line per style, real above scaled
+    RunningText,  ///< a short paragraph, real and scaled lines interleaved
+    Ladder,       ///< every advertised size 10-26 pt in one column
+  };
+
   /// One comparison: `size` pt drawn for real, against `size` pt scaled from `fromSize`.
   struct Page {
     const char* title;
     int realFontId;
     int masterFontId;
     float scale;  ///< masterFontId is drawn at this scale to reach the real face's size
-    bool runningText;
+    Mode mode;
   };
 
   void renderContent() const;
+  // Takes the content WIDTH rather than the Rect: Rect lives in GfxRenderer.h, and pulling that
+  // into this header to name one field would be the wrong trade.
+  void renderLadder(int contentWidth, int leftX, int y, int bottom) const;
 
   uint8_t page_ = 0;
   static const Page kPages[];

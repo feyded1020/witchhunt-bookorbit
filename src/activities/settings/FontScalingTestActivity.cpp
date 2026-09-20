@@ -3,6 +3,8 @@
 #include <CrossPointSettings.h>
 #include <GfxRenderer.h>
 
+#include <cstdio>
+
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -42,6 +44,37 @@ constexpr StyleRow kStyles[] = {
 };
 constexpr int kStyleCount = sizeof(kStyles) / sizeof(kStyles[0]);
 
+// Every size the ladder would advertise, in one column, so the progression can be judged as a
+// reader meets it rather than one pair at a time. The question this page answers is not "are
+// these two glyphs alike" but "does the synthesised size sit naturally between its real
+// neighbours" -- a size that is individually defensible can still read as a step out of place.
+//
+// realId 0 means the size has no face of its own and is drawn by scaling `masterId`. That is
+// today's tree, not the plan: 20 pt is scaled here because no 20 pt face exists yet, whereas the
+// plan makes it real and synthesises 22/24/26 from it. So the ratios below (x1.111, x1.222,
+// x1.444 from 18 pt) are LARGER than the ones the plan would use (x1.10, x1.20, x1.30 from 20 pt).
+// This page is therefore the pessimistic case, which is the useful direction to be wrong in.
+struct LadderRow {
+  uint8_t pt;
+  int realId;
+  int masterId;
+};
+constexpr LadderRow kLadder[] = {
+    {10, BOOKERLY_10_FONT_ID, 0},
+    {12, BOOKERLY_12_FONT_ID, 0},
+    {14, BOOKERLY_14_FONT_ID, 0},
+    {16, BOOKERLY_16_FONT_ID, 0},
+    {18, BOOKERLY_18_FONT_ID, 0},
+    {20, 0, BOOKERLY_18_FONT_ID},
+    {22, 0, BOOKERLY_18_FONT_ID},
+    {24, BOOKERLY_24_FONT_ID, 0},
+    {26, 0, BOOKERLY_18_FONT_ID},
+};
+constexpr int kLadderCount = sizeof(kLadder) / sizeof(kLadder[0]);
+// The point size each scaled row is derived from. One constant rather than per-row, because every
+// scaled row here comes off the same master.
+constexpr float kLadderMasterPt = 18.0f;
+
 }  // namespace
 
 // 24 pt is the pair we can compare directly, because both a real 24 pt face and an 18 pt master
@@ -49,11 +82,18 @@ constexpr int kStyleCount = sizeof(kStyles) / sizeof(kStyles[0]);
 // experience says deteriorates — small text needs sharp edges — and it is the claim the
 // coverage metric is least able to see.
 const FontScalingTestActivity::Page FontScalingTestActivity::kPages[] = {
-    {"Bookerly 24pt: real vs scaled from 18pt", BOOKERLY_24_FONT_ID, BOOKERLY_18_FONT_ID, 24.0f / 18.0f, false},
-    {"Noto Sans 24pt: real vs scaled from 18pt", NOTOSANS_24_FONT_ID, NOTOSANS_18_FONT_ID, 24.0f / 18.0f, false},
-    {"Bookerly 24pt in running text", BOOKERLY_24_FONT_ID, BOOKERLY_18_FONT_ID, 24.0f / 18.0f, true},
-    {"Bookerly 12pt: real vs REDUCED from 24pt", BOOKERLY_12_FONT_ID, BOOKERLY_24_FONT_ID, 12.0f / 24.0f, false},
-    {"Bookerly 12pt reduced, running text", BOOKERLY_12_FONT_ID, BOOKERLY_24_FONT_ID, 12.0f / 24.0f, true},
+    // First, because it frames every page after it: if a synthesised size reads as a step out of
+    // place here, the per-style pairs explain why.
+    {"All sizes 10-26pt (R real / S scaled)", 0, 0, 0.0f, Mode::Ladder},
+    {"Bookerly 24pt: real vs scaled from 18pt", BOOKERLY_24_FONT_ID, BOOKERLY_18_FONT_ID, 24.0f / 18.0f,
+     Mode::Styles},
+    {"Noto Sans 24pt: real vs scaled from 18pt", NOTOSANS_24_FONT_ID, NOTOSANS_18_FONT_ID, 24.0f / 18.0f,
+     Mode::Styles},
+    {"Bookerly 24pt in running text", BOOKERLY_24_FONT_ID, BOOKERLY_18_FONT_ID, 24.0f / 18.0f, Mode::RunningText},
+    {"Bookerly 12pt: real vs REDUCED from 24pt", BOOKERLY_12_FONT_ID, BOOKERLY_24_FONT_ID, 12.0f / 24.0f,
+     Mode::Styles},
+    {"Bookerly 12pt reduced, running text", BOOKERLY_12_FONT_ID, BOOKERLY_24_FONT_ID, 12.0f / 24.0f,
+     Mode::RunningText},
 };
 const uint8_t FontScalingTestActivity::kPageCount = sizeof(kPages) / sizeof(kPages[0]);
 
@@ -98,7 +138,12 @@ void FontScalingTestActivity::renderContent() const {
   const int lineH = renderer.getLineHeight(p.realFontId);
   const int labelH = renderer.getLineHeight(UI_10_FONT_ID);
 
-  if (p.runningText) {
+  if (p.mode == Mode::Ladder) {
+    renderLadder(contentRect.width, leftX, y, bottom);
+    return;
+  }
+
+  if (p.mode == Mode::RunningText) {
     // Interleaved, real line then scaled line, so the eye compares adjacent baselines instead of
     // holding one block in memory while looking at another.
     for (int i = 0; i < kProseLines && y + lineH * 2 + labelH < bottom; ++i) {
@@ -120,6 +165,34 @@ void FontScalingTestActivity::renderContent() const {
     y += lineH;
     renderer.drawTextScaled(p.masterFontId, leftX, y + lineH, kPangram, true, kStyles[s].style, p.scale);
     y += lineH + metrics.verticalSpacing;
+  }
+}
+
+void FontScalingTestActivity::renderLadder(const int contentWidth, const int leftX, int y, const int bottom) const {
+  // A fixed label column so every specimen starts at the same x: the eye compares the left edges
+  // of the text, and a ragged start would read as a size difference that is not there.
+  const int textX = leftX + contentWidth * 15 / 100;
+  const int labelH = renderer.getLineHeight(UI_10_FONT_ID);
+
+  for (int i = 0; i < kLadderCount; ++i) {
+    const LadderRow& r = kLadder[i];
+    const bool real = r.realId != 0;
+    const int fontId = real ? r.realId : r.masterId;
+    const float scale = real ? 1.0f : r.pt / kLadderMasterPt;
+    const int lineH = real ? renderer.getLineHeight(fontId) : renderer.getLineHeightScaled(fontId, scale);
+    if (y + lineH > bottom) break;
+
+    char label[12];
+    snprintf(label, sizeof(label), "%upt %c", static_cast<unsigned>(r.pt), real ? 'R' : 'S');
+    // Baseline-aligned with the specimen rather than the row top, so the marker does not read as
+    // part of the specimen's own line.
+    renderer.drawText(UI_10_FONT_ID, leftX, y + lineH, label, true);
+    if (real) {
+      renderer.drawText(fontId, textX, y + lineH, kPangram, true);
+    } else {
+      renderer.drawTextScaled(fontId, textX, y + lineH, kPangram, true, EpdFontFamily::REGULAR, scale);
+    }
+    y += lineH;
   }
 }
 
