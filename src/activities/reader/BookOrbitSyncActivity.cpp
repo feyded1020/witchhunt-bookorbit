@@ -1007,9 +1007,13 @@ void BookOrbitSyncActivity::serviceDecisionTimeout() {
     return;
   }
   if (!decisionAbandoned && millis() - decisionShownAtMs >= DECISION_KEEP_AWAKE_MS) {
-    decisionAbandoned = true;  // sleep is no longer held off; the outcome is already recorded
-    LOG_INF("BookOrbit", "No answer in %lu s; letting the device sleep with the sync unfinished",
+    decisionAbandoned = true;
+    LOG_INF("BookOrbit", "No answer in %lu s; closing the sync and returning to the book",
             DECISION_KEEP_AWAKE_MS / 1000UL);
+    // Hand the device back rather than waiting for auto-sleep: the inactivity timer only starts
+    // once this screen stops blocking it, so leaving it up would just idle for another sleep
+    // timeout with nothing on screen explaining why. The reader shows the "not synced" notice.
+    resumeReader(KOReaderSyncOutcomeState::ABANDONED);
   }
 }
 

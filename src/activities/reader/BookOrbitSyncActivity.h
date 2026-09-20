@@ -64,8 +64,10 @@ class BookOrbitSyncActivity final : public Activity {
   // The two screens that ask the user a question hold sleep off as well, but only for
   // DECISION_KEEP_AWAKE_MS: sleeping there abandons the sync silently (deep sleep boots fresh
   // into the reader and nothing relaunches this screen), while holding it off forever would let
-  // a forgotten prompt flatten the battery. After the window the sync is marked ABANDONED and
-  // the reader reports it.
+  // a forgotten prompt flatten the battery. When the window runs out the screen closes itself
+  // and the reader reports the unfinished sync -- deliberately NOT by handing the question over
+  // to auto-sleep, which only starts its own (10 minute, user-configurable) inactivity timer at
+  // that point and leaves the prompt sitting there with nothing visibly happening.
   bool preventAutoSleep() override {
     if (state == CONNECTING || state == SYNCING || state == UPLOADING) return true;
     if (state != SHOWING_RESULT && state != NO_REMOTE_PROGRESS) return false;
@@ -132,8 +134,10 @@ class BookOrbitSyncActivity final : public Activity {
   static constexpr int OPTION_COUNT = 3;
   int selectedOption = 0;
 
-  // How long a pending apply/upload question keeps the device awake before it is abandoned.
-  static constexpr unsigned long DECISION_KEEP_AWAKE_MS = 5UL * 60UL * 1000UL;
+  // How long a pending apply/upload question waits for an answer before closing itself. The
+  // prompt appears while the reader is in the user's hands, so this is about walking away
+  // mid-decision, not about giving them time to read it.
+  static constexpr unsigned long DECISION_KEEP_AWAKE_MS = 3UL * 60UL * 1000UL;
   // millis() when the current question first went up; 0 when no question is pending.
   unsigned long decisionShownAtMs = 0;
   // True once the question has been recorded as abandoned, so it is written once.
