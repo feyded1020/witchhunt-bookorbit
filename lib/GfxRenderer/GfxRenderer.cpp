@@ -1501,6 +1501,13 @@ bool GfxRenderer::getTextInkMetrics(const int fontId, const char* text, const Ep
     *belowBaseline = std::max(*belowBaseline, static_cast<int>(glyph.height) - static_cast<int>(glyph.top));
     any = true;
   }
+  // Ink extents are pixel metrics like every other accessor here, so a synthesised size must
+  // report its own, not its master's.
+  const float base = fontBaseScale(fontId);
+  if (base != 1.0f) {
+    *aboveBaseline = static_cast<int>(*aboveBaseline * base + 0.5f);
+    *belowBaseline = static_cast<int>(*belowBaseline * base + 0.5f);
+  }
   return any;
 }
 
@@ -3219,7 +3226,16 @@ int GfxRenderer::getSpaceAdvance(const int fontId, const uint32_t leftCp, const 
   // Snapping the combined value avoids the +/-1 px error from snapping each component separately.
   const int32_t kernFP = static_cast<int32_t>(font.getKerning(leftCp, ' ', style)) +
                          static_cast<int32_t>(font.getKerning(' ', rightCp, style));
-  return fp4::toPixel(spaceAdvanceFP + kernFP);
+  // Scaled in FIXED POINT, before the snap. This is the inter-word advance ParsedText uses for
+  // line breaking and justification, so it has to grow with the glyphs or a synthesised size
+  // measures words at its own scale and the gaps between them at its master's -- 83% of the right
+  // spacing at 24 pt, which reads as the layout struggling to fit words on a line.
+  //
+  // Scaling the combined fixed-point sum rather than the snapped pixel keeps the property the
+  // comment above is about: one rounding step, not two.
+  const float base = fontBaseScale(fontId);
+  const int32_t totalFP = spaceAdvanceFP + kernFP;
+  return fp4::toPixel(base == 1.0f ? totalFP : static_cast<int32_t>(totalFP * base + (totalFP < 0 ? -0.5f : 0.5f)));
 }
 
 int GfxRenderer::getKerning(const int fontId, const uint32_t leftCp, const uint32_t rightCp,
@@ -3227,7 +3243,43 @@ int GfxRenderer::getKerning(const int fontId, const uint32_t leftCp, const uint3
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) return 0;
   const int kernFP = fontIt->second.getKerning(leftCp, rightCp, style);  // 4.4 fixed-point
-  return fp4::toPixel(kernFP);                                           // snap 4.4 fixed-point to nearest pixel
+  // Scaled before the snap, for the same reason getSpaceAdvance() is: ParsedText adds this to
+  // word widths when breaking lines, so a synthesised size kerning at its master's scale would
+  // mis-measure every line.
+  const float base = fontBaseScale(fontId);
+  if (base != 1.0f) {
+    return fp4::toPixel(static_cast<int>(kernFP * base + (kernFP < 0 ? -0.5f : 0.5f)));
+  }
+  return fp4::toPixel(kernFP);  // snap 4.4 fixed-point to nearest pixel
+}
+
+// Mirrors drawTextAtScale()'s cursor arithmetic step for step: scaled kern added in 12.4, scaled
+// advance added in 12.4, one snap at the end. Any divergence here shows up as text that does not
+// fit the box it was measured into.
+int GfxRenderer::scaledTextAdvanceX(const EpdFontFamily& font, const char* text,
+                                    const EpdFontFamily::Style style, const float scale) const {
+  uint32_t cp;
+  uint32_t prevCp = 0;
+  int32_t cursorFP = 0;  // 12.4 fixed-point, exactly as the draw cursor
+  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+    if (utf8IsCombiningMark(cp)) continue;
+    cp = font.applyLigatures(cp, text, style);
+    const bool folded = (style & EpdFontFamily::SMALL_CAPS) != 0 && smallCaps::fold(cp);
+    const float effScale = folded ? scale * smallCaps::SCALE : scale;
+
+    if (prevCp != 0) {
+      const int kern = font.getKerning(prevCp, cp, style);
+      cursorFP += static_cast<int>(kern * effScale + (kern < 0 ? -0.5f : 0.5f));
+    }
+    const EpdGlyphRef glyph = font.getGlyph(cp, style);
+    if (!glyph) {
+      prevCp = 0;
+      continue;
+    }
+    cursorFP += static_cast<int>(glyph.advanceX * effScale + 0.5f);
+    prevCp = cp;
+  }
+  return (cursorFP + 8) >> 4;  // the same snap the draw applies to a glyph position
 }
 
 int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFamily::Style style) const {
@@ -3240,6 +3292,20 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
   if (fontCacheManager_ && fontCacheManager_->isScanning()) {
     fontCacheManager_->recordText(text, fontId, style);
     return 0;
+  }
+
+  // A synthesised size measures on its own path, because the two accumulation models differ and
+  // this function's whole contract is that measurement and rendering agree EXACTLY.
+  //
+  // Unscaled, it uses differential rounding: snap (previous advance + current kern) per glyph and
+  // sum pixels. drawTextAtScale() instead accumulates SCALED advances and kerns in 12.4 and snaps
+  // each glyph's position out of the running cursor. Multiplying the unscaled pixel total by the
+  // base would agree with neither, and ParsedText uses this for every word width when breaking
+  // lines -- which is how 24 pt came to measure its words at the 20 pt master's size while drawing
+  // them at 24, so the layout believed a line held more than it did.
+  const float baseScale = fontBaseScale(fontId);
+  if (baseScale != 1.0f) {
+    return scaledTextAdvanceX(fontIt->second, text, style, baseScale);
   }
 
   uint32_t cp;
@@ -3317,7 +3383,7 @@ int GfxRenderer::getTextHeight(const int fontId) const {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
-  return fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
+  return applyBase(fontIt->second.getData(EpdFontFamily::REGULAR)->ascender, fontBaseScale(fontId));
 }
 
 void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y, const char* text, const bool black,

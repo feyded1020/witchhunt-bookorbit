@@ -535,6 +535,7 @@ class GfxRenderer {
   // Unscaled primitives. The public accessors above apply the font's base scale; these do not,
   // and exist so the *Scaled paths can compound base x residual without applying base twice.
   int rawTextWidth(int fontId, const char* text, EpdFontFamily::Style style) const;
+  int scaledTextAdvanceX(const EpdFontFamily& font, const char* text, EpdFontFamily::Style style, float scale) const;
   int rawLineHeight(int fontId) const;
   int rawFontAscenderSize(int fontId) const;
   void drawTextAtScale(int fontId, int x, int y, const char* text, bool black, EpdFontFamily::Style style,
