@@ -3256,8 +3256,8 @@ int GfxRenderer::getKerning(const int fontId, const uint32_t leftCp, const uint3
 // Mirrors drawTextAtScale()'s cursor arithmetic step for step: scaled kern added in 12.4, scaled
 // advance added in 12.4, one snap at the end. Any divergence here shows up as text that does not
 // fit the box it was measured into.
-int GfxRenderer::scaledTextAdvanceX(const EpdFontFamily& font, const char* text,
-                                    const EpdFontFamily::Style style, const float scale) const {
+int GfxRenderer::scaledTextAdvanceX(const EpdFontFamily& font, const char* text, const EpdFontFamily::Style style,
+                                    const float scale) const {
   uint32_t cp;
   uint32_t prevCp = 0;
   int32_t cursorFP = 0;  // 12.4 fixed-point, exactly as the draw cursor
