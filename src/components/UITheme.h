@@ -82,9 +82,6 @@ class UITheme {
   static int getProgressBarHeight(uint8_t progressBar, uint8_t thickness);
 
  private:
-  // The selected theme's metrics with text-bearing heights grown for the menu font size.
-  void applyFontScale(const ThemeMetrics& base);
-  ThemeMetrics scaledMetrics{};
   const ThemeMetrics* currentMetrics;
   std::unique_ptr<BaseTheme> currentTheme;
 };

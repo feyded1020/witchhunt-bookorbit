@@ -267,12 +267,6 @@ inline std::vector<SettingInfo> buildSettingsList() {
                                         StrId::STR_THEME_LYRA_CAROUSEL},
                                        "uiTheme", StrId::STR_CAT_DISPLAY)
                          .withSelectorActivity());
-  settings.push_back(SettingInfo::Enum(StrId::STR_UI_FONT, &CrossPointSettings::uiFontFamily,
-                                       {StrId::STR_INTER, StrId::STR_NOTO_SANS, StrId::STR_BOOKERLY}, "uiFontFamily",
-                                       StrId::STR_CAT_DISPLAY));
-  settings.push_back(SettingInfo::Enum(StrId::STR_UI_FONT_SIZE, &CrossPointSettings::uiFontSize,
-                                       {StrId::STR_NORMAL, StrId::STR_LARGE, StrId::STR_EXTRA_LARGE}, "uiFontSize",
-                                       StrId::STR_CAT_DISPLAY));
 
   // --- Reader ---
   // General reader settings

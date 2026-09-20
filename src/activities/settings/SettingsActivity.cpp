@@ -1,7 +1,5 @@
 #include "SettingsActivity.h"
 
-#include "components/UiFonts.h"
-
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
@@ -202,8 +200,7 @@ void SettingsActivity::onEnter() {
 
 void SettingsActivity::onExit() {
   TabbedUiListActivity::onExit();
-  applyUiFontSettings(renderer);     // Re-apply menu font in case it was changed
-  UITheme::getInstance().reload();  // Re-apply theme (and font-size row heights) in case it was changed
+  UITheme::getInstance().reload();  // Re-apply theme in case it was changed
 }
 
 void SettingsActivity::enterCategory(const int categoryIndex) {

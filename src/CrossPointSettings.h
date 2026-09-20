@@ -341,10 +341,6 @@ class CrossPointSettings {
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // UI Theme
   uint8_t uiTheme = LYRA;
-  // Menu font (not the reader font): 0 = Inter, 1 = Noto Sans, 2 = Bookerly. See UiFonts.h.
-  uint8_t uiFontFamily = 0;
-  // Menu font size: 0 = Normal, 1 = Large, 2 = Extra Large.
-  uint8_t uiFontSize = 0;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // --- Frontlight / backlight (boards with FrontlightConfig; T5S3, X4 Pro) ---

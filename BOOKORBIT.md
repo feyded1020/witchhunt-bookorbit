@@ -72,14 +72,6 @@ python3 -m venv .venv && .venv/bin/pip install platformio
 
 The app slot is 6,553,600 bytes; see the commit log for the size of each build.
 
-## Menu font and size
-
-**Settings → Display → Menu Font** (Default / Noto Sans / Bookerly) and **Menu Font Size**
-(Normal / Large / Extra Large) change the text of menus, lists and settings. They take effect when
-you leave Settings, and list rows grow to fit. The reader's page text and status bar are not
-affected (use the reader font settings for those). "Default" is Witch Hunt's Inter at Normal size;
-at Large and Extra Large it uses Noto Sans, since larger Inter sizes would cost ~240 KB of flash.
-
 ## What was removed or changed from Witch Hunt
 
 - **KOReader Sync is gone** (client, credential store, settings). BookOrbit's sync replaces it,

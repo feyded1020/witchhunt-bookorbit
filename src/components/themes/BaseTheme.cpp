@@ -377,7 +377,7 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<UIIcon(int index)>& rowIcon,
                          const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
   int rowHeight =
-      (rowSubtitle != nullptr) ? UITheme::getInstance().getMetrics().listWithSubtitleRowHeight : UITheme::getInstance().getMetrics().listRowHeight;
+      (rowSubtitle != nullptr) ? BaseMetrics::values.listWithSubtitleRowHeight : BaseMetrics::values.listRowHeight;
   int pageItems = rect.height / rowHeight;
   // Never paint more rows than the touch band can register: a painted row past the cap is drawn
   // but recorded by nothing, so it answers to no tap. That is not hypothetical -- the reader
@@ -801,7 +801,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
-  int rowHeight = UITheme::getInstance().getMetrics().menuRowHeight;
+  int rowHeight = BaseMetrics::values.menuRowHeight;
   int rowSpacing = BaseMetrics::values.menuSpacing;
   if (buttonCount > 0 && rect.height > 0) {
     const int defaultHeight = buttonCount * rowHeight + std::max(0, buttonCount - 1) * rowSpacing;
