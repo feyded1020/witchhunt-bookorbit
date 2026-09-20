@@ -16,7 +16,11 @@
 // size -- SdCardFontManager::ensureSizeAlias -- which compounds like any other).
 //
 // Deterministic from the body fontId by construction, so it is deliberately NOT
-// part of the section-cache property hash (fontId already is).
+// part of the section-cache property hash (fontId already is). That holds WITHIN a
+// firmware version and not across one: adding or removing a rung changes which face
+// a heading resolves to for an unchanged body fontId, so the hash still matches a
+// cache laid out by the old ladder. Changing the shipped rungs is therefore a cache
+// format change and MUST bump SECTION_FILE_VERSION -- adding 20/22/24/26 pt did.
 // Some rungs have no face of their own: 22/24/26 pt render the 20 pt master scaled (see
 // GfxRenderer::insertScaledFont). This struct does not need to know which, and that is worth
 // stating because an earlier note here said the opposite.
