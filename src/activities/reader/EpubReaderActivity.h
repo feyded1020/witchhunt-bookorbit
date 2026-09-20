@@ -571,10 +571,12 @@ class EpubReaderActivity final : public Activity {
   int8_t bookInlineFootnotePreviewsOverride = -1;
 
   // Bookmarks (starred pages)
-  // "Nothing was uploaded" notice for a sync that was never answered; drawn once from loop().
-  static constexpr unsigned long SYNC_NOTICE_MS = 2500;
+  // "Nothing was uploaded" notice for a sync that was never answered. Drawn once from loop() and
+  // held until the user presses something: it reports that data did NOT reach the server, which
+  // is exactly the kind of message that must not scroll past unseen.
   bool pendingSyncNotice = false;
-  unsigned long syncNoticeShownAtMs = 0;
+  bool syncNoticeOnScreen = false;
+  void drawSyncNotice();
 
   BookmarkStore bookmarkStore;
   // Highlights (text ranges) for this book; synced to BookOrbit as annotations.

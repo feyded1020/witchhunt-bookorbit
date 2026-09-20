@@ -113,6 +113,11 @@ class CrossPointState {
 
  public:
   std::string openEpubPath;
+  // Book whose sync ended without an answer and whose "not synced" notice has not been
+  // acknowledged yet. Persisted so the notice survives a sleep or power-off: the whole point of
+  // it is that a sync which did not reach the server cannot pass unnoticed. Cleared when the
+  // reader shows it and the user presses something.
+  std::string syncNoticePath;
   size_t lastSleepImage = SIZE_MAX;  // SIZE_MAX = unset sentinel
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;

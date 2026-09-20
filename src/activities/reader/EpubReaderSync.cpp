@@ -182,6 +182,10 @@ void EpubReaderActivity::applyPendingSyncSession() {
       (sync.outcome == KOReaderSyncOutcomeState::ABANDONED || sync.outcome == KOReaderSyncOutcomeState::NONE ||
        sync.outcome == KOReaderSyncOutcomeState::PENDING)) {
     LOG_INF("ERS", "Sync was never finished; reporting that nothing was uploaded");
+    // Persisted, not just flagged in RAM: the session record below is cleared as part of
+    // restoring the position, so without this a sleep before the user acknowledges the notice
+    // would lose it -- the silent failure this notice exists to prevent.
+    APP_STATE.syncNoticePath = sync.epubPath;
     pendingSyncNotice = true;
   }
 

@@ -616,6 +616,11 @@ void EpubReaderActivity::onEnter() {
   // i.e. everything needed to know WHICH page to show, before anything is read to show it.
   WakeTrace::mark(WakeTrace::Phase::ProgressLoaded);
 
+  // A notice left unacknowledged when the device slept comes back with the book.
+  if (!APP_STATE.syncNoticePath.empty() && APP_STATE.syncNoticePath == epub->getPath()) {
+    pendingSyncNotice = true;
+  }
+
   // Load bookmarks for this book
   bookmarkStore.load(epub->getCachePath());
   // Highlights live in the content-keyed state dir so they survive "Clear Cache" and renames.
@@ -769,17 +774,28 @@ void EpubReaderActivity::loop() {
   // Debug-only: periodic serial dump of background-work counters (no-op in release).
   serviceBackgroundDebugLog();
 
-  // One-shot notice for a sync that was never answered (see applyPendingSyncSession). Drawn from
-  // loop() under the render lock, once a page is actually on screen, so it composites over the
-  // book rather than over a half-built frame.
-  if (pendingSyncNotice && readerPhase_ == ReaderPhase::READING && syncNoticeShownAtMs == 0) {
+  // Notice for a sync that was never answered (see applyPendingSyncSession). Drawn from loop()
+  // under the render lock, once a page is actually on screen so it composites over the book, and
+  // held until acknowledged.
+  if (pendingSyncNotice && readerPhase_ == ReaderPhase::READING && !syncNoticeOnScreen) {
     RenderLock lock(*this);
-    GUI.drawPopup(renderer, tr(STR_SYNC_NOT_UPLOADED));
-    syncNoticeShownAtMs = millis();
-  } else if (syncNoticeShownAtMs != 0 && millis() - syncNoticeShownAtMs >= SYNC_NOTICE_MS) {
-    pendingSyncNotice = false;
-    syncNoticeShownAtMs = 0;
-    requestUpdate();  // redraw the page over the popup
+    drawSyncNotice();
+    syncNoticeOnScreen = true;
+    return;  // nothing else this pass; the next input dismisses it
+  }
+  if (syncNoticeOnScreen) {
+    int tapX = 0;
+    int tapY = 0;
+    if (mappedInput.wasAnyReleased() || mappedInput.wasScreenTapped(tapX, tapY)) {
+      pendingSyncNotice = false;
+      syncNoticeOnScreen = false;
+      if (!APP_STATE.syncNoticePath.empty()) {
+        APP_STATE.syncNoticePath.clear();
+        APP_STATE.saveToFile();
+      }
+      requestUpdate();  // redraw the page over the notice
+    }
+    return;  // that press acknowledged the notice; it must not also turn a page
   }
 
   if (pendingProgressSave.pending.load(std::memory_order_acquire)) {
@@ -1940,6 +1956,48 @@ void EpubReaderActivity::openDictionary() {
         resumeBackgroundWork();
         requestUpdate();
       });
+}
+
+// Centered box with the message wrapped to the page width, held until acknowledged. Not
+// GUI.drawPopup(): that is a single line sized to the text, so a sentence this long runs off
+// both edges of the screen.
+void EpubReaderActivity::drawSyncNotice() {
+  renderer.syncWriteBufferFromDisplayed();
+
+  const Rect content = UITheme::getContentRect(renderer, false, false);
+  const int maxTextWidth = content.width - 80;
+  const auto lines = renderer.wrappedText(UI_10_FONT_ID, tr(STR_SYNC_NOT_UPLOADED), maxTextWidth, 4);
+  const auto hint = std::string(tr(STR_PRESS_ANY_BUTTON));
+  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+
+  int textWidth = renderer.getTextWidth(UI_10_FONT_ID, hint.c_str());
+  for (const auto& line : lines) {
+    textWidth = std::max(textWidth, renderer.getTextWidth(UI_10_FONT_ID, line.c_str()));
+  }
+  constexpr int padX = 24;
+  constexpr int padY = 20;
+  constexpr int outline = 2;
+  const int boxWidth = std::min(textWidth + padX * 2, content.width - 20);
+  const int boxHeight = static_cast<int>(lines.size() + 1) * lineHeight + lineHeight / 2 + padY * 2;
+  const int boxX = content.x + (content.width - boxWidth) / 2;
+  const int boxY = content.y + (content.height - boxHeight) / 2;
+
+  // White border, black panel, white text -- the popup look this reader already uses.
+  renderer.fillRoundedRect(boxX - outline, boxY - outline, boxWidth + outline * 2, boxHeight + outline * 2, 10,
+                           Color::White);
+  renderer.fillRoundedRect(boxX, boxY, boxWidth, boxHeight, 8, Color::Black);
+
+  int y = boxY + padY;
+  for (const auto& line : lines) {
+    const int lineWidth = renderer.getTextWidth(UI_10_FONT_ID, line.c_str());
+    renderer.drawText(UI_10_FONT_ID, boxX + (boxWidth - lineWidth) / 2, y, line.c_str(), false);
+    y += lineHeight;
+  }
+  y += lineHeight / 2;
+  const int hintWidth = renderer.getTextWidth(UI_10_FONT_ID, hint.c_str());
+  renderer.drawText(UI_10_FONT_ID, boxX + (boxWidth - hintWidth) / 2, y, hint.c_str(), false);
+
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
 
 void EpubReaderActivity::openHighlightSelect() {
