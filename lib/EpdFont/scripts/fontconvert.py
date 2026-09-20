@@ -1207,11 +1207,11 @@ def cp_label(cp):
         return '<backslash>'
     return chr(cp) if 0x20 < cp < 0x7F else f'U+{cp:04X}'
 
-# EpdGlyphPacked: 8 bytes instead of EpdGlyph's 16. dataLength is derived on device from
-# width * height * bpp, left/top are narrowed to int8 and dataOffset to uint16. Each of those is
-# CHECKED here rather than assumed, because every one of them fails silently at runtime -- a
-# truncated offset reads a neighbouring glyph's bitmap, which renders as the wrong character
-# rather than as a crash. See EpdGlyphPacked in EpdFontData.h.
+# EpdGlyphPacked: 6 bytes instead of EpdGlyph's 16. dataLength is derived on device from
+# width * height * bpp, left/top are narrowed to int8, and dataOffset is not stored at all. Each
+# of those is CHECKED here rather than assumed, because every one of them fails silently at
+# runtime -- a wrong length reads a neighbouring glyph's bitmap, which renders as the wrong
+# character rather than as a crash. See EpdGlyphPacked in EpdFontData.h.
 bpp = 2 if is2Bit else 1
 for g in glyph_props:
     derived = (g.width * g.height * bpp + 7) // 8
@@ -1223,18 +1223,33 @@ for g in glyph_props:
         sys.exit(f"{font_name}: U+{g.code_point:04X} left {g.left} does not fit int8_t")
     if not (-128 <= g.top <= 127):
         sys.exit(f"{font_name}: U+{g.code_point:04X} top {g.top} does not fit int8_t")
-    if not (0 <= g.data_offset <= 0xFFFF):
-        sys.exit(f"{font_name}: U+{g.code_point:04X} dataOffset {g.data_offset} exceeds uint16. An "
-                 f"uncompressed font is capped at 64 KB of bitmap data by EpdGlyphPacked; either "
-                 f"compress this face or widen that field to a uint24.")
     if not (0 <= g.advance_x <= 0xFFFF):
         sys.exit(f"{font_name}: U+{g.code_point:04X} advanceX {g.advance_x} exceeds uint16")
 
+# Only an UNCOMPRESSED font needs its bitmap offsets: it indexes a flat array directly. A
+# compressed font's bitmap comes out of a decoded group, and FontDecompressor::getAlignedOffset()
+# finds the position by walking the group itself -- it never read the stored offset, which is
+# what made the field removable rather than merely shrinkable.
+if not compress:
+    for g in glyph_props:
+        if not (0 <= g.data_offset <= 0xFFFF):
+            sys.exit(f"{font_name}: U+{g.code_point:04X} dataOffset {g.data_offset} exceeds uint16. "
+                     f"An uncompressed font is capped at 64 KB of bitmap data by the uint16 entries "
+                     f"of EpdFontData::bitmapOffsets; either compress this face or widen that table "
+                     f"to uint32.")
+
 print(f"static const EpdGlyphPacked {font_name}Glyphs[] = {{")
 for g in glyph_props:
-    print(f"    {{ {g.width}, {g.height}, {g.advance_x}, {g.left}, {g.top}, {g.data_offset} }},"
+    print(f"    {{ {g.width}, {g.height}, {g.advance_x}, {g.left}, {g.top} }},"
           f" // {cp_label(g.code_point)}")
 print ("};\n");
+
+# Uncompressed faces only -- see the note above the bound check.
+if not compress:
+    print(f"static const uint16_t {font_name}BitmapOffsets[] = {{")
+    for g in glyph_props:
+        print(f"    {g.data_offset}, // {cp_label(g.code_point)}")
+    print ("};\n");
 
 print(f"static const EpdUnicodeInterval {font_name}Intervals[] = {{")
 offset = 0
@@ -1322,6 +1337,10 @@ print(f"static const EpdFontData {font_name} = {{")
 print(f"    {font_name}Bitmaps,")
 print("    nullptr,  // glyph: the 16-byte EpdGlyph array is the .cpfont form, SD-card fonts only")
 print(f"    {font_name}Glyphs,")
+if compress:
+    print("    nullptr,  // bitmapOffsets: a compressed font recovers the offset from the group walk")
+else:
+    print(f"    {font_name}BitmapOffsets,")
 print(f"    {font_name}Intervals,")
 print(f"    {len(intervals)},")
 print(f"    {norm_ceil(face.size.height)},")

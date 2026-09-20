@@ -83,15 +83,23 @@ typedef struct {
 
 /// The same information for a BUILT-IN font, in half the bytes.
 ///
-/// The glyph table is the largest uncompressed structure in the image — 48,063 glyphs at 16 bytes
-/// is 769,008 B, 27.6% of all font data — and eight of those bytes are recoverable. Measured over
-/// every shipped glyph, and re-checked by fontconvert.py at generation time:
+/// The glyph table is the largest uncompressed structure in the image — 56,129 glyphs at 16 bytes
+/// would be 898,064 B — and ten of those bytes are recoverable. Measured over every shipped
+/// glyph, and re-checked by fontconvert.py at generation time:
 ///
 ///   * `dataLength` is exactly the packed bitmap size, so it is derived rather than stored (see
 ///     glyphDataBytes()). Bitmaps are a continuous bit stream with no row stride.
 ///   * `left` spans only -22..11 and `top` -4..42, so both fit int8_t.
-///   * `dataOffset` peaks at 46,308, so it fits uint16_t — which also removes the two bytes of
-///     padding the uint32_t forced.
+///   * `dataOffset` is the running sum of those derived lengths, so it is not stored either.
+///     Verified across all 56,129 shipped glyphs with zero mismatches. Crucially this costs
+///     nothing to reconstruct, because the only paths that ever wanted it were already summing
+///     the same prefix: FontDecompressor::getAlignedOffset() walks the preceding glyphs of the
+///     group to find where a glyph starts in the decoded stream, and never read the stored
+///     field at all. On a compressed font the field was pure dead weight.
+///
+///     Uncompressed fonts are the exception — they index a flat bitmap array directly, with no
+///     walk to piggyback on — so they carry EpdFontData::bitmapOffsets instead. That is the same
+///     two bytes per glyph, but only for the 7 faces that need it rather than all 55.
 ///
 /// **Why this does not simply replace EpdGlyph.** Besides the .cpfont format being frozen, SD
 /// fonts point straight into the mmap'd file for their glyph table, so a narrower in-memory
@@ -99,21 +107,21 @@ typedef struct {
 /// representations coexist, selected by whichever pointer EpdFontData carries — the same
 /// arrangement the kern matrix and the kern class maps already use.
 ///
-/// **The one ceiling this introduces:** a uint16 dataOffset caps an UNCOMPRESSED font at 64 KB of
-/// bitmap data. Compressed fonts are bounded far below that by the per-group cap, so it binds
-/// only the 1-bit UI faces; inter_ui_14_bold, the largest today, is at 45,193 B — roughly one
-/// more size step of headroom. fontconvert.py fails the build with an explicit message rather
-/// than truncating, and the fix then is a uint24 (a 10-byte record, still 6 bytes a glyph better).
+/// **The one ceiling this introduces:** the uint16 entries of EpdFontData::bitmapOffsets cap an
+/// UNCOMPRESSED font at 64 KB of bitmap data. Compressed fonts have no such table and are bounded
+/// far below that by the per-group cap anyway, so it binds only the 1-bit UI faces;
+/// inter_ui_14_bold, the largest today, is at 45,193 B — roughly one more size step of headroom.
+/// fontconvert.py fails the build with an explicit message rather than truncating, and the fix
+/// then is to widen that one table to uint32, which costs only those few faces.
 typedef struct {
-  uint8_t width;        ///< Bitmap dimensions in pixels
-  uint8_t height;       ///< Bitmap dimensions in pixels
-  uint16_t advanceX;    ///< 12.4 fixed-point; at offset 2, so naturally aligned
-  int8_t left;          ///< X dist from cursor pos to UL corner
-  int8_t top;           ///< Y dist from cursor pos to UL corner
-  uint16_t dataOffset;  ///< Into EpdFontData::bitmap, or within-group for compressed fonts
+  uint8_t width;      ///< Bitmap dimensions in pixels
+  uint8_t height;     ///< Bitmap dimensions in pixels
+  uint16_t advanceX;  ///< 12.4 fixed-point; at offset 2, so naturally aligned
+  int8_t left;        ///< X dist from cursor pos to UL corner
+  int8_t top;         ///< Y dist from cursor pos to UL corner
 } EpdGlyphPacked;
-static_assert(sizeof(void*) != 4 || sizeof(EpdGlyphPacked) == 8,
-              "EpdGlyphPacked must stay 8 bytes; it is 48,063 glyphs wide");
+static_assert(sizeof(void*) != 4 || sizeof(EpdGlyphPacked) == 6,
+              "EpdGlyphPacked must stay 6 bytes; it is 56,129 glyphs wide");
 
 /// Bytes a w x h glyph bitmap occupies — what EpdGlyph::dataLength stores and what the packed
 /// record derives instead.
@@ -141,11 +149,10 @@ constexpr uint16_t glyphDataBytes(const int width, const int height, const bool 
 ///     then wrote every field again -- ~24 bytes of redundant stores per lookup. Costed at
 ///     +635 ns, which took glyph_lookup from 1083 to 1718 ns. Every field is now assigned
 ///     exactly once, and `valid` is the only thing a default-constructed ref sets.
-///   * **dataLength is NOT here.** It is derived, and deriving it costs a multiply that the
-///     measurement path pays on every glyph without ever reading the result. The four sites that
-///     actually want it call glyphDataBytes() themselves.
+///   * **Neither dataLength nor dataOffset is here.** Both are derived, and both would be paid
+///     for on every resolve by a measurement path that never reads either. The handful of sites
+///     that actually want them call glyphDataBytes() and epdGlyphBitmapOffset() themselves.
 struct EpdGlyphRef {
-  uint32_t dataOffset;
   /// The underlying record, for SD-card fonts only. SdCardFont::isOverflowGlyph() and
   /// getOverflowBitmap() key on pointer identity to tell a ring-loaded glyph from an array one,
   /// so that identity has to survive resolution. Always null for built-in fonts.
@@ -231,6 +238,14 @@ typedef struct {
   /// Glyph array, 8 bytes an entry. Built-in fonts only — null for SD-card fonts. See
   /// EpdGlyphPacked for why the two coexist rather than converging.
   const EpdGlyphPacked* glyphPacked;
+  /// Byte offset of each glyph's bitmap within `bitmap`, parallel to the glyph array.
+  ///
+  /// NON-NULL ONLY FOR UNCOMPRESSED BUILT-IN FONTS, which index `bitmap` directly and so have no
+  /// group walk to recover the offset from. Compressed fonts leave it null and SD fonts carry the
+  /// offset in their own record; both would only be paying for a table nothing reads.
+  ///
+  /// Read through epdGlyphBitmapOffset(), never directly.
+  const uint16_t* bitmapOffsets;
   const EpdUnicodeInterval* intervals;  ///< Valid unicode intervals for this font
   uint32_t intervalCount;               ///< Number of unicode intervals.
   uint8_t advanceY;                     ///< Newline distance (y axis)
@@ -307,13 +322,26 @@ inline EpdGlyphRef epdResolveGlyph(const EpdFontData* data, const uint32_t index
   // glyph_lookup. See the note on EpdGlyphRef.
   if (data->glyphPacked) {
     const EpdGlyphPacked& g = data->glyphPacked[index];
-    return EpdGlyphRef{g.dataOffset, nullptr, g.advanceX, static_cast<uint16_t>(index), g.width, g.height,
-                       g.left,       g.top,   true};
+    return EpdGlyphRef{nullptr, g.advanceX, static_cast<uint16_t>(index), g.width, g.height, g.left, g.top, true};
   }
   const EpdGlyph& g = data->glyph[index];
-  return EpdGlyphRef{g.dataOffset,
-                     &g,  // SD-card fonts only: the overflow-ring checks key on this pointer
-                     g.advanceX,   static_cast<uint16_t>(index), g.width,
-                     g.height,     static_cast<int8_t>(g.left),  static_cast<int8_t>(g.top),
+  return EpdGlyphRef{&g,  // SD-card fonts only: the overflow-ring checks key on this pointer
+                     g.advanceX, static_cast<uint16_t>(index),  g.width,
+                     g.height,   static_cast<int8_t>(g.left),   static_cast<int8_t>(g.top),
                      true};
+}
+
+/// Byte offset of a glyph's bitmap within EpdFontData::bitmap.
+///
+/// Only meaningful for fonts that HAVE a flat bitmap array — uncompressed built-ins and SD fonts.
+/// A compressed built-in has no such array; its bitmap comes out of a decoded group, and
+/// FontDecompressor computes the position there by walking the group itself.
+///
+/// Out of line from the resolve for the reason dataLength is: the measurement path resolves a
+/// glyph per character and would otherwise pay for an offset it never reads.
+inline uint32_t epdGlyphBitmapOffset(const EpdFontData* data, const EpdGlyphRef& glyph) {
+  // SD-card fonts: the .cpfont record is frozen and still stores it. This also covers a glyph
+  // loaded into the overflow ring, which has no array index to look up.
+  if (glyph.sdRecord) return glyph.sdRecord->dataOffset;
+  return data->bitmapOffsets ? data->bitmapOffsets[glyph.index] : 0;
 }

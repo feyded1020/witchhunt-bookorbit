@@ -242,8 +242,7 @@ EpdGlyphRef EpdFont::findGlyph(const uint32_t cp) const {
     if (const EpdGlyph* loaded = data->glyphMissHandler(data->glyphMissCtx, cp)) {
       // A ring entry, not an array one: there is no index to report, and the pointer is what
       // SdCardFont::isOverflowGlyph() recognises it by.
-      return EpdGlyphRef{loaded->dataOffset,
-                         loaded,
+      return EpdGlyphRef{loaded,
                          loaded->advanceX,
                          0,  // no array index: this glyph is not in the array
                          loaded->width,

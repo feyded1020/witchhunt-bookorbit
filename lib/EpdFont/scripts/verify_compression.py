@@ -44,7 +44,7 @@ def parse_groups(text):
 
 
 def parse_glyphs(text, is_2bit=True):
-    """Parse EpdGlyphPacked entries: { width, height, advanceX, left, top, dataOffset }.
+    """Parse EpdGlyphPacked entries: { width, height, advanceX, left, top }.
 
     dataLength is not stored -- it is derived from width * height * bpp, and this script is one of
     the things that keeps that derivation honest: it compares the derived value against the actual
@@ -53,7 +53,7 @@ def parse_glyphs(text, is_2bit=True):
     """
     glyphs = []
     bpp = 2 if is_2bit else 1
-    for match in re.finditer(r'\{\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\}', text):
+    for match in re.finditer(r'\{\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\}', text):
         width, height = int(match.group(1)), int(match.group(2))
         glyphs.append({
             'width': width,
@@ -61,7 +61,6 @@ def parse_glyphs(text, is_2bit=True):
             'advanceX': int(match.group(3)),
             'left': int(match.group(4)),
             'top': int(match.group(5)),
-            'dataOffset': int(match.group(6)),
             'dataLength': (width * height * bpp + 7) // 8,
         })
     return glyphs
@@ -188,7 +187,6 @@ def verify_font_file(filepath):
 
         # Walk through byte-aligned data, compact each glyph, and verify against packed format
         byte_aligned_offset = 0
-        packed_offset = 0
 
         for glyph_idx in group_glyph_indices:
             if glyph_idx >= len(glyphs):
@@ -198,9 +196,6 @@ def verify_font_file(filepath):
             height = glyph['height']
 
             if width == 0 or height == 0:
-                # Zero-size glyphs should have dataOffset == current packed_offset and dataLength == 0
-                if glyph['dataOffset'] != packed_offset:
-                    return (font_name, False, f"group {gi}, glyph {glyph_idx}: zero-size glyph dataOffset {glyph['dataOffset']} != expected packed offset {packed_offset}")
                 if glyph['dataLength'] != 0:
                     return (font_name, False, f"group {gi}, glyph {glyph_idx}: zero-size glyph dataLength {glyph['dataLength']} != expected 0")
                 continue
@@ -208,9 +203,10 @@ def verify_font_file(filepath):
             aligned_size = ((width + 3) // 4) * height
             packed_size = math.ceil(width * height / 4)
 
-            # Verify packed offset and size match glyph metadata
-            if glyph['dataOffset'] != packed_offset:
-                return (font_name, False, f"group {gi}, glyph {glyph_idx}: dataOffset {glyph['dataOffset']} != expected packed offset {packed_offset}")
+            # dataLength is the whole check now. A compressed font no longer stores an offset at
+            # all: FontDecompressor walks the group to find where a glyph starts, so the only thing
+            # that can silently go wrong is the derived LENGTH, which is what this compares against
+            # the real packed stream.
             if glyph['dataLength'] != packed_size:
                 return (font_name, False, f"group {gi}, glyph {glyph_idx}: dataLength {glyph['dataLength']} != expected packed length {packed_size} "
                         f"(width={width}, height={height})")
@@ -228,7 +224,6 @@ def verify_font_file(filepath):
                 return (font_name, False, f"group {gi}, glyph {glyph_idx}: compacted size {len(packed_glyph)} != expected {packed_size}")
 
             byte_aligned_offset += aligned_size
-            packed_offset += packed_size
 
         # Verify total byte-aligned size matches uncompressedSize
         if byte_aligned_offset != group['uncompressedSize']:

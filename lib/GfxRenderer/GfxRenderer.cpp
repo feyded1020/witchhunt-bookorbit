@@ -49,7 +49,7 @@ const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const Ep
       return sdFont->getOverflowBitmap(glyph.sdRecord);  // may be nullptr for zero-width glyphs
     }
   }
-  return &fontData->bitmap[glyph.dataOffset];
+  return &fontData->bitmap[epdGlyphBitmapOffset(fontData, glyph)];
 }
 
 void GfxRenderer::ensureFontReady(int fontId, const char* utf8Text) const {

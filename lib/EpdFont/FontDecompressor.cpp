@@ -244,7 +244,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
 
   if (!fontData->groups || fontData->groupCount == 0) {
     stats.getBitmapTimeUs += micros() - tStart;
-    return &fontData->bitmap[glyph.dataOffset];
+    return &fontData->bitmap[epdGlyphBitmapOffset(fontData, glyph)];
   }
 
   // Check page buffer slots (populated by prewarmCache — one slot per distinct EpdFontData,
