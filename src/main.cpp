@@ -103,7 +103,7 @@ ButtonEventManager& globalButtonEvents() { return buttonEventManager; }
 ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
 SdCardFontSystem sdFontSystem;
-FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
+FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts(), renderer.getSdCardFontAliases());
 
 // Fonts
 EpdFont bookerly14RegularFont(&bookerly_14_regular);

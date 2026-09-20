@@ -78,6 +78,11 @@ class GfxRenderer {
   // holds a const GfxRenderer&) but triggers SD card reads and heap allocation
   // inside the SdCardFont objects. Same pragmatic compromise as fontCacheManager_.
   mutable std::map<int, SdCardFont*> sdCardFonts_;
+  // Scaled alias IDs (SdCardFontManager::ensureSizeAlias) and the SdCardFont behind each. Kept
+  // apart from sdCardFonts_ on purpose: the per-font maintenance loops (metadata drop/restore,
+  // cache clear, stats) walk sdCardFonts_ and must visit a font ONCE, while the per-ID lookups
+  // (ensureFontReady, the prewarm scan) go through sdCardFontFor() and see both.
+  mutable std::map<int, SdCardFont*> sdCardFontAliases_;
 
   // Mutable because drawText() is const but needs to delegate scan-mode
   // recording to the (non-const) FontCacheManager. Same pragmatic compromise
@@ -287,16 +292,32 @@ class GfxRenderer {
     sdCardFonts_[fontId] = font;
     invalidateScaledGlyphCache();
   }
+  // A second ID served by an already-registered SdCardFont, at a base scale set separately via
+  // insertScaledFont(). See the note on sdCardFontAliases_ for why this is not registerSdCardFont().
+  void registerSdCardFontAlias(int fontId, SdCardFont* font) {
+    sdCardFontAliases_[fontId] = font;
+    invalidateScaledGlyphCache();
+  }
   void unregisterSdCardFont(int fontId) {
     sdCardFonts_.erase(fontId);
+    sdCardFontAliases_.erase(fontId);
     invalidateScaledGlyphCache();
   }
   void clearSdCardFonts() {
     sdCardFonts_.clear();
+    sdCardFontAliases_.clear();
     invalidateScaledGlyphCache();
   }
   const std::map<int, SdCardFont*>& getSdCardFonts() const { return sdCardFonts_; }
-  bool isSdCardFont(int fontId) const { return sdCardFonts_.count(fontId) > 0; }
+  const std::map<int, SdCardFont*>& getSdCardFontAliases() const { return sdCardFontAliases_; }
+  bool isSdCardFont(int fontId) const { return sdCardFontFor(fontId) != nullptr; }
+  // The SdCardFont serving fontId, whether native or alias; nullptr for a built-in font.
+  SdCardFont* sdCardFontFor(int fontId) const {
+    auto it = sdCardFonts_.find(fontId);
+    if (it != sdCardFonts_.end()) return it->second;
+    it = sdCardFontAliases_.find(fontId);
+    return it != sdCardFontAliases_.end() ? it->second : nullptr;
+  }
 
   // Ensure glyph metrics are loaded for the given text before layout measurement.
   // No-op for built-in fonts (map lookup finds nothing and returns immediately).

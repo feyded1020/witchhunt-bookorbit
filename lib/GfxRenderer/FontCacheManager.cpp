@@ -11,8 +11,9 @@
 #include <vector>
 
 FontCacheManager::FontCacheManager(const std::map<int, EpdFontFamily>& fontMap,
-                                   const std::map<int, SdCardFont*>& sdCardFonts)
-    : fontMap_(fontMap), sdCardFonts_(sdCardFonts) {}
+                                   const std::map<int, SdCardFont*>& sdCardFonts,
+                                   const std::map<int, SdCardFont*>& sdCardFontAliases)
+    : fontMap_(fontMap), sdCardFonts_(sdCardFonts), sdCardFontAliases_(sdCardFontAliases) {}
 
 void FontCacheManager::setFontDecompressor(FontDecompressor* d) { fontDecompressor_ = d; }
 
@@ -34,9 +35,16 @@ void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
   // group per body glyph (~10 ms each, multi-second page turns). The batch clear
   // happens once in endScanAndPrewarm() before the per-font loop.
 
-  // SD card font prewarm path: prewarm all requested styles in one call
+  // SD card font prewarm path (native ID or scaled alias): prewarm all requested styles in one
+  // call. An alias MUST be found here: its ID is in fontMap_ too, and the built-in path below
+  // would silently skip it (no groups) and leave every glyph to miss the overflow ring.
   auto sdIt = sdCardFonts_.find(fontId);
-  if (sdIt != sdCardFonts_.end()) {
+  bool isSd = sdIt != sdCardFonts_.end();
+  if (!isSd) {
+    sdIt = sdCardFontAliases_.find(fontId);
+    isSd = sdIt != sdCardFontAliases_.end();
+  }
+  if (isSd) {
     SdCardFont* sdFont = sdIt->second;
     if (!sdFont) {
       LOG_ERR("FCM", "prewarmCache(SD): null SdCardFont pointer for fontId=%d", fontId);

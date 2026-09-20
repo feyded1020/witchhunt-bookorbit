@@ -37,12 +37,26 @@ class SdCardFontManager {
   bool loadFamily(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t targetPtSize,
                   const std::function<void()>& onColdLoad = {}, FlashCachePolicy policy = FlashCachePolicy::ReadWrite);
 
+  // Serve targetPtSize from the face that is loaded. A size the family ships is that face; any
+  // other size is an ALIAS: a second font ID bound to the same face with a base scale of
+  // target / loaded (GfxRenderer::insertScaledFont), so the reader renders the chosen typeface at
+  // the chosen size instead of a built-in family. No .cpfont in existence ships 20-26 pt, so
+  // every existing card reaches the larger sizes this way.
+  //
+  // One alias at a time: the reader wants one body size, and the ID is derived from
+  // (content hash, family, target size) so a paginated section keyed on it is valid across
+  // sessions. Returns false when nothing is loaded or the derived ID collides with a registered
+  // font, in which case that size resolves to 0 and the caller falls back.
+  bool ensureSizeAlias(GfxRenderer& renderer, uint8_t targetPtSize);
+
   // Unload everything, unregister from renderer.
   void unloadAll(GfxRenderer& renderer);
 
-  // Look up the font ID for the loaded family. Returns 0 if nothing loaded
-  // or familyName doesn't match.
-  int getFontId(const std::string& familyName) const;
+  // Font ID that renders the loaded family AT pointSize: the face itself when that is the loaded
+  // size, the alias when one was made for it, else 0 -- never a nearby size. The setting says
+  // "24pt" and the page has to be 24pt; a quiet 18pt is indistinguishable from the feature not
+  // working for exactly the reader it exists for.
+  int getFontId(const std::string& familyName, uint8_t pointSize) const;
 
   // Get name of currently loaded family (empty if none).
   const std::string& currentFamilyName() const { return loadedFamilyName_; };
@@ -58,9 +72,14 @@ class SdCardFontManager {
     uint8_t size;
   };
   static int computeFontId(uint32_t contentHash, const char* familyName, uint8_t pointSize);
+  void dropSizeAlias(GfxRenderer& renderer);
 
   GfxRenderer* renderer_ = nullptr;
   std::string loadedFamilyName_;
   uint8_t loadedPointSize_ = 0;
   std::vector<LoadedFont> loaded_;
+  // The scaled alias for the current target size (see ensureSizeAlias); 0 when the loaded face
+  // serves the target size itself.
+  int aliasFontId_ = 0;
+  uint8_t aliasPointSize_ = 0;
 };

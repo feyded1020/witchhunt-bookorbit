@@ -11,7 +11,9 @@
 // settings-agnostic — the same contract the old HeadingFonts struct had.
 // Each rung is a registered fontId plus its size as a percent of the body font
 // (the body font itself is the 100% rung). SD-card fonts ship a single loaded
-// size, so their ladder is empty and everything resolves to the scale fallback.
+// size, so their ladder is empty and everything resolves to the scale fallback
+// (their body ID may itself carry a base scale when the card lacks the chosen
+// size -- SdCardFontManager::ensureSizeAlias -- which compounds like any other).
 //
 // Deterministic from the body fontId by construction, so it is deliberately NOT
 // part of the section-cache property hash (fontId already is).

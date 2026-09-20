@@ -135,7 +135,12 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
     }
     const auto* best = family->pickClosestSize(targetPt);
     const uint8_t bestPt = best ? best->pointSize : 0;
-    if (bestPt == manager_.currentPointSize()) return;  // already loaded with the right size
+    if (bestPt == manager_.currentPointSize()) {
+      // Right face already loaded; only the target size may have moved (a size change from
+      // the reader menu lands here), and that is an alias, not a reload.
+      manager_.ensureSizeAlias(renderer, targetPt);
+      return;
+    }
     LOG_DBG("SDFS", "Reloading %s: size %u -> %u (target %u)", wantedFamily, manager_.currentPointSize(), bestPt,
             targetPt);
   }
@@ -183,7 +188,10 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, const char* wantedFam
       return;
     }
     const auto* best = family->pickClosestSize(targetPt);
-    if (best && best->pointSize == manager_.currentPointSize()) return;
+    if (best && best->pointSize == manager_.currentPointSize()) {
+      manager_.ensureSizeAlias(renderer, targetPt);  // same face, possibly a new target size
+      return;
+    }
   }
 
   if (!currentFamily.empty()) manager_.unloadAll(renderer);
@@ -192,36 +200,24 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, const char* wantedFam
   if (!family) return;
 
   // The loader and the resolver used to disagree, and the loader lost. loadFamily() takes the
-  // CLOSEST size the family ships, but resolveFontId() below only hands the font out on an EXACT
+  // CLOSEST size the family ships, but resolveFontId() only handed the font out on an EXACT
   // point-size match -- so a family without the requested size was loaded into RAM and then never
-  // used, and the reader rendered a built-in face instead. Pure waste, and invisible.
+  // used, and the reader rendered a built-in face instead. It became reachable when the ladder
+  // grew past 18 pt, because no existing .cpfont ships anything larger.
   //
-  // It became reachable when the 24 pt rung was added, because no existing .cpfont ships 24 pt.
-  //
-  // Which way to resolve it is a judgement, not a bug fix: rendering the nearest size would keep
-  // the reader's chosen TYPEFACE but silently ignore the size they asked for, and this rung exists
-  // for people who cannot read the smaller one. So the size wins, the built-in face is used, and
-  // the only thing changed here is that we no longer pay to load a font we will refuse. Scaling
-  // the nearest size to the requested points would satisfy both and is the real fix; the engine
-  // for it exists (GfxRenderer::renderCharAtScale) but the reader has no base-size scale yet.
-  const auto* best = family->pickClosestSize(targetPt);
-  if (best && best->pointSize != targetPt) {
-    LOG_DBG("SDFS", "%s has no %u pt face (closest %u pt); using the built-in family at %u pt instead", wantedFamily,
-            targetPt, best->pointSize, targetPt);
-    return;
-  }
-
+  // Both now agree: the closest face is loaded and the requested size is served from it, scaled,
+  // under an alias ID (SdCardFontManager::ensureSizeAlias). The chosen typeface AND the chosen
+  // size, which is what the setting promised.
   if (!manager_.loadFamily(*family, renderer, targetPt, onColdLoad, policy)) {
     LOG_ERR("SDFS", "Failed to load SD font family: %s", wantedFamily);
   }
 }
 
 int SdCardFontSystem::resolveFontId(const char* familyName, uint8_t fontSizeEnum) const {
-  // The manager loads exactly one size for the active SD family. Resolve only
-  // if the requested family matches the loaded family and the requested size
-  // matches the loaded size. otherwise return 0 so callers can fall back.
+  // The manager loads exactly one face for the active SD family and serves ONE target size from
+  // it: the face's own, or a scaled alias made by ensureLoaded(). Anything else returns 0 so the
+  // caller falls back to a built-in family at the true size -- a nearby SD size is never handed
+  // out in place of the one asked for.
   if (!familyName || familyName[0] == '\0') return 0;
-  if (manager_.currentFamilyName() != familyName) return 0;
-  if (manager_.currentPointSize() != targetPtSizeFromEnum(fontSizeEnum)) return 0;
-  return manager_.getFontId(familyName);
+  return manager_.getFontId(familyName, targetPtSizeFromEnum(fontSizeEnum));
 }
