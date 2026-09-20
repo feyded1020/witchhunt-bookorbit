@@ -624,7 +624,9 @@ void EpubReaderActivity::onEnter() {
   // Load bookmarks for this book
   bookmarkStore.load(epub->getCachePath());
   // Highlights live in the content-keyed state dir so they survive "Clear Cache" and renames.
-  highlightStore.load(BookOrbitBookState::dirFor(epub->getPath()));
+  // dirIfExists, not dirFor: opening a book must not create BookOrbit state for a device that
+  // has none. The directory is created when the first highlight is saved.
+  highlightStore.load(BookOrbitBookState::dirIfExists(epub->getPath()));
   logReaderMemSnapshot("onEnter_after_bookmarks_loaded");
 
   // Save current epub as last opened epub and add to recent books
@@ -2047,6 +2049,10 @@ void EpubReaderActivity::openHighlightSelect() {
             bool saved = false;
             {
               RenderLock lock(*this);  // the render task reads the store to draw underlines
+              // First highlight for this book: the state directory does not exist yet.
+              if (!highlightStore.isLoaded()) {
+                highlightStore.load(BookOrbitBookState::dirFor(epub->getPath()));
+              }
               saved = highlightStore.add(static_cast<uint16_t>(spine), paragraphHint, progressQ, std::move(chapter),
                                          selection->text) != 0;
             }

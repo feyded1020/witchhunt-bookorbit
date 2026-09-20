@@ -17,6 +17,11 @@
 namespace BookOrbitBookState {
 
 // Creates the directory on first use. Empty string when the book cannot be hashed.
+// For write paths: saving a highlight, queueing reading stats, syncing.
 std::string dirFor(const std::string& bookPath);
+
+// The directory only if it already exists, creating nothing. For read paths (the reader loading
+// a book's highlights), so opening a book on a device with no BookOrbit state leaves no trace.
+std::string dirIfExists(const std::string& bookPath);
 
 }  // namespace BookOrbitBookState
