@@ -1,4 +1,21 @@
-# Witch(hunt) Reader
+# Witch(hunt) Reader + BookOrbit
+
+> **This is a fork.** It is [Witch(hunt) Reader](https://github.com/jpirnay/witchhunt-reader) with
+> **[BookOrbit](https://github.com/agosez/CrossInk-Bookorbit) sync in place of KOReader Sync**:
+> two-way reading progress, per-page reading stats, two-way highlights and bookmarks, and a
+> catalog browser that downloads EPUBs from your BookOrbit library. Built and size-checked for the
+> **Xteink X4 Pro**; the other boards still build but are untested here.
+>
+> **See [BOOKORBIT.md](BOOKORBIT.md)** for what it does, setup, flashing, and what changed.
+>
+> Everything below is Witch Hunt's own documentation and applies unchanged, except that
+> KOReader Sync is replaced by BookOrbit Sync.
+>
+> Credit where it is due: [Witch(hunt) Reader](https://github.com/jpirnay/witchhunt-reader) by
+> Jürgen Pirnay, [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) by
+> Dave Allie and contributors, and [CrossInk-Bookorbit](https://github.com/agosez/CrossInk-Bookorbit),
+> whose BookOrbit implementation this fork ports. All three are MIT-licensed; so is this fork (see
+> [LICENSE](LICENSE)).
 
 This firmware is based on the [crosspoint-reader](https://github.com/crosspoint-reader/crosspoint-reader), a great piece of software by Dave Allie and others.
 
