@@ -74,6 +74,7 @@ enum class SettingAction {
   Language,
   SystemInfo,
   BootDiagnostics,
+  FontScalingTest,
   DetectTimezone,
   SyncTime,
   Weather,
