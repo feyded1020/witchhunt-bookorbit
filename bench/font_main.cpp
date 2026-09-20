@@ -30,7 +30,6 @@
 #include <builtinFonts/notosans_14_regular.h>
 #include <builtinFonts/notosans_18_regular.h>
 #include <builtinFonts/notosans_24_regular.h>
-#include <cmath>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 
@@ -383,35 +382,80 @@ static bool unpackGlyph(const uint8_t* bm, const bool is2Bit, const int w, const
 }
 
 // Resample srcCov (sw x sh) into dstCov (dw x dh).
-static void resample(const int sw, const int sh, const int dw, const int dh, const uint8_t maxLevel) {
-  if (dw >= sw) {
-    // Enlarging: area-weighted coverage, so stems keep their weight instead of going blocky.
-    for (int y = 0; y < dh; ++y) {
-      const float sy0 = static_cast<float>(y) * sh / dh, sy1 = static_cast<float>(y + 1) * sh / dh;
-      for (int x = 0; x < dw; ++x) {
-        const float sx0 = static_cast<float>(x) * sw / dw, sx1 = static_cast<float>(x + 1) * sw / dw;
-        float acc = 0.0f, wsum = 0.0f;
-        for (int syi = static_cast<int>(sy0); syi < sh && syi < static_cast<int>(sy1) + 1; ++syi) {
-          const float wy = fminf(sy1, syi + 1.0f) - fmaxf(sy0, static_cast<float>(syi));
-          if (wy <= 0.0f) continue;
-          for (int sxi = static_cast<int>(sx0); sxi < sw && sxi < static_cast<int>(sx1) + 1; ++sxi) {
-            const float wx = fminf(sx1, sxi + 1.0f) - fmaxf(sx0, static_cast<float>(sxi));
-            if (wx <= 0.0f) continue;
-            acc += srcCov[syi * sw + sxi] * wx * wy;
-            wsum += wx * wy;
-          }
+//
+// FIXED POINT, mirroring GfxRenderer::emitScaledGlyphPixels, and that is the whole point of this
+// rewrite. The first version of this benchmark used floats and reported 21.7 ms per glyph for an
+// upscale against 110 us for a downscale -- a 200x gap that says nothing about resampling and
+// everything about the ESP32-C3 being RV32IMC with NO FPU, so every float op is a soft-float
+// call. Production had already been there: its comment notes fixed point is "an order of
+// magnitude cheaper than one soft-float op" and that the historical float path was replaced and
+// verified pixel-equivalent. Measuring the mistake production had already fixed produced a number
+// that would have argued against synthesised sizes for entirely the wrong reason.
+//
+// The two remaining differences from production are deliberate and neither touches the pixels: it
+// writes into a 1-bit mask or a framebuffer through a lambda, and it folds the draw-mask decision
+// into the same loop. This writes coverage levels so they can be compared against a real face.
+constexpr int FP_SHIFT = 16;
+constexpr int32_t FP_ONE = 1 << FP_SHIFT;
+
+// Area-weighted coverage. Works in BOTH directions -- production only takes this path when
+// enlarging, but running it while reducing is how we tell whether downscaling is inherently less
+// faithful or whether that is the price of point sampling's crispness.
+static void resampleArea(const int sw, const int sh, const int dw, const int dh, const uint8_t maxLevel) {
+  const int32_t invW = static_cast<int32_t>((static_cast<int64_t>(sw) << FP_SHIFT) / dw);
+  const int32_t invH = static_cast<int32_t>((static_cast<int64_t>(sh) << FP_SHIFT) / dh);
+  const int64_t areaFP = static_cast<int64_t>(invW) * invH;
+  int32_t sy0FP = 0;
+  for (int y = 0; y < dh; ++y, sy0FP += invH) {
+    const int32_t sy1FP = sy0FP + invH;
+    const int ya = sy0FP >> FP_SHIFT;
+    const int yb = (sy1FP - 1) >> FP_SHIFT < sh - 1 ? (sy1FP - 1) >> FP_SHIFT : sh - 1;
+    int32_t sx0FP = 0;
+    for (int x = 0; x < dw; ++x, sx0FP += invW) {
+      const int32_t sx1FP = sx0FP + invW;
+      const int xa = sx0FP >> FP_SHIFT;
+      const int xb = (sx1FP - 1) >> FP_SHIFT < sw - 1 ? (sx1FP - 1) >> FP_SHIFT : sw - 1;
+      int64_t covered = 0;
+      for (int sy = ya; sy <= yb; ++sy) {
+        const int32_t loY = sy0FP > (sy << FP_SHIFT) ? sy0FP : (sy << FP_SHIFT);
+        const int32_t hiY = sy1FP < ((sy + 1) << FP_SHIFT) ? sy1FP : ((sy + 1) << FP_SHIFT);
+        const int32_t hOv = hiY - loY;
+        if (hOv <= 0) continue;
+        for (int sx = xa; sx <= xb; ++sx) {
+          const uint8_t raw = srcCov[sy * sw + sx];
+          if (raw == 0) continue;  // production skips blank source pixels too; most of a glyph is blank
+          const int32_t loX = sx0FP > (sx << FP_SHIFT) ? sx0FP : (sx << FP_SHIFT);
+          const int32_t hiX = sx1FP < ((sx + 1) << FP_SHIFT) ? sx1FP : ((sx + 1) << FP_SHIFT);
+          const int32_t wOv = hiX - loX;
+          if (wOv <= 0) continue;
+          covered += static_cast<int64_t>(raw) * hOv * wOv;
         }
-        const float v = wsum > 0.0f ? acc / wsum : 0.0f;
-        dstCov[y * dw + x] = static_cast<uint8_t>(fminf(v + 0.5f, static_cast<float>(maxLevel)));
       }
+      const int64_t lvl = (covered + areaFP / 2) / areaFP;
+      dstCov[y * dw + x] = static_cast<uint8_t>(lvl < maxLevel ? lvl : maxLevel);
     }
-    return;
   }
-  // Reducing: point sampling, which keeps small text crisp rather than washing stems out.
-  for (int y = 0; y < dh; ++y) {
-    const int syi = (y * sh) / dh;
-    for (int x = 0; x < dw; ++x) dstCov[y * dw + x] = srcCov[syi * sw + (x * sw) / dw];
+}
+
+// Point sampling, incrementally stepped so there is no divide in the loop. This is what production
+// uses when reducing, for crispness rather than fidelity.
+static void resamplePoint(const int sw, const int sh, const int dw, const int dh) {
+  const int32_t invW = static_cast<int32_t>((static_cast<int64_t>(sw) << FP_SHIFT) / dw);
+  const int32_t invH = static_cast<int32_t>((static_cast<int64_t>(sh) << FP_SHIFT) / dh);
+  int32_t syFP = 0;
+  for (int y = 0; y < dh; ++y, syFP += invH) {
+    const uint8_t* srow = &srcCov[(syFP >> FP_SHIFT) * sw];
+    int32_t sxFP = 0;
+    for (int x = 0; x < dw; ++x, sxFP += invW) dstCov[y * dw + x] = srow[sxFP >> FP_SHIFT];
   }
+}
+
+// The rule production applies: area-weighted when enlarging, point-sampled when reducing.
+static void resample(const int sw, const int sh, const int dw, const int dh, const uint8_t maxLevel) {
+  if (dw >= sw)
+    resampleArea(sw, sh, dw, dh, maxLevel);
+  else
+    resamplePoint(sw, sh, dw, dh);
 }
 
 static bool loadCoverage(const EpdFontData* data, const uint32_t cp, int* w, int* h, uint8_t* out) {
@@ -442,12 +486,22 @@ static void benchGlyphResample(const char* label, const EpdFontData* data, const
 
   constexpr int REPS = 200;
   timerStart();
-  for (int r = 0; r < REPS; ++r) resample(sw, sh, dw, dh, maxLevel);
-  const int64_t us = timerElapsedUs();
+  for (int r = 0; r < REPS; ++r) resampleArea(sw, sh, dw, dh, maxLevel);
+  const int64_t areaUs = timerElapsedUs();
   sink += dstCov[0];
 
-  Serial.printf("BENCH glyph_resample    %-18s x%.2f  %2dx%-2d -> %2dx%-2d  per_glyph=%5lldus\n", label, scale, sw, sh,
-                dw, dh, us / REPS);
+  timerStart();
+  for (int r = 0; r < REPS; ++r) resamplePoint(sw, sh, dw, dh);
+  const int64_t pointUs = timerElapsedUs();
+  sink += dstCov[0];
+
+  // Both methods at every ratio, and a per-DESTINATION-PIXEL rate as well as the per-glyph cost:
+  // the per-glyph figure scales with glyph area, so comparing sizes needs the rate, and the rate
+  // is what multiplies out to a page of ~400 glyphs.
+  Serial.printf("BENCH glyph_resample    %-18s x%.2f  %2dx%-2d -> %2dx%-2d  area=%4lldus  point=%4lldus  "
+                "area_per_px=%3lldns\n",
+                label, scale, sw, sh, dw, dh, areaUs / REPS, pointUs / REPS,
+                (areaUs * 1000) / (REPS * dw * dh));
 }
 
 // How close a resampled master lands to the real face at that size.
@@ -456,7 +510,7 @@ static void benchGlyphResample(const char* label, const EpdFontData* data, const
 // separate question of whether a scaled advance rounds to the same box, which is reported
 // alongside as dim= so the two are not conflated.
 static void checkResampleFidelity(const char* label, const EpdFontData* src, const EpdFontData* ref,
-                                  const char* chars) {
+                                  const char* chars, const bool forceArea = false) {
   const uint8_t maxLevel = ref->is2Bit ? 3 : 1;
   Serial.printf("-- resample fidelity: %s --\n", label);
   long totalAbs = 0, totalPx = 0;
@@ -468,7 +522,10 @@ static void checkResampleFidelity(const char* label, const EpdFontData* src, con
       continue;
     }
     if (rw > kMaxGlyphDim || rh > kMaxGlyphDim) continue;
-    resample(sw, sh, rw, rh, maxLevel);
+    if (forceArea)
+      resampleArea(sw, sh, rw, rh, maxLevel);
+    else
+      resample(sw, sh, rw, rh, maxLevel);
 
     long absSum = 0, refInk = 0, gotInk = 0, exact = 0;
     for (int i = 0; i < rw * rh; ++i) {
@@ -561,8 +618,14 @@ void setup() {
   checkResampleFidelity("notosans 18 -> 24 UPSCALE vs the real 24 pt face", &notosans_18_regular,
                         &notosans_24_regular, "eoaMWilxg.");
   Serial.println();
-  checkResampleFidelity("notosans 24 -> 18 DOWNSCALE vs the real 18 pt face", &notosans_24_regular,
+  checkResampleFidelity("notosans 24 -> 18 DOWNSCALE, point-sampled (production rule)", &notosans_24_regular,
                         &notosans_18_regular, "eoaMWilxg.");
+  // The same reduction, area-weighted. Production point-samples when reducing for CRISPNESS, which
+  // is a different goal from matching the real face -- so if this scores much better, "downscaling
+  // is less faithful" is a statement about the sampling choice, not about reducing.
+  Serial.println();
+  checkResampleFidelity("notosans 24 -> 18 DOWNSCALE, area-weighted (for comparison)", &notosans_24_regular,
+                        &notosans_18_regular, "eoaMWilxg.", /*forceArea=*/true);
 
   Serial.printf("\nfree heap after: %u B   minimum ever: %u B\n", (unsigned)esp_get_free_heap_size(),
                 (unsigned)esp_get_minimum_free_heap_size());
