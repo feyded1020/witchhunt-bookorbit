@@ -109,7 +109,24 @@ class CrossPointSettings {
   // read "12pt 14pt 16pt 18pt 10pt". Rather than add an index-to-value indirection for the sake
   // of one misplaced entry, the values are renumbered and old files are migrated on load -- see
   // FONT_SIZE_ORDER_VERSION and remapLegacyFontSize().
-  enum FONT_SIZE { TINY = 0, SMALL = 1, MEDIUM = 2, LARGE = 3, EXTRA_LARGE = 4, XX_LARGE = 5, FONT_SIZE_COUNT };
+  //
+  // The names above XX_LARGE are point sizes, not adjectives: there is no honest word after
+  // "extra large" and the labels the reader sees are point sizes anyway. SIZE_22/24/26 have NO
+  // faces of their own -- they render the 20 pt master scaled (see insertScaledFont) -- but they
+  // are ordinary ladder rungs in every other respect: selectable as the default size, available
+  // as a per-book override, and cached separately because each has its own font ID.
+  enum FONT_SIZE {
+    TINY = 0,
+    SMALL = 1,
+    MEDIUM = 2,
+    LARGE = 3,
+    EXTRA_LARGE = 4,
+    XX_LARGE = 5,
+    SIZE_22 = 6,
+    SIZE_24 = 7,
+    SIZE_26 = 8,
+    FONT_SIZE_COUNT
+  };
 
   /// Bumped when FONT_SIZE values are renumbered. A settings or recent-books file stamped lower
   /// than this holds values from the older numbering and is remapped as it loads.
@@ -162,7 +179,8 @@ class CrossPointSettings {
     uint8_t points;  ///< the point size its faces are generated at
   };
   static constexpr ReaderFontRung FONT_SIZE_RUNGS[] = {
-      {TINY, 10}, {SMALL, 12}, {MEDIUM, 14}, {LARGE, 16}, {EXTRA_LARGE, 18}, {XX_LARGE, 24},
+      {TINY, 10},        {SMALL, 12},   {MEDIUM, 14},  {LARGE, 16},   {EXTRA_LARGE, 18},
+      {XX_LARGE, 20},    {SIZE_22, 22}, {SIZE_24, 24}, {SIZE_26, 26},
   };
   static constexpr int FONT_SIZE_RUNG_COUNT = static_cast<int>(sizeof(FONT_SIZE_RUNGS) / sizeof(FONT_SIZE_RUNGS[0]));
 
@@ -189,7 +207,7 @@ class CrossPointSettings {
   /// hand-listed as StrId vectors in four separate places, indexed by enum value, which is the
   /// same shape as the point-size copy that had already gone stale. Deriving the label from
   /// FONT_SIZE_RUNGS means changing a rung is one edit. It also just tells a reader who needs
-  /// 24 pt what they are choosing.
+  /// 20 pt what they are choosing.
   ///
   /// Empty if `size` names no rung. Untranslated: the numeral carries the meaning and "pt" is the
   /// unit in every locale this ships with.

@@ -70,6 +70,10 @@ class GfxRenderer {
   size_t bwBufferChunkSize = BW_BUFFER_CHUNK_SIZE;
   std::vector<uint8_t*> bwBufferChunks;
   std::map<int, EpdFontFamily> fontMap;
+  // Font IDs that render another family's faces at a fixed scale -- see insertScaledFont(). Only
+  // synthesised sizes appear here, so the map is empty on a build that ships every size for real
+  // and the lookup is a miss that costs one comparison.
+  std::map<int, float> fontBaseScales;
   // Mutable because ensureFontReady() is const (called from layout code that
   // holds a const GfxRenderer&) but triggers SD card reads and heap allocation
   // inside the SdCardFont objects. Same pragmatic compromise as fontCacheManager_.
@@ -212,7 +216,43 @@ class GfxRenderer {
   }
   void removeFont(int fontId) {
     fontMap.erase(fontId);
+    fontBaseScales.erase(fontId);
     invalidateScaledGlyphCache();
+  }
+
+  /// Registers a font ID that has NO faces of its own: it renders `font` scaled by `scale`.
+  ///
+  /// This is how the reader offers sizes above its largest real face — 22/24/26 pt come off the
+  /// 20 pt master at x1.10, x1.20 and x1.30. Shipping them as real faces costs ~1.9 MB the app
+  /// partition does not have; scaling costs nothing but the resample, which measures ~1.4 us per
+  /// glyph and is cached per distinct glyph per page (see ScaledGlyphEntry).
+  ///
+  /// Why the scale lives HERE rather than being passed by the reader: a distinct font ID is
+  /// already the unit everything downstream keys on. Layout asks getTextWidth(id), pagination
+  /// hashes the id into the section cache property block, and the on-disk section header stores
+  /// it — so a synthesised size caches separately from its master with no extra plumbing, and
+  /// ~600 existing call sites keep working unchanged. Passing the scale through the reader
+  /// instead would mean touching every one of them and the cache key besides.
+  ///
+  /// The base scale COMPOUNDS with a per-block CSS scale rather than replacing it: a heading at
+  /// 1.6em inside 24 pt body text resolves to one resample at 1.2 x 1.6, not two.
+  void insertScaledFont(int fontId, EpdFontFamily font, float scale) {
+    fontMap.insert_or_assign(fontId, font);
+    if (scale > 0.99f && scale < 1.01f) {
+      fontBaseScales.erase(fontId);  // a scale of 1 is a real face; do not pay for the lookup
+    } else {
+      fontBaseScales.insert_or_assign(fontId, scale);
+    }
+    invalidateScaledGlyphCache();
+  }
+
+  /// The scale `fontId` renders its master at, or exactly 1.0f for a font with real faces.
+  ///
+  /// Callers that need a size in pixels should use the ordinary accessors, which already apply
+  /// this; it is exposed for the few places that must know a size is synthesised at all.
+  float fontBaseScale(int fontId) const {
+    const auto it = fontBaseScales.find(fontId);
+    return it == fontBaseScales.end() ? 1.0f : it->second;
   }
   void setFontCacheManager(FontCacheManager* m) { fontCacheManager_ = m; }
   FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
@@ -492,6 +532,13 @@ class GfxRenderer {
 
   // Text
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  // Unscaled primitives. The public accessors above apply the font's base scale; these do not,
+  // and exist so the *Scaled paths can compound base x residual without applying base twice.
+  int rawTextWidth(int fontId, const char* text, EpdFontFamily::Style style) const;
+  int rawLineHeight(int fontId) const;
+  int rawFontAscenderSize(int fontId) const;
+  void drawTextAtScale(int fontId, int x, int y, const char* text, bool black, EpdFontFamily::Style style,
+                       float totalScale) const;
   int getTextWidthScaled(int fontId, const char* text, EpdFontFamily::Style style, float scale) const;
   // Ink extents of `text` relative to its baseline, from glyph bitmap metrics:
   // aboveBaseline = tallest glyph ink top, belowBaseline = deepest ink below the

@@ -24,7 +24,7 @@
 #include <Arduino.h>
 #include <EpdFont.h>
 #include <FontDecompressor.h>
-#include <builtinFonts/bookerly_24_bolditalic.h>
+#include <builtinFonts/bookerly_20_bolditalic.h>
 #include <builtinFonts/inter_ui_12_regular.h>
 #include <builtinFonts/inter_ui_14_regular.h>
 #include <builtinFonts/notosans_10_regular.h>
@@ -32,7 +32,7 @@
 #include <builtinFonts/notosans_14_regular.h>
 #include <builtinFonts/notosans_16_regular.h>
 #include <builtinFonts/notosans_18_regular.h>
-#include <builtinFonts/notosans_24_regular.h>
+#include <builtinFonts/notosans_20_regular.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 
@@ -313,7 +313,7 @@ static void benchReaderPrewarm(const char* label, const EpdFontData* data) {
 // it. fontconvert.py refuses to generate a font that would overflow the constant, but that check
 // only fires at generation time and has been wrong twice by being guessed rather than measured.
 //
-// U+01C4 (DZ digraph) in bookerly_24_bolditalic at 71x50 packs to 888 B and is the glyph that
+// U+01C4 (DZ digraph) in bookerly_20_bolditalic at 60x41 packs to 615 B and is the glyph that
 // sets the constant. If this prints FAIL, HOT_GLYPH_BUF_SIZE is too small.
 // ---------------------------------------------------------------------------
 
@@ -727,7 +727,7 @@ static void checkResampleFidelity(const char* label, const EpdFontData* src, con
 //
 // The question this answers is not "can sizes be synthesised" but "how many masters do we need
 // so that every synthesised size is still good". Those are different: a single master covering
-// 10-24 pt asks for ratios from 0.42x to 2.4x, while a master every other size asks for 0.86x to
+// 10-20 pt asks for ratios from 0.5x to 2.0x, while a master every other size asks for 0.86x to
 // 1.17x, and the flash difference between those two answers is about a megabyte.
 //
 // Every pair of shipped faces gives a real answer, because the TARGET face exists to compare
@@ -747,7 +747,7 @@ struct SizedFace {
 
 static const SizedFace kFaces[] = {
     {10, &notosans_10_regular}, {12, &notosans_12_regular}, {14, &notosans_14_regular},
-    {16, &notosans_16_regular}, {18, &notosans_18_regular}, {24, &notosans_24_regular},
+    {16, &notosans_16_regular}, {18, &notosans_18_regular}, {20, &notosans_20_regular},
 };
 static constexpr int kFaceCount = sizeof(kFaces) / sizeof(kFaces[0]);
 
@@ -862,55 +862,66 @@ void setup() {
   // the decoder has to hold grow with them. If a bigger size were going to cost something, the
   // cold and prewarm lines here are where it would appear.
   Serial.println("\n-- Reader face at the new 24 pt rung --");
-  benchGlyphLookup("notosans_24", &notosans_24_regular);
-  benchKerning("notosans_24", &notosans_24_regular);
-  benchTextMeasure("notosans_24/page", &notosans_24_regular, kReaderPage);
-  benchReaderBitmapCold("notosans_24", &notosans_24_regular);
-  benchReaderPrewarm("notosans_24", &notosans_24_regular);
+  benchGlyphLookup("notosans_20", &notosans_20_regular);
+  benchKerning("notosans_20", &notosans_20_regular);
+  benchTextMeasure("notosans_20/page", &notosans_20_regular, kReaderPage);
+  benchReaderBitmapCold("notosans_20", &notosans_20_regular);
+  benchReaderPrewarm("notosans_20", &notosans_20_regular);
 
   Serial.println("\n-- Fallback-slot sizing (correctness, not timing) --");
-  checkWidestGlyph("bookerly_24_bi", &bookerly_24_bolditalic, 0x01C4);
-  checkWidestGlyph("notosans_24", &notosans_24_regular, 0x0489);
+  checkWidestGlyph("bookerly_20_bi", &bookerly_20_bolditalic, 0x01C4);
+  checkWidestGlyph("notosans_20", &notosans_20_regular, 0x0489);
 
-  // What a size synthesised by scaling would cost per glyph, at the two ratios that matter:
-  // 18 -> 24 is the upscale that would have avoided shipping the 24 pt faces, and 24 -> 18 the
-  // downscale that would avoid shipping the 18 pt ones (435,735 B, the most expensive middle rung).
-  Serial.println("\n-- Resampling cost (would a synthesised size be affordable?) --");
-  benchGlyphResample("notosans_18", &notosans_18_regular, 24.0f / 18.0f);
-  benchGlyphResample("notosans_24", &notosans_24_regular, 18.0f / 24.0f);
-  benchGlyphResample("notosans_24", &notosans_24_regular, 20.0f / 24.0f);
-  benchGlyphResample("notosans_24", &notosans_24_regular, 22.0f / 24.0f);
+  // What a synthesised size costs per glyph, at the ratios the ladder would actually use: 20 pt is
+  // the top real rung, and 22/24/26 come off it at x1.10, x1.20 and x1.30.
+  Serial.println();
+  Serial.println("-- Resampling cost (would a synthesised size be affordable?) --");
+  benchGlyphResample("notosans_20", &notosans_20_regular, 22.0f / 20.0f);
+  benchGlyphResample("notosans_20", &notosans_20_regular, 24.0f / 20.0f);
+  benchGlyphResample("notosans_20", &notosans_20_regular, 26.0f / 20.0f);
+  // And one reduction, which is what the middle rungs would need if they were ever synthesised.
+  benchGlyphResample("notosans_20", &notosans_20_regular, 18.0f / 20.0f);
 
   // And how close it lands. Characters chosen for what resampling is worst at rather than for
   // being common: curves and counters ('e', 'o', 'a'), thin stems and a detached dot ('i', 'l'),
   // diagonals ('W', 'x'), dense joins ('M'), a descender ('g') and a feature only a few pixels
   // across ('.'), where losing one pixel is a large relative error.
+  //
+  // Fidelity needs the TARGET face to exist, so the ladder's own synthesis ratios cannot be scored
+  // -- nothing real to compare 24-from-20 against. These are the nearest measurable proxies: 18->20
+  // is x1.111, just under the x1.10 the ladder's smallest step uses, and 14->20 is x1.428, beyond
+  // the x1.30 of its largest. Between them they bracket every ratio that would ship.
   Serial.println();
-  checkResampleFidelity("notosans 18 -> 24 UPSCALE vs the real 24 pt face", &notosans_18_regular,
-                        &notosans_24_regular, "eoaMWilxg.");
+  checkResampleFidelity("notosans 18 -> 20 UPSCALE (x1.111) vs the real 20 pt face", &notosans_18_regular,
+                        &notosans_20_regular, "eoaMWilxg.");
   Serial.println();
-  checkResampleFidelity("notosans 24 -> 18 DOWNSCALE, point-sampled (production rule)", &notosans_24_regular,
+  checkResampleFidelity("notosans 14 -> 20 UPSCALE (x1.428) vs the real 20 pt face", &notosans_14_regular,
+                        &notosans_20_regular, "eoaMWilxg.");
+  Serial.println();
+  checkResampleFidelity("notosans 20 -> 18 DOWNSCALE, point-sampled (production rule)", &notosans_20_regular,
                         &notosans_18_regular, "eoaMWilxg.");
   // The same reduction, area-weighted. Production point-samples when reducing for CRISPNESS, which
   // is a different goal from matching the real face -- so if this scores much better, "downscaling
   // is less faithful" is a statement about the sampling choice, not about reducing.
   Serial.println();
-  checkResampleFidelity("notosans 24 -> 18 DOWNSCALE, area-weighted (for comparison)", &notosans_24_regular,
+  checkResampleFidelity("notosans 20 -> 18 DOWNSCALE, area-weighted (for comparison)", &notosans_20_regular,
                         &notosans_18_regular, "eoaMWilxg.", /*forceArea=*/true);
 
   // The ladder's own ratios, as exact rationals, against the general fixed-point path. These are
   // the three sizes the plan synthesises from a real 20 pt master: 22, 24, 26.
   Serial.println();
   Serial.println("-- polyphase vs the general path, at the ladder's exact ratios --");
-  benchPolyphase("notosans_18", &notosans_18_regular, 11, 10);  // stands in for 22 <- 20
-  benchPolyphase("notosans_18", &notosans_18_regular, 6, 5);    // stands in for 24 <- 20
-  benchPolyphase("notosans_18", &notosans_18_regular, 13, 10);  // stands in for 26 <- 20
-  benchPolyphase("notosans_18", &notosans_18_regular, 4, 3);    // and 24 <- 18, for continuity
+  // Off the real 20 pt master, which is what the ladder scales from.
+  benchPolyphase("notosans_20", &notosans_20_regular, 11, 10);  // 22 <- 20
+  benchPolyphase("notosans_20", &notosans_20_regular, 6, 5);    // 24 <- 20
+  benchPolyphase("notosans_20", &notosans_20_regular, 13, 10);  // 26 <- 20
 
   // Whether the two paths agree once the ratio is exact -- the claim the glyph rows cannot test.
   checkPolyphaseAlgebra(11, 10);
   checkPolyphaseAlgebra(6, 5);
   checkPolyphaseAlgebra(13, 10);
+  // 4/3 is not a ladder ratio any more, but it is the one that came out bit-identical, so it stays
+  // as the control: if it ever stops matching, the phase tables have regressed.
   checkPolyphaseAlgebra(4, 3);
 
   // How far ONE master can be stretched before it stops being good enough -- the number that

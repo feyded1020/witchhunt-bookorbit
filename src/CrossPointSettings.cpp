@@ -18,13 +18,19 @@ static_assert(BOOKERLY_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_14_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_16_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_18_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BOOKERLY_20_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BOOKERLY_22_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_24_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BOOKERLY_26_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_14_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_16_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_18_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSANS_20_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSANS_22_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_24_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSANS_26_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_12_FONT_ID != 0, "Font ID collision with sentinel");
@@ -264,7 +270,14 @@ int CrossPointSettings::getBuiltinReaderFontId(uint8_t family, uint8_t size) {
         case EXTRA_LARGE:
           return BOOKERLY_18_FONT_ID;
         case XX_LARGE:
+          return BOOKERLY_20_FONT_ID;
+        // Synthesised from the 20 pt master; the scale lives on the ID (see main.cpp).
+        case SIZE_22:
+          return BOOKERLY_22_FONT_ID;
+        case SIZE_24:
           return BOOKERLY_24_FONT_ID;
+        case SIZE_26:
+          return BOOKERLY_26_FONT_ID;
       }
     case NOTOSANS:
       switch (size) {
@@ -280,7 +293,13 @@ int CrossPointSettings::getBuiltinReaderFontId(uint8_t family, uint8_t size) {
         case EXTRA_LARGE:
           return NOTOSANS_18_FONT_ID;
         case XX_LARGE:
+          return NOTOSANS_20_FONT_ID;
+        case SIZE_22:
+          return NOTOSANS_22_FONT_ID;
+        case SIZE_24:
           return NOTOSANS_24_FONT_ID;
+        case SIZE_26:
+          return NOTOSANS_26_FONT_ID;
       }
   }
 }

@@ -37,7 +37,7 @@ struct FontSizeLadder {
   // its largest rung and every heading that wanted it resampled from a smaller face instead.
   // Exactly that happened when the 24 pt rung was added. The app asserts its own ladder fits
   // (see buildReaderFontSizeLadder), which is the check that would have caught it.
-  static constexpr int kMaxRungs = 6;
+  static constexpr int kMaxRungs = 9;
 
   struct Rung {
     int32_t fontId = 0;    // 32-bit font-id hash (fontIds.h); never truncate

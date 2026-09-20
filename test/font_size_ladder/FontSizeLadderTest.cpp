@@ -44,10 +44,16 @@ TEST(FontSizeLadder, StepsDownThroughEveryVisualSize) {
 TEST(FontSizeLadder, ClampsRatherThanWrapping) {
   // A pinch that has reached the end should stay there. Wrapping would turn a
   // continued pinch-out into the smallest text on screen.
-  EXPECT_EQ(S::XX_LARGE, S::stepFontSize(S::XX_LARGE, 1));
-  EXPECT_EQ(S::XX_LARGE, S::stepFontSize(S::XX_LARGE, 99));
-  EXPECT_EQ(S::TINY, S::stepFontSize(S::TINY, -1));
-  EXPECT_EQ(S::TINY, S::stepFontSize(S::TINY, -99));
+  //
+  // The ends come from the table rather than being named: this test said XX_LARGE when that
+  // happened to be the largest rung, and broke the moment a larger one existed -- which is not a
+  // property of clamping, only of which size was on top that week.
+  const uint8_t top = S::FONT_SIZE_RUNGS[S::FONT_SIZE_RUNG_COUNT - 1].size;
+  const uint8_t bottom = S::FONT_SIZE_RUNGS[0].size;
+  EXPECT_EQ(top, S::stepFontSize(top, 1));
+  EXPECT_EQ(top, S::stepFontSize(top, 99));
+  EXPECT_EQ(bottom, S::stepFontSize(bottom, -1));
+  EXPECT_EQ(bottom, S::stepFontSize(bottom, -99));
 }
 
 TEST(FontSizeLadder, ZeroDeltaIsIdentity) {
@@ -115,9 +121,12 @@ TEST(FontSizeLadder, MigrationLeavesAValueItDoesNotRecognise) {
 // --- the labels -------------------------------------------------------------------------------
 
 TEST(FontSizeLadder, LabelsReadAsPointSizes) {
-  EXPECT_EQ("10pt", S::fontSizeLabel(S::TINY));
-  EXPECT_EQ("14pt", S::fontSizeLabel(S::MEDIUM));
-  EXPECT_EQ("24pt", S::fontSizeLabel(S::XX_LARGE));
+  // Every rung's label is its own point size with "pt" appended -- checked against the table for
+  // all of them rather than spot-checking three, which is what let a stale "24pt" survive here
+  // after XX_LARGE was redefined as 20 pt.
+  for (const auto& rung : S::FONT_SIZE_RUNGS) {
+    EXPECT_EQ(std::to_string(rung.points) + "pt", S::fontSizeLabel(rung.size));
+  }
   EXPECT_EQ("", S::fontSizeLabel(200)) << "a value off the ladder has no label to show";
 }
 
@@ -129,8 +138,15 @@ TEST(FontSizeLadder, LabelListHasNoBlanksAndIsInAscendingOrder) {
     EXPECT_EQ(S::fontSizeLabel(static_cast<uint8_t>(v)), labels[v]);
     EXPECT_FALSE(labels[v].empty());
   }
-  EXPECT_EQ("10pt", labels.front());
-  EXPECT_EQ("24pt", labels.back());
+  // Against the table, not a literal. These were "10pt" and "24pt" hardcoded, and the second went
+  // stale the moment a size was added above it -- the exact failure mode FONT_SIZE_RUNGS exists to
+  // stop, reproduced in the test that guards it.
+  EXPECT_EQ(S::fontSizeLabel(S::FONT_SIZE_RUNGS[0].size), labels.front());
+  EXPECT_EQ(S::fontSizeLabel(S::FONT_SIZE_RUNGS[S::FONT_SIZE_RUNG_COUNT - 1].size), labels.back());
+  // And the ladder really is ascending, which is what makes front()/back() meaningful at all.
+  for (int i = 1; i < S::FONT_SIZE_RUNG_COUNT; ++i) {
+    EXPECT_LT(S::FONT_SIZE_RUNGS[i - 1].points, S::FONT_SIZE_RUNGS[i].points);
+  }
 }
 
 TEST(FontSizeLadder, DefaultEntryShiftsEveryValueByOne) {

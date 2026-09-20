@@ -1452,7 +1452,16 @@ void GfxRenderer::writePhysicalPortraitPackedRow(const int physicalY, const uint
   }
 }
 
-int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style) const {
+// The base scale is applied at the PUBLIC boundary only, and the guard below is not an
+// optimisation: `scale == 1.0f` returns the integer untouched, so every font that ships real faces
+// measures and draws exactly as it did before this existed. That matters because the pipeline
+// goldens are byte-identical by invariant -- a float round-trip on the common path would break
+// them for no reason.
+static inline int applyBase(const int v, const float scale) {
+  return scale == 1.0f ? v : static_cast<int>(v * scale + 0.5f);
+}
+
+int GfxRenderer::rawTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style) const {
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
@@ -1467,6 +1476,10 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   int w = 0, h = 0;
   fontIt->second.getTextDimensions(text, &w, &h, style);
   return w;
+}
+
+int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style) const {
+  return applyBase(rawTextWidth(fontId, text, style), fontBaseScale(fontId));
 }
 
 bool GfxRenderer::getTextInkMetrics(const int fontId, const char* text, const EpdFontFamily::Style style,
@@ -1499,6 +1512,16 @@ void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* te
 
 void GfxRenderer::drawText(const int fontId, const int x, const int y, const char* text, const bool black,
                            const EpdFontFamily::Style style) const {
+  // A synthesised size has no faces of its own, so the unscaled blitter below cannot draw it --
+  // it walks raw glyph advances, which belong to the master. Hand it to the resampling path at
+  // the font's own scale. Real faces (the overwhelming majority) skip this with one comparison.
+  {
+    const float base = fontBaseScale(fontId);
+    if (base != 1.0f) {
+      drawTextAtScale(fontId, x, y, text, black, style, base);
+      return;
+    }
+  }
   const int yPos = y + getFontAscenderSize(fontId);
   const int screenWidth = getScreenWidth();
   const int screenHeight = getScreenHeight();
@@ -1609,13 +1632,23 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   }
 }
 
+// Public entry: `scale` is the CSS/heading residual, compounded with the font's base scale so a
+// heading at 1.6em inside synthesised 24 pt body text is ONE resample at 1.2 x 1.6, not two.
 void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, const char* text, const bool black,
                                  const EpdFontFamily::Style style, const float scale) const {
-  if (scale <= 0.0f || (scale > 0.99f && scale < 1.01f)) {
+  if (scale <= 0.0f) return;
+  const float total = scale * fontBaseScale(fontId);
+  if (total > 0.99f && total < 1.01f) {
+    // Exactly 1 after compounding: the unscaled blitter is both faster and sharper. Only reachable
+    // when the font's base is 1, so drawText() cannot bounce back here.
     drawText(fontId, x, y, text, black, style);
     return;
   }
+  drawTextAtScale(fontId, x, y, text, black, style, total);
+}
 
+void GfxRenderer::drawTextAtScale(const int fontId, const int x, const int y, const char* text, const bool black,
+                                  const EpdFontFamily::Style style, const float scale) const {
   if (text == nullptr || *text == '\0') return;
 
   if (fontCacheManager_ && fontCacheManager_->isScanning()) {
@@ -1628,7 +1661,8 @@ void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, con
   const auto& font = fontIt->second;
   const auto renderModeSnapshot = getRenderMode();
 
-  const int yPos = y + static_cast<int>(getFontAscenderSize(fontId) * scale + 0.5f);
+  // RAW: `scale` already carries the font's base, so the public accessor would apply it twice.
+  const int yPos = y + static_cast<int>(rawFontAscenderSize(fontId) * scale + 0.5f);
   int32_t cursorFP = x << 4;  // 12.4 fixed-point
 
   const bool smallCapsStyle = (style & EpdFontFamily::SMALL_CAPS) != 0;
@@ -1665,17 +1699,19 @@ void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, con
   }
 }
 
+// The three *Scaled accessors take the CSS/heading residual and compound it with the font's own
+// base scale, from the RAW measure -- going through the public accessor would apply the base twice.
 int GfxRenderer::getTextWidthScaled(const int fontId, const char* text, const EpdFontFamily::Style style,
                                     const float scale) const {
-  return static_cast<int>(getTextWidth(fontId, text, style) * scale + 0.5f);
+  return static_cast<int>(rawTextWidth(fontId, text, style) * fontBaseScale(fontId) * scale + 0.5f);
 }
 
 int GfxRenderer::getLineHeightScaled(const int fontId, const float scale) const {
-  return static_cast<int>(getLineHeight(fontId) * scale + 0.5f);
+  return static_cast<int>(rawLineHeight(fontId) * fontBaseScale(fontId) * scale + 0.5f);
 }
 
 int GfxRenderer::getFontAscenderSizeScaled(const int fontId, const float scale) const {
-  return static_cast<int>(getFontAscenderSize(fontId) * scale + 0.5f);
+  return static_cast<int>(rawFontAscenderSize(fontId) * fontBaseScale(fontId) * scale + 0.5f);
 }
 
 void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const bool state) const {
@@ -3166,7 +3202,10 @@ int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style styl
   }
 
   const EpdGlyphRef spaceGlyph = fontIt->second.getGlyph(' ', style);
-  return spaceGlyph ? fp4::toPixel(spaceGlyph.advanceX) : 0;  // snap 12.4 fixed-point to nearest pixel
+  if (!spaceGlyph) return 0;
+  // Scaled with the glyphs: a synthesised size laying words out at its master's inter-word
+  // spacing would drift visibly across a line.
+  return applyBase(fp4::toPixel(spaceGlyph.advanceX), fontBaseScale(fontId));  // 12.4 -> nearest px
 }
 
 int GfxRenderer::getSpaceAdvance(const int fontId, const uint32_t leftCp, const uint32_t rightCp,
@@ -3244,7 +3283,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
   return widthPx;
 }
 
-int GfxRenderer::getFontAscenderSize(const int fontId) const {
+int GfxRenderer::rawFontAscenderSize(const int fontId) const {
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
@@ -3254,7 +3293,11 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
   return fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
 }
 
-int GfxRenderer::getLineHeight(const int fontId) const {
+int GfxRenderer::getFontAscenderSize(const int fontId) const {
+  return applyBase(rawFontAscenderSize(fontId), fontBaseScale(fontId));
+}
+
+int GfxRenderer::rawLineHeight(const int fontId) const {
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
@@ -3262,6 +3305,10 @@ int GfxRenderer::getLineHeight(const int fontId) const {
   }
 
   return fontIt->second.getData(EpdFontFamily::REGULAR)->advanceY;
+}
+
+int GfxRenderer::getLineHeight(const int fontId) const {
+  return applyBase(rawLineHeight(fontId), fontBaseScale(fontId));
 }
 
 int GfxRenderer::getTextHeight(const int fontId) const {

@@ -11,7 +11,7 @@
 
 namespace {
 
-// Short, because the panel is 480 px wide in portrait and 24 pt runs about 23 px per character.
+// Short, because the panel is 480 px wide in portrait and 26 pt runs about 25 px per character.
 // Every string here was measured against the shipped advances rather than eyeballed -- the
 // 37-character pangram this started with came to 926 px, nearly twice the screen, and would have
 // been silently clipped at the right edge.
@@ -49,11 +49,17 @@ constexpr int kStyleCount = sizeof(kStyles) / sizeof(kStyles[0]);
 // these two glyphs alike" but "does the synthesised size sit naturally between its real
 // neighbours" -- a size that is individually defensible can still read as a step out of place.
 //
-// realId 0 means the size has no face of its own and is drawn by scaling `masterId`. That is
-// today's tree, not the plan: 20 pt is scaled here because no 20 pt face exists yet, whereas the
-// plan makes it real and synthesises 22/24/26 from it. So the ratios below (x1.111, x1.222,
-// x1.444 from 18 pt) are LARGER than the ones the plan would use (x1.10, x1.20, x1.30 from 20 pt).
-// This page is therefore the pessimistic case, which is the useful direction to be wrong in.
+// realId 0 means the size has no face of its own and is drawn by scaling `masterId`. 20 pt is now
+// the top real rung, so 22/24/26 come off it at x1.10, x1.20 and x1.30 -- the ladder's own ratios,
+// not a stand-in. An earlier version of this page scaled everything from 18 pt because no 20 pt
+// face existed; the ratios were larger than anything that would ship.
+//
+// 22/24/26 now have font IDs of their own, carrying their scale (see insertScaledFont), so this
+// page draws them through exactly the same IDs the reader selects. The R/S marker comes from
+// GfxRenderer::fontBaseScale() rather than a table here, so it cannot disagree with what ships.
+//
+// A row is marked S when its ID has a base scale -- which is the real definition of synthesised,
+// not something this screen decides.
 struct LadderRow {
   uint8_t pt;
   int realId;
@@ -69,10 +75,10 @@ constexpr LadderRow kLadderBookerly[] = {
     {14, BOOKERLY_14_FONT_ID, 0},
     {16, BOOKERLY_16_FONT_ID, 0},
     {18, BOOKERLY_18_FONT_ID, 0},
-    {20, 0, BOOKERLY_18_FONT_ID},
-    {22, 0, BOOKERLY_18_FONT_ID},
+    {20, BOOKERLY_20_FONT_ID, 0},
+    {22, BOOKERLY_22_FONT_ID, 0},
     {24, BOOKERLY_24_FONT_ID, 0},
-    {26, 0, BOOKERLY_18_FONT_ID},
+    {26, BOOKERLY_26_FONT_ID, 0},
 };
 constexpr LadderRow kLadderNotoSans[] = {
     {10, NOTOSANS_10_FONT_ID, 0},
@@ -80,35 +86,32 @@ constexpr LadderRow kLadderNotoSans[] = {
     {14, NOTOSANS_14_FONT_ID, 0},
     {16, NOTOSANS_16_FONT_ID, 0},
     {18, NOTOSANS_18_FONT_ID, 0},
-    {20, 0, NOTOSANS_18_FONT_ID},
-    {22, 0, NOTOSANS_18_FONT_ID},
+    {20, NOTOSANS_20_FONT_ID, 0},
+    {22, NOTOSANS_22_FONT_ID, 0},
     {24, NOTOSANS_24_FONT_ID, 0},
-    {26, 0, NOTOSANS_18_FONT_ID},
+    {26, NOTOSANS_26_FONT_ID, 0},
 };
 constexpr int kLadderCount = sizeof(kLadderBookerly) / sizeof(kLadderBookerly[0]);
-// The point size each scaled row is derived from. One constant rather than per-row, because every
-// scaled row here comes off the same master.
-constexpr float kLadderMasterPt = 18.0f;
 
 }  // namespace
 
-// 24 pt is the pair we can compare directly, because both a real 24 pt face and an 18 pt master
-// ship today. 12-from-24 is the reduction case, included because it is the one Jens' reading
-// experience says deteriorates — small text needs sharp edges — and it is the claim the
-// coverage metric is least able to see.
+// 20 pt is the pair we can compare directly, because it is the top real rung and 18 pt sits right
+// below it. 12-from-20 is the reduction case, included because it is the one Jens' reading
+// experience says deteriorates — small text needs sharp edges — and it is the claim the coverage
+// metric is least able to see.
 const FontScalingTestActivity::Page FontScalingTestActivity::kPages[] = {
     // First, because it frames every page after it: if a synthesised size reads as a step out of
     // place here, the per-style pairs explain why.
     {"Bookerly 10-26pt (R real / S scaled)", 0, 0, 0.0f, Mode::Ladder},
     {"Noto Sans 10-26pt (R real / S scaled)", 1, 0, 0.0f, Mode::Ladder},
-    {"Bookerly 24pt: real vs scaled from 18pt", BOOKERLY_24_FONT_ID, BOOKERLY_18_FONT_ID, 24.0f / 18.0f,
+    {"Bookerly 20pt: real vs scaled from 18pt", BOOKERLY_20_FONT_ID, BOOKERLY_18_FONT_ID, 20.0f / 18.0f,
      Mode::Styles},
-    {"Noto Sans 24pt: real vs scaled from 18pt", NOTOSANS_24_FONT_ID, NOTOSANS_18_FONT_ID, 24.0f / 18.0f,
+    {"Noto Sans 20pt: real vs scaled from 18pt", NOTOSANS_20_FONT_ID, NOTOSANS_18_FONT_ID, 20.0f / 18.0f,
      Mode::Styles},
-    {"Bookerly 24pt in running text", BOOKERLY_24_FONT_ID, BOOKERLY_18_FONT_ID, 24.0f / 18.0f, Mode::RunningText},
-    {"Bookerly 12pt: real vs REDUCED from 24pt", BOOKERLY_12_FONT_ID, BOOKERLY_24_FONT_ID, 12.0f / 24.0f,
+    {"Bookerly 20pt in running text", BOOKERLY_20_FONT_ID, BOOKERLY_18_FONT_ID, 20.0f / 18.0f, Mode::RunningText},
+    {"Bookerly 12pt: real vs REDUCED from 20pt", BOOKERLY_12_FONT_ID, BOOKERLY_20_FONT_ID, 12.0f / 20.0f,
      Mode::Styles},
-    {"Bookerly 12pt reduced, running text", BOOKERLY_12_FONT_ID, BOOKERLY_24_FONT_ID, 12.0f / 24.0f,
+    {"Bookerly 12pt reduced, running text", BOOKERLY_12_FONT_ID, BOOKERLY_20_FONT_ID, 12.0f / 20.0f,
      Mode::RunningText},
 };
 const uint8_t FontScalingTestActivity::kPageCount = sizeof(kPages) / sizeof(kPages[0]);
@@ -194,10 +197,11 @@ void FontScalingTestActivity::renderLadder(const int contentWidth, const int lef
 
   for (int i = 0; i < kLadderCount; ++i) {
     const LadderRow& r = ladder[i];
-    const bool real = r.realId != 0;
-    const int fontId = real ? r.realId : r.masterId;
-    const float scale = real ? 1.0f : r.pt / kLadderMasterPt;
-    const int lineH = real ? renderer.getLineHeight(fontId) : renderer.getLineHeightScaled(fontId, scale);
+    const int fontId = r.realId != 0 ? r.realId : r.masterId;
+    // Asked of the renderer, not assumed: a synthesised size carries its scale on its ID, so this
+    // marker reports what will actually be drawn rather than what this table believes.
+    const bool real = renderer.fontBaseScale(fontId) == 1.0f;
+    const int lineH = renderer.getLineHeight(fontId);
     if (y + lineH > bottom) break;
 
     char label[12];
@@ -205,11 +209,8 @@ void FontScalingTestActivity::renderLadder(const int contentWidth, const int lef
     // Baseline-aligned with the specimen rather than the row top, so the marker does not read as
     // part of the specimen's own line.
     renderer.drawText(UI_10_FONT_ID, leftX, y + lineH, label, true);
-    if (real) {
-      renderer.drawText(fontId, textX, y + lineH, kPangram, true);
-    } else {
-      renderer.drawTextScaled(fontId, textX, y + lineH, kPangram, true, EpdFontFamily::REGULAR, scale);
-    }
+    // One call for both: drawText() routes a scaled ID to the resampling path itself.
+    renderer.drawText(fontId, textX, y + lineH, kPangram, true);
     y += lineH;
   }
 }
