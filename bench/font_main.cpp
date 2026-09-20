@@ -27,7 +27,10 @@
 #include <builtinFonts/bookerly_24_bolditalic.h>
 #include <builtinFonts/inter_ui_12_regular.h>
 #include <builtinFonts/inter_ui_14_regular.h>
+#include <builtinFonts/notosans_10_regular.h>
+#include <builtinFonts/notosans_12_regular.h>
 #include <builtinFonts/notosans_14_regular.h>
+#include <builtinFonts/notosans_16_regular.h>
 #include <builtinFonts/notosans_18_regular.h>
 #include <builtinFonts/notosans_24_regular.h>
 #include <esp_heap_caps.h>
@@ -552,6 +555,106 @@ static void checkResampleFidelity(const char* label, const EpdFontData* src, con
 }
 
 // ---------------------------------------------------------------------------
+// 9. Fidelity as a function of RATIO — how far one master can be stretched.
+//
+// The question this answers is not "can sizes be synthesised" but "how many masters do we need
+// so that every synthesised size is still good". Those are different: a single master covering
+// 10-24 pt asks for ratios from 0.42x to 2.4x, while a master every other size asks for 0.86x to
+// 1.17x, and the flash difference between those two answers is about a megabyte.
+//
+// Every pair of shipped faces gives a real answer, because the TARGET face exists to compare
+// against. 6 sizes -> 30 ordered pairs -> ratios from 0.42 to 2.40, all measured rather than
+// interpolated from the two points the earlier run happened to cover.
+//
+// Area-weighted in BOTH directions on purpose: production point-samples when reducing (for
+// crispness), which measured 15.3% against area weighting's 6.6% at the same ratio. If sizes are
+// going to be synthesised, area weighting is the mode that would be used, so it is the mode to
+// characterise.
+// ---------------------------------------------------------------------------
+
+struct SizedFace {
+  uint8_t pt;
+  const EpdFontData* data;
+};
+
+static const SizedFace kFaces[] = {
+    {10, &notosans_10_regular}, {12, &notosans_12_regular}, {14, &notosans_14_regular},
+    {16, &notosans_16_regular}, {18, &notosans_18_regular}, {24, &notosans_24_regular},
+};
+static constexpr int kFaceCount = sizeof(kFaces) / sizeof(kFaces[0]);
+
+// Returns mean absolute coverage error in tenths of a percent, and fills the worst character.
+static int resampleErrorTenths(const EpdFontData* src, const EpdFontData* ref, const char* chars, char* worstChar,
+                               int* worstTenths) {
+  const uint8_t maxLevel = ref->is2Bit ? 3 : 1;
+  long totalAbs = 0, totalPx = 0;
+  *worstChar = '?';
+  *worstTenths = 0;
+  for (const char* p = chars; *p; ++p) {
+    const uint32_t cp = static_cast<uint32_t>(static_cast<uint8_t>(*p));
+    int sw = 0, sh = 0, rw = 0, rh = 0;
+    if (!loadCoverage(ref, cp, &rw, &rh, refCov) || !loadCoverage(src, cp, &sw, &sh, srcCov)) continue;
+    if (rw > kMaxGlyphDim || rh > kMaxGlyphDim) continue;
+    resampleArea(sw, sh, rw, rh, maxLevel);
+    long absSum = 0;
+    for (int i = 0; i < rw * rh; ++i) {
+      const int d = static_cast<int>(dstCov[i]) - static_cast<int>(refCov[i]);
+      absSum += (d < 0 ? -d : d);
+    }
+    const int px = rw * rh;
+    const int tenths = static_cast<int>(1000L * absSum / (px * maxLevel));
+    if (tenths > *worstTenths) {
+      *worstTenths = tenths;
+      *worstChar = *p;
+    }
+    totalAbs += absSum;
+    totalPx += px;
+  }
+  return totalPx ? static_cast<int>(1000L * totalAbs / (totalPx * maxLevel)) : -1;
+}
+
+static void sweepResampleFidelity(const char* chars) {
+  Serial.println("-- fidelity vs ratio (area-weighted; every shipped face pair) --");
+  Serial.println("   from  to   ratio   MAD   worst");
+
+  // Ordered pairs, ascending by ratio so the quality gradient reads straight down the column --
+  // which is exactly what choosing master spacing needs. 240 bytes of table beats the stateful
+  // selection sort this started as.
+  struct Pair {
+    uint8_t i, j;
+    uint16_t ratioMilli;  // j/i * 1000, integer so the sort has no float comparisons
+  };
+  Pair pairs[kFaceCount * (kFaceCount - 1)];
+  int n = 0;
+  for (int i = 0; i < kFaceCount; ++i) {
+    for (int j = 0; j < kFaceCount; ++j) {
+      if (i == j) continue;
+      pairs[n++] = {static_cast<uint8_t>(i), static_cast<uint8_t>(j),
+                    static_cast<uint16_t>(1000u * kFaces[j].pt / kFaces[i].pt)};
+    }
+  }
+  for (int a = 1; a < n; ++a) {  // insertion sort; n is 30
+    const Pair key = pairs[a];
+    int b = a - 1;
+    while (b >= 0 && pairs[b].ratioMilli > key.ratioMilli) {
+      pairs[b + 1] = pairs[b];
+      --b;
+    }
+    pairs[b + 1] = key;
+  }
+
+  for (int k = 0; k < n; ++k) {
+    char worst = '?';
+    int worstTenths = 0;
+    const int tenths = resampleErrorTenths(kFaces[pairs[k].i].data, kFaces[pairs[k].j].data, chars, &worst,
+                                           &worstTenths);
+    if (tenths < 0) continue;
+    Serial.printf("   %2u -> %2u  %5.3f  %4.1f%%  '%c' %4.1f%%\n", kFaces[pairs[k].i].pt, kFaces[pairs[k].j].pt,
+                  pairs[k].ratioMilli / 1000.0f, tenths / 10.0f, worst, worstTenths / 10.0f);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 void setup() {
   Serial.begin(115200);
@@ -626,6 +729,11 @@ void setup() {
   Serial.println();
   checkResampleFidelity("notosans 24 -> 18 DOWNSCALE, area-weighted (for comparison)", &notosans_24_regular,
                         &notosans_18_regular, "eoaMWilxg.", /*forceArea=*/true);
+
+  // How far ONE master can be stretched before it stops being good enough -- the number that
+  // decides how many real faces to ship, rather than whether to ship any.
+  Serial.println();
+  sweepResampleFidelity("eoaMWilxg.");
 
   Serial.printf("\nfree heap after: %u B   minimum ever: %u B\n", (unsigned)esp_get_free_heap_size(),
                 (unsigned)esp_get_minimum_free_heap_size());
