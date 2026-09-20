@@ -131,6 +131,18 @@ class GfxRenderer {
   // not the arena, was the binding constraint.
   static constexpr uint8_t SCALED_GLYPH_MAX_ENTRIES = 80;
   static constexpr uint16_t SCALED_GLYPH_ARENA_BYTES = 3584;
+  // What the arena has to hold once a BODY size is synthesised (see insertScaledFont): every
+  // glyph on the page goes through the resampler, at the 20 pt master's glyph size times the
+  // base scale. Measured over a realistic 62-glyph page: 7,820 B at 26 pt Bookerly, 6,659 B at
+  // 24 pt -- 1.9-2.2x the arena above, which was sized for CSS-scaled body text with ~40 B
+  // masks. Overflowing it resets the cache mid-page, so the working set resamples two or three
+  // times per page instead of once, and at ~1 ms per glyph at these sizes that is 60-120 ms a
+  // page turn on exactly the sizes added for readers who need them most.
+  //
+  // Chosen only when a scaled font is registered, so a build that ships every size for real
+  // keeps the smaller block. +4,608 B, permanent, taken at reader entry like the rest of it.
+  static constexpr uint16_t SCALED_GLYPH_ARENA_BYTES_SYNTH = 8192;
+  mutable uint16_t scaledGlyphArenaBytes_ = SCALED_GLYPH_ARENA_BYTES;  // actual size once allocated
   // One outsized glyph (a large heading) must not evict a page's whole body-text
   // working set, so anything above this renders uncached.
   static constexpr uint16_t SCALED_GLYPH_MAX_MASK_BYTES = 512;
@@ -212,6 +224,8 @@ class GfxRenderer {
   // it is not bound yet, so the first bind and every later one go through one call.
   void replaceFont(int fontId, EpdFontFamily font) {
     fontMap.insert_or_assign(fontId, font);
+    // A rebound ID is a REAL face again. Leaving a base scale behind would keep scaling it.
+    fontBaseScales.erase(fontId);
     invalidateScaledGlyphCache();
   }
   void removeFont(int fontId) {
@@ -236,6 +250,10 @@ class GfxRenderer {
   ///
   /// The base scale COMPOUNDS with a per-block CSS scale rather than replacing it: a heading at
   /// 1.6em inside 24 pt body text resolves to one resample at 1.2 x 1.6, not two.
+  ///
+  /// NOT for UI font IDs. FreeInkUI (freeink-sdk) centres icons by reading a glyph's raw width,
+  /// left and top straight out of getFontMap(), which for a synthesised ID are the master's and
+  /// would place every icon wrong. Reader sizes only; the UI ladder rebinds real faces.
   void insertScaledFont(int fontId, EpdFontFamily font, float scale) {
     fontMap.insert_or_assign(fontId, font);
     if (scale > 0.99f && scale < 1.01f) {

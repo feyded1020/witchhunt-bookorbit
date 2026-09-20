@@ -153,12 +153,15 @@ static inline uint32_t floatBits(const float f) {
 bool GfxRenderer::ensureScaledGlyphCache() const {
   if (scaledGlyphArena_) return true;
   if (scaledGlyphOom_) return false;  // already failed once; don't thrash the heap
+  // Larger when a synthesised body size exists, because then the arena holds a whole page's
+  // glyphs at up to 26 pt rather than a few CSS-scaled words. See SCALED_GLYPH_ARENA_BYTES_SYNTH.
+  scaledGlyphArenaBytes_ = fontBaseScales.empty() ? SCALED_GLYPH_ARENA_BYTES : SCALED_GLYPH_ARENA_BYTES_SYNTH;
   auto entries = makeUniqueNoThrow<ScaledGlyphEntry[]>(SCALED_GLYPH_MAX_ENTRIES);
-  auto arena = makeUniqueNoThrow<uint8_t[]>(SCALED_GLYPH_ARENA_BYTES);
+  auto arena = makeUniqueNoThrow<uint8_t[]>(scaledGlyphArenaBytes_);
   if (!entries || !arena) {
     LOG_ERR("GFX", "OOM: scaled-glyph cache (%u + %u bytes); rendering scaled text uncached",
             static_cast<unsigned>(SCALED_GLYPH_MAX_ENTRIES * sizeof(ScaledGlyphEntry)),
-            static_cast<unsigned>(SCALED_GLYPH_ARENA_BYTES));
+            static_cast<unsigned>(scaledGlyphArenaBytes_));
     scaledGlyphOom_ = true;
     return false;
   }
@@ -194,18 +197,19 @@ uint8_t* GfxRenderer::allocScaledGlyphMask(const void* fontData, const uint32_t 
 
   if (!scaledGlyphArena_ && !ensureScaledGlyphCache()) return nullptr;
 
-  if (scaledGlyphCount_ >= SCALED_GLYPH_MAX_ENTRIES || scaledGlyphUsed_ + bytes > SCALED_GLYPH_ARENA_BYTES) {
+  if (scaledGlyphCount_ >= SCALED_GLYPH_MAX_ENTRIES || scaledGlyphUsed_ + bytes > scaledGlyphArenaBytes_) {
     // Wholesale reset instead of LRU bookkeeping: the working set is one page's
     // distinct glyphs, so a reset costs at most one re-resample each.
     //
-    // TRC, not DBG, and deliberately not device-gated: this is a designed,
-    // cheap event that happens several times on a dense page (the 80-entry cap
-    // binds long before the 3584-byte arena does -- the X4 Pro hit it at ~1.9 KB
-    // used), so at DBG it is several lines per page turn reporting that the
-    // cache did exactly what it was built to do. It is not worth resizing
-    // either: the same page summaries measured glyphUs=1656 across 1120
-    // glyphCalls, i.e. ~1.5 us a call and under 2 ms of glyph work per page, so
-    // the re-resampling a reset causes is beneath notice. Rebuild with
+    // TRC, not DBG, and deliberately not device-gated: for CSS-scaled body text
+    // this is a designed, cheap event (the X4 Pro hit the 80-entry cap at ~1.9 KB
+    // used; page summaries measured ~1.5 us per glyph call, i.e. mostly hits on
+    // ~40 B masks). That "beneath notice" verdict does NOT extend to a synthesised
+    // body size: there every glyph is a resample of a 20 pt master glyph, ~1 ms
+    // each at 24-26 pt, so a reset re-costs the page's working set at hundreds of
+    // times the rate the measurement above saw. That is why the arena is larger
+    // once a scaled font is registered -- see SCALED_GLYPH_ARENA_BYTES_SYNTH --
+    // and why a reset on such a page is worth noticing. Rebuild with
     // -DLOG_LEVEL=3 to watch it.
     LOG_TRC("GFX", "Scaled-glyph cache reset (%u entries, %u bytes used)", scaledGlyphCount_, scaledGlyphUsed_);
     invalidateScaledGlyphCache();
@@ -1643,8 +1647,10 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 // heading at 1.6em inside synthesised 24 pt body text is ONE resample at 1.2 x 1.6, not two.
 void GfxRenderer::drawTextScaled(const int fontId, const int x, const int y, const char* text, const bool black,
                                  const EpdFontFamily::Style style, const float scale) const {
-  if (scale <= 0.0f) return;
-  const float total = scale * fontBaseScale(fontId);
+  // A non-positive scale has always meant "draw as is" here, not "draw nothing". Keep it: the
+  // first version of this wrapper returned instead, which silently changed behaviour for any
+  // caller passing 0 to mean unscaled.
+  const float total = (scale <= 0.0f ? 1.0f : scale) * fontBaseScale(fontId);
   if (total > 0.99f && total < 1.01f) {
     // Exactly 1 after compounding: the unscaled blitter is both faster and sharper. Only reachable
     // when the font's base is 1, so drawText() cannot bounce back here.

@@ -15,22 +15,20 @@
 //
 // Deterministic from the body fontId by construction, so it is deliberately NOT
 // part of the section-cache property hash (fontId already is).
-// PLANNED, not yet implemented -- the rule a synthesised rung has to follow.
+// Some rungs have no face of their own: 22/24/26 pt render the 20 pt master scaled (see
+// GfxRenderer::insertScaledFont). This struct does not need to know which, and that is worth
+// stating because an earlier note here said the opposite.
 //
-// The reader's size ladder is to gain sizes that have no face of their own: 22/24/26 pt rendered
-// by scaling a real 20 pt master (see the resampling benchmark in bench/font_main.cpp). Such a
-// rung is a legitimate DESTINATION and must never be a SOURCE:
+// The worry was double resampling: resolve() landing on a synthesised rung and then applying a
+// residual on top, scaling an already-scaled glyph. That would be real if the scale lived in the
+// glyph data. It lives on the FONT ID instead, and GfxRenderer compounds it with whatever residual
+// the caller passes -- drawTextScaled(id24, ..., 1.1f) is ONE resample of the 20 pt master at
+// 1.2 x 1.1, never a resample of a resample. So a synthesised rung is as good a source as a real
+// one, resolve() can treat every rung alike, and no per-rung flag is needed.
 //
-//   * resolve() for fontSizeNormalization ("snap this block to the next predefined level") may
-//     land on a synthesised rung. That is the whole point of having it.
-//   * resolve() for an arbitrary CSS factor ("take the closest face and scale by the residual")
-//     must consider only REAL rungs. Choosing a synthesised one would scale an already-scaled
-//     glyph, compounding both the resampling error and the per-glyph cost for no benefit -- the
-//     real master it came from is available and is strictly better.
-//
-// So a Rung needs to carry which it is, and the two callers need to filter differently. Noted
-// here because this struct is where the distinction has to live, and because the failure mode is
-// silent: double-resampled text renders, it just renders worse than it needed to.
+// What does still hold: the rung's sizePct is the rung's nominal size, so the residual resolve()
+// hands back is correct whether the rung is real or scaled. And kMaxRungs is a CAPACITY, not a
+// description of the shipped set -- see the note on it.
 struct FontSizeLadder {
   // Capacity, not a description of the shipped set -- naming the sizes here is what let this go
   // stale. addRung() drops anything past it SILENTLY, so a family that grew a size simply lost
