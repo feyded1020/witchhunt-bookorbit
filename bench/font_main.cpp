@@ -504,22 +504,34 @@ static bool resamplePolyphase(const int sw, const int sh, const int dw, const in
   static Phase px[kMaxPhase], py[kMaxPhase];
   if (!buildPhases(p, q, px) || !buildPhases(p, q, py)) return false;
   const int area = q * q;
+  // The two per-axis weights multiply to a per-pixel weight, and the y half is fixed for a whole
+  // destination row. Hoisting the product out costs <= 2*p*2 multiplies per row and removes one
+  // from every source pixel touched -- the inner loop becomes a single multiply-add against a
+  // table, which is the point of having a periodic phase in the first place.
+  uint16_t wprod[2][kMaxPhase][2];
   for (int y = 0; y < dh; ++y) {
     const Phase& fy = py[y % p];
     const int sy0 = (y / p) * q + fy.src0;
+    for (int iy = 0; iy < fy.n; ++iy) {
+      for (int xph = 0; xph < p; ++xph) {
+        for (int ix = 0; ix < px[xph].n; ++ix) {
+          wprod[iy][xph][ix] = static_cast<uint16_t>(fy.w[iy] * px[xph].w[ix]);
+        }
+      }
+    }
     for (int x = 0; x < dw; ++x) {
-      const Phase& fx = px[x % p];
+      const int xph = x % p;
+      const Phase& fx = px[xph];
       const int sx0 = (x / p) * q + fx.src0;
       int acc = 0;
       for (int iy = 0; iy < fy.n; ++iy) {
         const int syy = sy0 + iy;
         if (syy >= sh) break;
         const uint8_t* row = &srcCov[syy * sw];
-        const int wy = fy.w[iy];
         for (int ix = 0; ix < fx.n; ++ix) {
           const int sxx = sx0 + ix;
           if (sxx >= sw) break;
-          acc += row[sxx] * wy * fx.w[ix];
+          acc += row[sxx] * wprod[iy][xph][ix];
         }
       }
       const int lvl = (acc + area / 2) / area;
@@ -527,6 +539,41 @@ static bool resamplePolyphase(const int sw, const int sh, const int dw, const in
     }
   }
   return true;
+}
+
+// Does polyphase compute the SAME pixels as the 16.16 area path, or merely similar ones?
+//
+// The glyph comparison cannot answer that, and I wrongly claimed it did: there, dw is
+// truncate(sw * p / q), so the area path's real ratio is sw/dw while polyphase assumes q/p. For
+// 'e' at 18 pt that is 17/18 = 0.944 against 10/11 = 0.909 -- a 4% drift that accumulates to most
+// of a pixel across the glyph, which is what the 9-11% of differing pixels actually showed.
+//
+// So: run both on a source whose width and height are MULTIPLES OF q, where dw = sw*p/q is exact
+// and both paths are resampling at the identical ratio. If the algebra is right this is zero.
+// A synthetic source rather than a glyph, because no glyph obliges us with its dimensions.
+static void checkPolyphaseAlgebra(const int p, const int q) {
+  const int sw = q * 2, sh = q * 2;
+  const int dw = sw * p / q, dh = sh * p / q;
+  if (dw > kMaxGlyphDim || dh > kMaxGlyphDim) return;
+  // Deterministic pseudo-random coverage: a flat or smooth field could agree by accident.
+  uint32_t s = 0x12345678u;
+  for (int i = 0; i < sw * sh; ++i) {
+    s = s * 1664525u + 1013904223u;
+    srcCov[i] = static_cast<uint8_t>((s >> 24) & 0x03);
+  }
+  resampleArea(sw, sh, dw, dh, 3);
+  for (int i = 0; i < dw * dh; ++i) refCov[i] = dstCov[i];
+  if (!resamplePolyphase(sw, sh, dw, dh, p, q, 3)) return;
+  int differing = 0, maxDelta = 0;
+  for (int i = 0; i < dw * dh; ++i) {
+    const int d = static_cast<int>(dstCov[i]) - static_cast<int>(refCov[i]);
+    const int ad = d < 0 ? -d : d;
+    if (ad) ++differing;
+    if (ad > maxDelta) maxDelta = ad;
+  }
+  Serial.printf("CHECK poly_algebra      %2d/%-2d on a %dx%d exact-ratio source: differs=%d/%d px (max %d level)  %s\n",
+                p, q, sw, sh, differing, dw * dh, maxDelta,
+                differing == 0 ? "IDENTICAL" : "NOT identical -- the weights disagree, not just the dims");
 }
 
 // The rule production applies: area-weighted when enlarging, point-sampled when reducing.
@@ -861,6 +908,13 @@ void setup() {
   benchPolyphase("notosans_18", &notosans_18_regular, 6, 5);    // stands in for 24 <- 20
   benchPolyphase("notosans_18", &notosans_18_regular, 13, 10);  // stands in for 26 <- 20
   benchPolyphase("notosans_18", &notosans_18_regular, 4, 3);    // and 24 <- 18, for continuity
+
+  // Whether the two paths agree when the ratio is exact -- the claim the glyph rows above cannot
+  // test, because a glyph's width is not a multiple of q.
+  checkPolyphaseAlgebra(11, 10);
+  checkPolyphaseAlgebra(6, 5);
+  checkPolyphaseAlgebra(13, 10);
+  checkPolyphaseAlgebra(4, 3);
 
   // How far ONE master can be stretched before it stops being good enough -- the number that
   // decides how many real faces to ship, rather than whether to ship any.
