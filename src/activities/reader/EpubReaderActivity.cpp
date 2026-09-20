@@ -706,6 +706,7 @@ void EpubReaderActivity::onExit() {
 
 #if CROSSPOINT_KOREADER_AUTOSYNC
   maybeAutoPushOnSleep();
+  releaseAutoSyncSlot();
 #endif  // CROSSPOINT_KOREADER_AUTOSYNC
 
   // If a pre-render left the next page in the frame buffer, redraw the current page so the

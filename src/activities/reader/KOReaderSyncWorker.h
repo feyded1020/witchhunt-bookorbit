@@ -31,6 +31,9 @@ struct KOReaderSyncJob {
 };
 
 namespace KOReaderSyncWorker {
+// Internal DRAM. Peak use measured at 5628 bytes on an x4 pro
+constexpr uint32_t WORKER_STACK_BYTES = 10240;
+
 bool isBusy();
 
 bool post(KOReaderSyncJob&& job, uint64_t* seqOut = nullptr);

@@ -6,10 +6,12 @@
 #include <HalClock.h>
 #include <Logging.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
+#include <atomic>
 #include <utility>
 
 #include "CrossPointSettings.h"
@@ -20,6 +22,8 @@
 namespace {
 constexpr unsigned long AUTO_CONNECT_TIMEOUT_MS = 10000;
 
+constexpr uint32_t WORKER_IDLE_EXIT_MS = KOReaderAutoSync::MIN_INTERVAL_PUSH_GAP_MS / 2;
+
 SemaphoreHandle_t slotMutex = nullptr;
 TaskHandle_t workerTask = nullptr;
 KOReaderSyncJob slot;
@@ -27,6 +31,17 @@ bool slotBusy = false;
 bool jobDone = false;
 uint64_t activeSeq = 0;
 uint64_t nextSeq = 1;
+
+std::atomic<bool> cachedBusy{false};
+
+void updateCachedBusy() { cachedBusy.store(slotBusy && !jobDone, std::memory_order_relaxed); }
+
+void logInternalHeap(const char* stage) {
+  constexpr uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+  LOG_DBG("KOSyncWorker", "Internal heap[%s]: free=%lu contig=%lu", stage,
+          static_cast<unsigned long>(heap_caps_get_free_size(caps)),
+          static_cast<unsigned long>(heap_caps_get_largest_free_block(caps)));
+}
 
 class SlotLock {
  public:
@@ -40,6 +55,11 @@ bool connectToSavedNetwork(const unsigned long timeoutMs) {
   if (WiFi.status() == WL_CONNECTED) {
     WiFi.setSleep(false);
     return true;
+  }
+
+  if (const wifi_mode_t mode = WiFi.getMode(); mode != WIFI_MODE_NULL && mode != WIFI_MODE_STA) {
+    LOG_DBG("KOSyncWorker", "Radio is in AP mode. Skipping connection");
+    return false;
   }
 
   const auto& store = WIFI_STORE;
@@ -80,6 +100,12 @@ bool radioStillOursToTearDown() {
 }
 
 void runJob(KOReaderSyncJob& job) {
+  if (activityManager.currentActivityUsesWifi()) {
+    LOG_DBG("KOSyncWorker", "A network activity owns the radio. Skipping this job");
+    job.result = KOReaderSyncClient::NETWORK_ERROR;
+    return;
+  }
+  logInternalHeap("before_radio_up");
   const bool startedRadio = WiFi.getMode() == WIFI_MODE_NULL;
   const unsigned long connectTimeout = job.connectTimeoutMs > 0 ? job.connectTimeoutMs : AUTO_CONNECT_TIMEOUT_MS;
   if (!connectToSavedNetwork(connectTimeout)) {
@@ -89,6 +115,8 @@ void runJob(KOReaderSyncJob& job) {
     }
     return;
   }
+
+  logInternalHeap("after_assoc");
 
   KOReaderSyncClient::setSkipTlsValidation(SETTINGS.skipHttpsValidation != 0);
 
@@ -105,6 +133,7 @@ void runJob(KOReaderSyncJob& job) {
       job.result = KOReaderSyncClient::updateProgress(job.progress);
       break;
   }
+  logInternalHeap("after_request");
 
   if (startedRadio && radioStillOursToTearDown()) {
     WiFi.disconnect(false);
@@ -114,7 +143,22 @@ void runJob(KOReaderSyncJob& job) {
 
 void syncWorkerTrampoline(void*) {
   for (;;) {
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(WORKER_IDLE_EXIT_MS)) == 0) {
+      bool exiting = false;
+      {
+        const SlotLock lock;
+        if (!slotBusy || jobDone) {
+          workerTask = nullptr;
+          exiting = true;
+        }
+      }
+      if (exiting) {
+        LOG_DBG("KOSyncWorker", "Idle, freeing the worker task (stack headroom was %u bytes)",
+                static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+        vTaskDelete(nullptr);
+      }
+      continue;
+    }
     KOReaderSyncJob job;
     {
       const SlotLock lock;
@@ -128,18 +172,14 @@ void syncWorkerTrampoline(void*) {
       const SlotLock lock;
       slot = std::move(job);
       jobDone = true;
+      updateCachedBusy();
     }
   }
 }
 
+// caller has to hold slotMutex
 void ensureTask() {
   if (workerTask != nullptr) {
-    return;
-  }
-  if (slotMutex == nullptr) {
-    slotMutex = xSemaphoreCreateMutex();
-  }
-  if (slotMutex == nullptr) {
     return;
   }
 #if defined(configNUM_CORES) && configNUM_CORES > 1
@@ -147,31 +187,38 @@ void ensureTask() {
 #else
   constexpr BaseType_t workerCore = 0;
 #endif
-  if (xTaskCreatePinnedToCore(&syncWorkerTrampoline, "KOSyncWorker", 10240, nullptr, 1, &workerTask, workerCore) !=
-      pdPASS) {
+  if (xTaskCreatePinnedToCore(&syncWorkerTrampoline, "KOSyncWorker", KOReaderSyncWorker::WORKER_STACK_BYTES, nullptr,
+                              1, &workerTask, workerCore) != pdPASS) {
     LOG_ERR("KOSyncWorker", "Failed to create sync worker task");
     workerTask = nullptr;
   }
 }
 
+bool ensureMutex() {
+  if (slotMutex == nullptr) {
+    slotMutex = xSemaphoreCreateMutex();
+  }
+  return slotMutex != nullptr;
+}
+
 }  // namespace
 
 namespace KOReaderSyncWorker {
-bool isBusy() {
-  if (slotMutex == nullptr) return false;
-  const SlotLock lock;
-  return slotBusy && !jobDone;
-}
+bool isBusy() { return cachedBusy.load(std::memory_order_relaxed); }
 
 bool post(KOReaderSyncJob&& job, uint64_t* seqOut) {
-  ensureTask();
-  if (workerTask == nullptr || slotMutex == nullptr) {
+  if (!ensureMutex()) {
     return false;
   }
   uint64_t seq = 0;
+  TaskHandle_t target = nullptr;
   {
     const SlotLock lock;
     if (slotBusy && !jobDone) {
+      return false;
+    }
+    ensureTask();
+    if (workerTask == nullptr) {
       return false;
     }
     slot = std::move(job);
@@ -179,8 +226,10 @@ bool post(KOReaderSyncJob&& job, uint64_t* seqOut) {
     jobDone = false;
     activeSeq = nextSeq++;
     seq = activeSeq;
+    target = workerTask;
+    updateCachedBusy();
   }
-  xTaskNotifyGive(workerTask);
+  xTaskNotifyGive(target);
   if (seqOut != nullptr) {
     *seqOut = seq;
   }
@@ -211,7 +260,9 @@ KOReaderSyncJob consume(const uint64_t seq) {
   const SlotLock lock;
   if (slotBusy && activeSeq == seq && jobDone) {
     out = std::move(slot);
+    slot = KOReaderSyncJob{};
     slotBusy = false;
+    updateCachedBusy();
   }
   return out;
 }

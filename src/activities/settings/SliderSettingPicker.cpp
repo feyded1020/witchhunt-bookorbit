@@ -122,7 +122,7 @@ bool configFor(const SettingAction action, SliderPickerActivity::Config& cfg) {
   }
 }
 
-void apply(const SettingAction action, const uint8_t value) {
+bool apply(const SettingAction action, const uint8_t value) {
   // The field a slider edits is declared once, on the row itself (SettingInfo::persisting), and
   // read from there by BOTH this and JsonSettingsIO. It used to be written out twice — a switch
   // here and a hand-written line in the serialiser — and the two could disagree silently: the
@@ -138,11 +138,12 @@ void apply(const SettingAction action, const uint8_t value) {
     case SettingAction::KOSyncOnClosePicker:
       SETTINGS.koSyncOnBookClose = value >= KO_CLOSE_NEVER ? 0 : 1;
       if (value < KO_CLOSE_NEVER) SETTINGS.koSyncMinSessionPages = value;
-      return;
+      return true;
     case SettingAction::KOSyncIntervalPicker:
+      // Lives in the KOReader store instead of settings, so this row persists itself and returns false so settings don't write.
       KOREADER_STORE.setPushIntervalPages(value >= KO_INTERVAL_NEVER ? 0 : value);
       KOREADER_STORE.saveToFile();
-      return;
+      return false;
     default:
       break;
   }
@@ -153,7 +154,7 @@ void apply(const SettingAction action, const uint8_t value) {
   });
   if (row == settings.end()) {
     LOG_ERR("SET", "Slider action %d edits no declared field; see SettingInfo::persisting", static_cast<int>(action));
-    return;
+    return false;
   }
   SETTINGS.*(row->persistPtr) = value;
 
@@ -172,6 +173,7 @@ void apply(const SettingAction action, const uint8_t value) {
     default:
       break;
   }
+  return true;
 }
 
 void cancel(const SettingAction action) {

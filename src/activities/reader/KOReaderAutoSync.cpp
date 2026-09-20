@@ -6,6 +6,7 @@
 #include <ArduinoJson.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <esp_heap_caps.h>
 
 #include <utility>
 
@@ -17,6 +18,15 @@ AutoSyncState AutoSyncState::instance;
 
 namespace {
 constexpr char AUTOSYNC_FILE_JSON[] = "/.crosspoint/autosync.json";
+
+// The client's already gating the wolfssl handshake, so this is just for association. Numbers
+// based on the worker's logs on a x4 pro.
+constexpr uint32_t ASSOCIATION_HEADROOM_BYTES = 56 * 1024;
+constexpr uint32_t BG_SESSION_MIN_FREE_INTERNAL_BYTES =
+    KOReaderSyncWorker::WORKER_STACK_BYTES + ASSOCIATION_HEADROOM_BYTES;
+// Largest single block the session needs. Association spreads across whatever is free, but the
+// request draws one chunk. Measured 14kb at its worst on a x4 pro.
+constexpr uint32_t BG_SESSION_MIN_CONTIG_INTERNAL_BYTES = 24 * 1024;
 
 std::string basenameOf(const std::string& path) {
   const size_t slash = path.find_last_of('/');
@@ -162,6 +172,18 @@ std::string KOReaderAutoSync::documentHashFor(const std::string& epubPath) {
 
 bool KOReaderAutoSync::jobActive() { return KOReaderSyncWorker::isBusy(); }
 
+bool KOReaderAutoSync::heapAllowsBackgroundSession(const char* what) {
+  constexpr uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+  const uint32_t freeInternal = heap_caps_get_free_size(caps);
+  const uint32_t contigInternal = heap_caps_get_largest_free_block(caps);
+  if (freeInternal < BG_SESSION_MIN_FREE_INTERNAL_BYTES || contigInternal < BG_SESSION_MIN_CONTIG_INTERNAL_BYTES) {
+    LOG_DBG("AutoSync", "%s skipped: internal heap too tight (free=%lu contig=%lu)", what,
+            static_cast<unsigned long>(freeInternal), static_cast<unsigned long>(contigInternal));
+    return false;
+  }
+  return true;
+}
+
 bool KOReaderAutoSync::pullEnabled() { return KOREADER_STORE.hasCredentials() && KOREADER_STORE.getSyncOnWake(); }
 
 bool KOReaderAutoSync::sleepPushEnabled() { return KOREADER_STORE.hasCredentials() && KOREADER_STORE.getSyncOnSleep(); }
@@ -174,6 +196,7 @@ uint64_t KOReaderAutoSync::pushSilentAsync(const std::string& epubPath, const KO
                                            const int spine, const int page, const std::string& title,
                                            const std::string& authors) {
   if (!KOREADER_STORE.hasCredentials()) return 0;
+  if (!heapAllowsBackgroundSession("Silent push")) return 0;
   KOReaderSyncJob job = buildSilentPushJob(epubPath, localKoPos, spine, page, title, authors);
   if (job.progress.document.empty()) {
     LOG_ERR("AutoSync", "Document hash failed for %s", epubPath.c_str());

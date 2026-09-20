@@ -179,8 +179,9 @@ bool UiListActivity::tryOpenSliderFor(const SettingAction action, std::function<
                          [this, action, onDone = std::move(onDone)](const ActivityResult& result) {
                            const auto* pr = std::get_if<PercentResult>(&result.data);
                            if (!result.isCancelled && pr != nullptr) {
-                             SliderSetting::apply(action, static_cast<uint8_t>(pr->percent));
-                             SETTINGS.saveToFile();
+                             if (SliderSetting::apply(action, static_cast<uint8_t>(pr->percent))) {
+                               SETTINGS.saveToFile();
+                             }
                            } else {
                              SliderSetting::cancel(action);
                            }

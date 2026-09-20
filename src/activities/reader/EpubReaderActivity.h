@@ -568,7 +568,6 @@ class EpubReaderActivity final : public Activity {
   KOReaderSyncJob autoSyncPullJob;
   bool autoSyncPullJobPending = false;
   bool autoSyncPullDialogLaunched = false;
-  static constexpr unsigned long AUTO_SYNC_MIN_INTERVAL_MS = 60 * 1000;
   SyncIndicator autoSyncIndicator = SyncIndicator::None;
   void refreshAutoSyncIndicator();
 
@@ -583,6 +582,7 @@ class EpubReaderActivity final : public Activity {
   void maybeAutoPushInterval();
   void pollAutoSyncJob();
   void maybeAutoPushOnSleep();
+  void releaseAutoSyncSlot();
   KOReaderPosition currentKoPosition(int page, int pageCount) const;
 #endif  // CROSSPOINT_KOREADER_AUTOSYNC
 

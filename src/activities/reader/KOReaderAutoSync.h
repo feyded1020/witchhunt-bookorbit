@@ -68,7 +68,11 @@ class KOReaderAutoSync {
   static constexpr unsigned long SLEEP_PUSH_CONNECT_TIMEOUT_MS = 6000;
   static constexpr unsigned long SLEEP_PUSH_JOIN_TIMEOUT_MS = 15000;
 
+  static constexpr unsigned long MIN_INTERVAL_PUSH_GAP_MS = 60 * 1000;
+
   static bool jobActive();
+
+  static bool heapAllowsBackgroundSession(const char* what);
 
   static DocumentMatchMethod effectiveMatchMethod(const std::string& epubPath);
   static std::string documentHashFor(const std::string& epubPath);

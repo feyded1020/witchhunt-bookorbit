@@ -56,6 +56,9 @@ void EpubReaderActivity::maybeAutoPullOnWake() {
   if (KOReaderAutoSync::jobActive() || !autoSyncReaderIsQuiet()) {
     return;
   }
+  if (!KOReaderAutoSync::heapAllowsBackgroundSession("Wake pull")) {
+    return;
+  }
 
   const std::string path = epub->getPath();
   const DocumentMatchMethod method = KOReaderAutoSync::effectiveMatchMethod(path);
@@ -239,7 +242,7 @@ void EpubReaderActivity::maybeAutoPushInterval() {
   if (interval == 0 || AUTOSYNC_STATE.getTurnsSincePush() < interval) {
     return;
   }
-  if ((autoSyncLastPushAt != 0 && millis() - autoSyncLastPushAt < AUTO_SYNC_MIN_INTERVAL_MS) ||
+  if ((autoSyncLastPushAt != 0 && millis() - autoSyncLastPushAt < KOReaderAutoSync::MIN_INTERVAL_PUSH_GAP_MS) ||
       KOReaderAutoSync::jobActive()) {
     return;
   }
@@ -296,6 +299,19 @@ void EpubReaderActivity::serviceAutoSync() {
     AUTOSYNC_STATE.noteProgress(epub->getPath(), currentSpineIndex, section->currentPage);
   }
   maybeAutoPushInterval();
+}
+
+void EpubReaderActivity::releaseAutoSyncSlot() {
+  if (autoSyncPushSeq != 0) {
+    KOReaderAutoSync::finalizeSilentPush(autoSyncPushSeq);
+    autoSyncPushSeq = 0;
+  }
+  if (autoSyncPullSeq != 0) {
+    KOReaderSyncWorker::consume(autoSyncPullSeq);
+    autoSyncPullSeq = 0;
+  }
+  autoSyncPullJob = KOReaderSyncJob{};
+  autoSyncPullJobPending = false;
 }
 
 void EpubReaderActivity::maybeAutoPushOnSleep() {
