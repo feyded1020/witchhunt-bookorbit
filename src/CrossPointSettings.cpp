@@ -258,47 +258,47 @@ int CrossPointSettings::getBuiltinReaderFontId(uint8_t family, uint8_t size) {
     case BOOKERLY:
     default:
       switch (size) {
-        case TINY:
+        case PT_10:
           return BOOKERLY_10_FONT_ID;
-        case SMALL:
+        case PT_12:
           return BOOKERLY_12_FONT_ID;
-        case MEDIUM:
+        case PT_14:
         default:
           return BOOKERLY_14_FONT_ID;
-        case LARGE:
+        case PT_16:
           return BOOKERLY_16_FONT_ID;
-        case EXTRA_LARGE:
+        case PT_18:
           return BOOKERLY_18_FONT_ID;
-        case XX_LARGE:
+        case PT_20:
           return BOOKERLY_20_FONT_ID;
         // Synthesised from the 20 pt master; the scale lives on the ID (see main.cpp).
-        case SIZE_22:
+        case PT_22:
           return BOOKERLY_22_FONT_ID;
-        case SIZE_24:
+        case PT_24:
           return BOOKERLY_24_FONT_ID;
-        case SIZE_26:
+        case PT_26:
           return BOOKERLY_26_FONT_ID;
       }
     case NOTOSANS:
       switch (size) {
-        case TINY:
+        case PT_10:
           return NOTOSANS_10_FONT_ID;
-        case SMALL:
+        case PT_12:
           return NOTOSANS_12_FONT_ID;
-        case MEDIUM:
+        case PT_14:
         default:
           return NOTOSANS_14_FONT_ID;
-        case LARGE:
+        case PT_16:
           return NOTOSANS_16_FONT_ID;
-        case EXTRA_LARGE:
+        case PT_18:
           return NOTOSANS_18_FONT_ID;
-        case XX_LARGE:
+        case PT_20:
           return NOTOSANS_20_FONT_ID;
-        case SIZE_22:
+        case PT_22:
           return NOTOSANS_22_FONT_ID;
-        case SIZE_24:
+        case PT_24:
           return NOTOSANS_24_FONT_ID;
-        case SIZE_26:
+        case PT_26:
           return NOTOSANS_26_FONT_ID;
       }
   }

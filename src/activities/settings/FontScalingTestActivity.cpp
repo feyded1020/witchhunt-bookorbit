@@ -12,113 +12,44 @@
 namespace {
 
 // Short, because the panel is 480 px wide in portrait and 26 pt runs about 25 px per character.
-// Every string here was measured against the shipped advances rather than eyeballed -- the
-// 37-character pangram this started with came to 926 px, nearly twice the screen, and would have
-// been silently clipped at the right edge.
+// Measured against the shipped advances rather than eyeballed -- the 37-character pangram this
+// started with came to 926 px, nearly twice the screen, and would have been silently clipped at
+// the right edge, quietly excluding the end of every line from the comparison.
 //
 // Chosen for the glyphs resampling handles worst rather than for meaning: narrow stems (i, l),
-// diagonals (W, x, v), descenders (j, g, p, q) and a feature a few pixels across (.). Between the
-// specimen and the prose below, all ten are covered.
-constexpr const char* kPangram = "Vex jolly quiz";
-// Running text, for judging a paragraph rather than a specimen line: weight and rhythm across a
-// block are what a reader sees, where an isolated word is judged as a shape.
-constexpr const char* kProse[] = {
-    "The sun had not",
-    "yet risen; the",
-    "grey sea was a",
-    "rumpled cloth.",
-};
-constexpr int kProseLines = sizeof(kProse) / sizeof(kProse[0]);
+// diagonals (V, x), descenders (j, q, y) and a feature a few pixels across (the dot of the i).
+constexpr const char* kSpecimen = "Vex jolly quiz";
 
-struct StyleRow {
-  EpdFontFamily::Style style;
-  const char* label;
-};
-// All four, because italic and bold-italic carry the steepest diagonals and the thinnest joins in
-// the family — if scaling shows anywhere, it shows there first.
-constexpr StyleRow kStyles[] = {
-    {EpdFontFamily::REGULAR, "Regular"},
-    {EpdFontFamily::BOLD, "Bold"},
-    {EpdFontFamily::ITALIC, "Italic"},
-    {EpdFontFamily::BOLD_ITALIC, "Bold Italic"},
-};
-constexpr int kStyleCount = sizeof(kStyles) / sizeof(kStyles[0]);
-
-// Every size the ladder would advertise, in one column, so the progression can be judged as a
-// reader meets it rather than one pair at a time. The question this page answers is not "are
-// these two glyphs alike" but "does the synthesised size sit naturally between its real
-// neighbours" -- a size that is individually defensible can still read as a step out of place.
-//
-// realId 0 means the size has no face of its own and is drawn by scaling `masterId`. 20 pt is now
-// the top real rung, so 22/24/26 come off it at x1.10, x1.20 and x1.30 -- the ladder's own ratios,
-// not a stand-in. An earlier version of this page scaled everything from 18 pt because no 20 pt
-// face existed; the ratios were larger than anything that would ship.
-//
-// 22/24/26 now have font IDs of their own, carrying their scale (see insertScaledFont), so this
-// page draws them through exactly the same IDs the reader selects. The R/S marker comes from
-// GfxRenderer::fontBaseScale() rather than a table here, so it cannot disagree with what ships.
-//
-// A row is marked S when its ID has a base scale -- which is the real definition of synthesised,
-// not something this screen decides.
 struct LadderRow {
   uint8_t pt;
-  int realId;
-  int masterId;
+  int fontId;
 };
-// ONE LADDER PER FAMILY. The first version of this page carried only Bookerly, which made it
-// look as though a Noto artifact seen on the per-style page had gone away -- it had not, the page
-// simply never drew Noto. A comparison screen that silently covers one of the two things being
-// compared is worse than no screen.
+
+// The reader's ladder, exactly as CrossPointSettings::FONT_SIZE_RUNGS defines it. Which rows are
+// real and which are scaled is NOT recorded here -- it is asked of the renderer per row, so this
+// table cannot disagree with what ships.
 constexpr LadderRow kLadderBookerly[] = {
-    {10, BOOKERLY_10_FONT_ID, 0},
-    {12, BOOKERLY_12_FONT_ID, 0},
-    {14, BOOKERLY_14_FONT_ID, 0},
-    {16, BOOKERLY_16_FONT_ID, 0},
-    {18, BOOKERLY_18_FONT_ID, 0},
-    {20, BOOKERLY_20_FONT_ID, 0},
-    {22, BOOKERLY_22_FONT_ID, 0},
-    {24, BOOKERLY_24_FONT_ID, 0},
-    {26, BOOKERLY_26_FONT_ID, 0},
+    {10, BOOKERLY_10_FONT_ID}, {12, BOOKERLY_12_FONT_ID}, {14, BOOKERLY_14_FONT_ID},
+    {16, BOOKERLY_16_FONT_ID}, {18, BOOKERLY_18_FONT_ID}, {20, BOOKERLY_20_FONT_ID},
+    {22, BOOKERLY_22_FONT_ID}, {24, BOOKERLY_24_FONT_ID}, {26, BOOKERLY_26_FONT_ID},
 };
 constexpr LadderRow kLadderNotoSans[] = {
-    {10, NOTOSANS_10_FONT_ID, 0},
-    {12, NOTOSANS_12_FONT_ID, 0},
-    {14, NOTOSANS_14_FONT_ID, 0},
-    {16, NOTOSANS_16_FONT_ID, 0},
-    {18, NOTOSANS_18_FONT_ID, 0},
-    {20, NOTOSANS_20_FONT_ID, 0},
-    {22, NOTOSANS_22_FONT_ID, 0},
-    {24, NOTOSANS_24_FONT_ID, 0},
-    {26, NOTOSANS_26_FONT_ID, 0},
+    {10, NOTOSANS_10_FONT_ID}, {12, NOTOSANS_12_FONT_ID}, {14, NOTOSANS_14_FONT_ID},
+    {16, NOTOSANS_16_FONT_ID}, {18, NOTOSANS_18_FONT_ID}, {20, NOTOSANS_20_FONT_ID},
+    {22, NOTOSANS_22_FONT_ID}, {24, NOTOSANS_24_FONT_ID}, {26, NOTOSANS_26_FONT_ID},
 };
 constexpr int kLadderCount = sizeof(kLadderBookerly) / sizeof(kLadderBookerly[0]);
+static_assert(sizeof(kLadderNotoSans) == sizeof(kLadderBookerly),
+              "the two ladders must cover the same sizes or the comparison is not one");
+static_assert(kLadderCount == static_cast<int>(CrossPointSettings::FONT_SIZE_COUNT),
+              "this screen must show every size the reader offers; a missing row reads as though "
+              "the size does not exist, which is how a Noto artifact once looked like it had gone");
 
 }  // namespace
 
-// 20 pt is the pair we can compare directly, because it is the top real rung and 18 pt sits right
-// below it. 12-from-20 is the reduction case, included because it is the one Jens' reading
-// experience says deteriorates — small text needs sharp edges — and it is the claim the coverage
-// metric is least able to see.
-const FontScalingTestActivity::Page FontScalingTestActivity::kPages[] = {
-    // First, because it frames every page after it: if a synthesised size reads as a step out of
-    // place here, the per-style pairs explain why.
-    {"Bookerly 10-26pt (R real / S scaled)", 0, 0, 0.0f, Mode::Ladder},
-    {"Noto Sans 10-26pt (R real / S scaled)", 1, 0, 0.0f, Mode::Ladder},
-    {"Bookerly 20pt: real vs scaled from 18pt", BOOKERLY_20_FONT_ID, BOOKERLY_18_FONT_ID, 20.0f / 18.0f,
-     Mode::Styles},
-    {"Noto Sans 20pt: real vs scaled from 18pt", NOTOSANS_20_FONT_ID, NOTOSANS_18_FONT_ID, 20.0f / 18.0f,
-     Mode::Styles},
-    {"Bookerly 20pt in running text", BOOKERLY_20_FONT_ID, BOOKERLY_18_FONT_ID, 20.0f / 18.0f, Mode::RunningText},
-    {"Bookerly 12pt: real vs REDUCED from 20pt", BOOKERLY_12_FONT_ID, BOOKERLY_20_FONT_ID, 12.0f / 20.0f,
-     Mode::Styles},
-    {"Bookerly 12pt reduced, running text", BOOKERLY_12_FONT_ID, BOOKERLY_20_FONT_ID, 12.0f / 20.0f,
-     Mode::RunningText},
-};
-const uint8_t FontScalingTestActivity::kPageCount = sizeof(kPages) / sizeof(kPages[0]);
-
 void FontScalingTestActivity::onEnter() {
   Activity::onEnter();
-  page_ = 0;
+  notoSans_ = false;
   requestUpdate();
 }
 
@@ -128,13 +59,9 @@ void FontScalingTestActivity::loop() {
     return;
   }
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm) ||
-      mappedInput.wasPressed(MappedInputManager::Button::PageForward)) {
-    page_ = static_cast<uint8_t>((page_ + 1) % kPageCount);
-    requestUpdate();
-    return;
-  }
-  if (mappedInput.wasPressed(MappedInputManager::Button::PageBack)) {
-    page_ = static_cast<uint8_t>((page_ + kPageCount - 1) % kPageCount);
+      mappedInput.wasPressed(MappedInputManager::Button::PageForward) ||
+      mappedInput.wasPressed(MappedInputManager::Button::PageBack)) {
+    notoSans_ = !notoSans_;
     requestUpdate();
   }
 }
@@ -142,66 +69,26 @@ void FontScalingTestActivity::loop() {
 void FontScalingTestActivity::renderContent() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, /*hasBottomHints=*/true, /*hasSideHints=*/false);
-  const Page& p = kPages[page_];
 
   GUI.drawHeader(renderer,
                  Rect{contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 p.title, nullptr);
+                 notoSans_ ? "Noto Sans 10-26pt (R real / S scaled)" : "Bookerly 10-26pt (R real / S scaled)",
+                 nullptr);
 
   const int leftX = contentRect.x + metrics.verticalSpacing * 2;
-  int y = contentRect.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing * 2;
   const int bottom = contentRect.y + contentRect.height;
-
-  // The real face's line height sets the rhythm for both rows of a pair, so a size difference
-  // between them shows as a difference in the GLYPHS rather than in the leading.
-  const int lineH = renderer.getLineHeight(p.realFontId);
-  const int labelH = renderer.getLineHeight(UI_10_FONT_ID);
-
-  if (p.mode == Mode::Ladder) {
-    renderLadder(contentRect.width, leftX, y, bottom, p.realFontId != 0);
-    return;
-  }
-
-  if (p.mode == Mode::RunningText) {
-    // Interleaved, real line then scaled line, so the eye compares adjacent baselines instead of
-    // holding one block in memory while looking at another.
-    for (int i = 0; i < kProseLines && y + lineH * 2 + labelH < bottom; ++i) {
-      renderer.drawText(UI_10_FONT_ID, leftX, y + labelH, "real", true);
-      renderer.drawText(p.realFontId, leftX + contentRect.width / 6, y + lineH, kProse[i], true);
-      y += lineH;
-      renderer.drawText(UI_10_FONT_ID, leftX, y + labelH, "scaled", true);
-      renderer.drawTextScaled(p.masterFontId, leftX + contentRect.width / 6, y + lineH, kProse[i], true,
-                              EpdFontFamily::REGULAR, p.scale);
-      y += lineH + metrics.verticalSpacing;
-    }
-    return;
-  }
-
-  for (int s = 0; s < kStyleCount && y + lineH * 2 + labelH < bottom; ++s) {
-    renderer.drawText(UI_10_FONT_ID, leftX, y + labelH, kStyles[s].label, true);
-    y += labelH;
-    renderer.drawText(p.realFontId, leftX, y + lineH, kPangram, true, kStyles[s].style);
-    y += lineH;
-    renderer.drawTextScaled(p.masterFontId, leftX, y + lineH, kPangram, true, kStyles[s].style, p.scale);
-    y += lineH + metrics.verticalSpacing;
-  }
-}
-
-void FontScalingTestActivity::renderLadder(const int contentWidth, const int leftX, int y, const int bottom,
-                                           const bool notoSans) const {
-  const LadderRow* const ladder = notoSans ? kLadderNotoSans : kLadderBookerly;
   // A fixed label column so every specimen starts at the same x: the eye compares the left edges
   // of the text, and a ragged start would read as a size difference that is not there.
-  const int textX = leftX + contentWidth * 15 / 100;
-  const int labelH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int textX = leftX + contentRect.width * 15 / 100;
+  int y = contentRect.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing * 2;
 
+  const LadderRow* const ladder = notoSans_ ? kLadderNotoSans : kLadderBookerly;
   for (int i = 0; i < kLadderCount; ++i) {
     const LadderRow& r = ladder[i];
-    const int fontId = r.realId != 0 ? r.realId : r.masterId;
-    // Asked of the renderer, not assumed: a synthesised size carries its scale on its ID, so this
-    // marker reports what will actually be drawn rather than what this table believes.
-    const bool real = renderer.fontBaseScale(fontId) == 1.0f;
-    const int lineH = renderer.getLineHeight(fontId);
+    // Asked of the renderer, not assumed: a synthesised size carries its scale on its font ID, so
+    // this marker reports what will actually be drawn.
+    const bool real = renderer.fontBaseScale(r.fontId) == 1.0f;
+    const int lineH = renderer.getLineHeight(r.fontId);
     if (y + lineH > bottom) break;
 
     char label[12];
@@ -209,8 +96,9 @@ void FontScalingTestActivity::renderLadder(const int contentWidth, const int lef
     // Baseline-aligned with the specimen rather than the row top, so the marker does not read as
     // part of the specimen's own line.
     renderer.drawText(UI_10_FONT_ID, leftX, y + lineH, label, true);
-    // One call for both: drawText() routes a scaled ID to the resampling path itself.
-    renderer.drawText(fontId, textX, y + lineH, kPangram, true);
+    // One call whether the size is real or scaled: drawText() routes a scaled ID to the
+    // resampling path itself, which is the point of putting the scale on the ID.
+    renderer.drawText(r.fontId, textX, y + lineH, kSpecimen, true);
     y += lineH;
   }
 }
@@ -218,17 +106,14 @@ void FontScalingTestActivity::renderLadder(const int contentWidth, const int lef
 void FontScalingTestActivity::render(RenderLock&&) {
   renderer.clearScreen();
   renderContent();
-  // FULL refresh on every page, not FAST. This screen exists to judge glyph edges, and a FAST
-  // refresh leaves the previous page's ink as a differential baseline -- so a ghost of the page
-  // before can sit inside a stem and read exactly like a resampling artifact. Jens hit precisely
-  // that ambiguity and reasonably wondered whether an artifact he had seen was a one-time
-  // rendering effect. Paying ~2 s per page removes the doubt instead of leaving it to be argued
-  // about, which is the only reason this screen is worth having.
+  // FULL, not FAST: see the note on the class. A ghost of the previous page sitting inside a stem
+  // is indistinguishable from a resampling artifact, and ~2 s a page is the right price for not
+  // having to argue about which one you are looking at.
   renderer.displayBuffer(HalDisplay::FULL_REFRESH);
 
   // The whole point is to judge anti-aliased output, so the grayscale passes run unconditionally
-  // here rather than behind SETTINGS.textAntiAliasing: a comparison made with AA off would say
-  // nothing about how the reader will look for anyone who leaves it on, which is the default.
+  // rather than behind SETTINGS.textAntiAliasing: a comparison made with AA off would say nothing
+  // about how the reader looks for anyone who leaves it on, which is the default.
   renderer.setFastGrayscaleLut(SETTINGS.fastAntiAliasing);
   renderer.renderGrayscalePlanesSequential([this](GfxRenderer::RenderMode) { renderContent(); },
                                            [] { return false; });

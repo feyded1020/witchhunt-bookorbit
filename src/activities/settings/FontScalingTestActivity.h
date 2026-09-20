@@ -4,24 +4,28 @@
 
 /// Settings > System > Font Scaling Test.
 ///
-/// Draws a real pre-rendered face beside the same size produced by SCALING a different face, so
-/// the two can be compared by eye on the panel at its true resolution.
+/// The reader's size ladder in one column per family, every rung marked as a real pre-rendered
+/// face or as one rendered by scaling the 20 pt master.
 ///
-/// This exists because the measurements cannot answer the question. bench/font_main.cpp puts the
-/// mean absolute coverage error of an area-weighted resample at 6-8% over the ratios the size
-/// ladder would use, and that number is genuinely reassuring — but MAD is an average over
-/// coverage, and what a reader notices is edge definition and stem weight. Those are exactly what
-/// area weighting trades away: it reconstructs a grey edge where the real face has a crisp one.
-/// A page that reads 6.6% might be indistinguishable or might look soft, and nothing in the
-/// benchmark distinguishes those two outcomes.
+/// It exists because the measurements could not answer the question. bench/font_main.cpp put the
+/// mean absolute coverage error of an area-weighted resample at 6-8% across the ratios the ladder
+/// uses, and scored the two families within 0.1% of each other — but a coverage average cannot see
+/// the edge definition and stem weight a reader notices, so the panel is the instrument and this
+/// is how it gets pointed at the ladder.
 ///
-/// So the decision this screen serves is whether the built-in ladder can ship fewer real faces
-/// and synthesise the rest — worth roughly 0.6 to 1.4 MB of the app partition depending on how
-/// many masters survive.
+/// Draws through the SAME font IDs the reader selects, and takes each row's real/scaled marker
+/// from GfxRenderer::fontBaseScale() rather than a table of its own — so it cannot report a size
+/// as real when it is not, and cannot drift from what ships.
 ///
-/// Deliberately goes through drawTextScaled() and the normal grayscale passes rather than
-/// resampling anything itself. The benchmark's resampler MIRRORS production; this screen must BE
-/// production, including the anti-aliasing planes, or it would answer about the wrong code.
+/// Renders with a FULL refresh per page, not FAST. FAST leaves the previous page as a differential
+/// baseline, and a ghost sitting inside a stem reads exactly like a resampling artifact — which
+/// happened, and cost an afternoon chasing a defect the font path did not have.
+///
+/// It once carried per-style and running-text pages comparing a real face against the same size
+/// scaled from a smaller one. Those answered a question that is now closed — whether to synthesise
+/// sizes at all, and from which master — and kept as decoration they would have implied the reader
+/// still renders 20 pt by scaling 18 pt, or produces some size by reduction, neither of which is
+/// true. What remains is the ladder, which is what a reader meets.
 class FontScalingTestActivity final : public Activity {
  public:
   explicit FontScalingTestActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -32,27 +36,7 @@ class FontScalingTestActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class Mode : uint8_t {
-    Styles,       ///< one specimen line per style, real above scaled
-    RunningText,  ///< a short paragraph, real and scaled lines interleaved
-    Ladder,       ///< every advertised size 10-26 pt in one column
-  };
-
-  /// One comparison: `size` pt drawn for real, against `size` pt scaled from `fromSize`.
-  struct Page {
-    const char* title;
-    int realFontId;  ///< for Mode::Ladder, 0 selects Bookerly and 1 Noto Sans
-    int masterFontId;
-    float scale;  ///< masterFontId is drawn at this scale to reach the real face's size
-    Mode mode;
-  };
-
   void renderContent() const;
-  // Takes the content WIDTH rather than the Rect: Rect lives in GfxRenderer.h, and pulling that
-  // into this header to name one field would be the wrong trade.
-  void renderLadder(int contentWidth, int leftX, int y, int bottom, bool notoSans) const;
 
-  uint8_t page_ = 0;
-  static const Page kPages[];
-  static const uint8_t kPageCount;
+  bool notoSans_ = false;  ///< which family's ladder is showing
 };

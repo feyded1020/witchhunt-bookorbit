@@ -160,7 +160,7 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
 
 static uint8_t targetPtSizeFromEnum(const uint8_t fontSizeEnum) {
   const uint8_t pt = CrossPointSettings::fontSizePoints(fontSizeEnum);
-  return pt != 0 ? pt : CrossPointSettings::fontSizePoints(CrossPointSettings::MEDIUM);
+  return pt != 0 ? pt : CrossPointSettings::fontSizePoints(CrossPointSettings::PT_14);
 }
 
 uint8_t SdCardFontSystem::targetPointSize(const uint8_t fontSizeEnum) { return targetPtSizeFromEnum(fontSizeEnum); }

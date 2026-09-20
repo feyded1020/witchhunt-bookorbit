@@ -26,26 +26,26 @@ TEST(FontSizeLadder, PointSizesAscend) {
 }
 
 TEST(FontSizeLadder, StepsUpThroughEveryVisualSize) {
-  EXPECT_EQ(S::SMALL, S::stepFontSize(S::TINY, 1));
-  EXPECT_EQ(S::MEDIUM, S::stepFontSize(S::SMALL, 1));
-  EXPECT_EQ(S::LARGE, S::stepFontSize(S::MEDIUM, 1));
-  EXPECT_EQ(S::EXTRA_LARGE, S::stepFontSize(S::LARGE, 1));
-  EXPECT_EQ(S::XX_LARGE, S::stepFontSize(S::EXTRA_LARGE, 1));
+  EXPECT_EQ(S::PT_12, S::stepFontSize(S::PT_10, 1));
+  EXPECT_EQ(S::PT_14, S::stepFontSize(S::PT_12, 1));
+  EXPECT_EQ(S::PT_16, S::stepFontSize(S::PT_14, 1));
+  EXPECT_EQ(S::PT_18, S::stepFontSize(S::PT_16, 1));
+  EXPECT_EQ(S::PT_20, S::stepFontSize(S::PT_18, 1));
 }
 
 TEST(FontSizeLadder, StepsDownThroughEveryVisualSize) {
-  EXPECT_EQ(S::EXTRA_LARGE, S::stepFontSize(S::XX_LARGE, -1));
-  EXPECT_EQ(S::LARGE, S::stepFontSize(S::EXTRA_LARGE, -1));
-  EXPECT_EQ(S::MEDIUM, S::stepFontSize(S::LARGE, -1));
-  EXPECT_EQ(S::SMALL, S::stepFontSize(S::MEDIUM, -1));
-  EXPECT_EQ(S::TINY, S::stepFontSize(S::SMALL, -1));
+  EXPECT_EQ(S::PT_18, S::stepFontSize(S::PT_20, -1));
+  EXPECT_EQ(S::PT_16, S::stepFontSize(S::PT_18, -1));
+  EXPECT_EQ(S::PT_14, S::stepFontSize(S::PT_16, -1));
+  EXPECT_EQ(S::PT_12, S::stepFontSize(S::PT_14, -1));
+  EXPECT_EQ(S::PT_10, S::stepFontSize(S::PT_12, -1));
 }
 
 TEST(FontSizeLadder, ClampsRatherThanWrapping) {
   // A pinch that has reached the end should stay there. Wrapping would turn a
   // continued pinch-out into the smallest text on screen.
   //
-  // The ends come from the table rather than being named: this test said XX_LARGE when that
+  // The ends come from the table rather than being named: this test said PT_20 when that
   // happened to be the largest rung, and broke the moment a larger one existed -- which is not a
   // property of clamping, only of which size was on top that week.
   const uint8_t top = S::FONT_SIZE_RUNGS[S::FONT_SIZE_RUNG_COUNT - 1].size;
@@ -113,7 +113,7 @@ TEST(FontSizeLadder, MigrationIsAPermutationSoNoTwoSizesCollapse) {
 }
 
 TEST(FontSizeLadder, MigrationLeavesAValueItDoesNotRecognise) {
-  // v0 had no XX_LARGE, and a hand-edited file can hold anything. Either way the caller's own
+  // v0 had no PT_20, and a hand-edited file can hold anything. Either way the caller's own
   // clamp is the right place to deal with it, not a guess here.
   EXPECT_EQ(200, S::remapLegacyFontSize(200, 0));
 }
@@ -123,7 +123,7 @@ TEST(FontSizeLadder, MigrationLeavesAValueItDoesNotRecognise) {
 TEST(FontSizeLadder, LabelsReadAsPointSizes) {
   // Every rung's label is its own point size with "pt" appended -- checked against the table for
   // all of them rather than spot-checking three, which is what let a stale "24pt" survive here
-  // after XX_LARGE was redefined as 20 pt.
+  // after PT_20 was redefined as 20 pt.
   for (const auto& rung : S::FONT_SIZE_RUNGS) {
     EXPECT_EQ(std::to_string(rung.points) + "pt", S::fontSizeLabel(rung.size));
   }
