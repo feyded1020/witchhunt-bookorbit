@@ -10,8 +10,14 @@
 # name from builtinFonts/all.h, main.cpp and CrossPointSettings.cpp.
 
 READER_FONT_STYLES=("Regular" "Italic" "Bold" "BoldItalic")
-BOOKERLY_FONT_SIZES=(10 12 14 16 18 24)
-NOTOSANS_FONT_SIZES=(10 12 14 16 18 24)
+BOOKERLY_FONT_SIZES=(10 12 14 16 18 20)
+NOTOSANS_FONT_SIZES=(10 12 14 16 18 20)
+
+# Sizes with no face of their own: rendered by SCALING the master below. They still need a font
+# ID, because the renderer keys everything on it -- the section cache included, which is what makes
+# a scaled size cache separately from its master without any extra plumbing.
+SYNTH_FONT_SIZES=(22 24 26)
+SYNTH_FONT_MASTER=20
 
 UI_FONT_STYLES=("Regular" "Bold")
 UI_FONT_SIZES=(10 12 14)

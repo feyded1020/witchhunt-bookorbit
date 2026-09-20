@@ -43,5 +43,32 @@ emit_ids BOOKERLY bookerly READER_FONT_STYLES "${BOOKERLY_FONT_SIZES[@]}"
 emit_ids NOTOSANS notosans READER_FONT_STYLES "${NOTOSANS_FONT_SIZES[@]}"
 emit_ids UI inter_ui UI_FONT_STYLES "${UI_ID_FONT_SIZES[@]}"
 
+# Sizes drawn by scaling a master. Hashed from the MASTER's faces plus the point size, so the ID
+# is still content-derived and still changes when the master is regenerated, while staying
+# distinct from the master's own ID and from the other synthesised sizes.
+synth_id() {  # synth_id pt file...
+  local pt="$1"
+  shift
+  python -c 'import hashlib,sys
+pt = sys.argv[1]
+h = sum(int(hashlib.sha256(open(f,"rb").read()).hexdigest(), 16) for f in sys.argv[2:])
+h += int(hashlib.sha256(("@" + pt + "pt").encode()).hexdigest(), 16)
+print(h % (2 ** 32) - (2 ** 31))' "$pt" "$@"
+}
+
+emit_synth_ids() {  # emit_synth_ids MACRO_PREFIX file_stem
+  local macro="$1" stem="$2" pt style files
+  for pt in "${SYNTH_FONT_SIZES[@]}"; do
+    files=()
+    for style in "${READER_FONT_STYLES[@]}"; do
+      files+=("./${stem}_${SYNTH_FONT_MASTER}_$(echo "$style" | tr '[:upper:]' '[:lower:]').h")
+    done
+    echo "#define ${macro}_${pt}_FONT_ID ($(synth_id "$pt" "${files[@]}"))"
+  done
+}
+
+emit_synth_ids BOOKERLY bookerly
+emit_synth_ids NOTOSANS notosans
+
 # The status/footer font. One face, one size, not on the reader ladder.
 echo "#define SMALL_FONT_ID ($(font_id ./notosans_8_regular.h))"
