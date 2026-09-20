@@ -59,7 +59,11 @@ struct LadderRow {
   int realId;
   int masterId;
 };
-constexpr LadderRow kLadder[] = {
+// ONE LADDER PER FAMILY. The first version of this page carried only Bookerly, which made it
+// look as though a Noto artifact seen on the per-style page had gone away -- it had not, the page
+// simply never drew Noto. A comparison screen that silently covers one of the two things being
+// compared is worse than no screen.
+constexpr LadderRow kLadderBookerly[] = {
     {10, BOOKERLY_10_FONT_ID, 0},
     {12, BOOKERLY_12_FONT_ID, 0},
     {14, BOOKERLY_14_FONT_ID, 0},
@@ -70,7 +74,18 @@ constexpr LadderRow kLadder[] = {
     {24, BOOKERLY_24_FONT_ID, 0},
     {26, 0, BOOKERLY_18_FONT_ID},
 };
-constexpr int kLadderCount = sizeof(kLadder) / sizeof(kLadder[0]);
+constexpr LadderRow kLadderNotoSans[] = {
+    {10, NOTOSANS_10_FONT_ID, 0},
+    {12, NOTOSANS_12_FONT_ID, 0},
+    {14, NOTOSANS_14_FONT_ID, 0},
+    {16, NOTOSANS_16_FONT_ID, 0},
+    {18, NOTOSANS_18_FONT_ID, 0},
+    {20, 0, NOTOSANS_18_FONT_ID},
+    {22, 0, NOTOSANS_18_FONT_ID},
+    {24, NOTOSANS_24_FONT_ID, 0},
+    {26, 0, NOTOSANS_18_FONT_ID},
+};
+constexpr int kLadderCount = sizeof(kLadderBookerly) / sizeof(kLadderBookerly[0]);
 // The point size each scaled row is derived from. One constant rather than per-row, because every
 // scaled row here comes off the same master.
 constexpr float kLadderMasterPt = 18.0f;
@@ -84,7 +99,8 @@ constexpr float kLadderMasterPt = 18.0f;
 const FontScalingTestActivity::Page FontScalingTestActivity::kPages[] = {
     // First, because it frames every page after it: if a synthesised size reads as a step out of
     // place here, the per-style pairs explain why.
-    {"All sizes 10-26pt (R real / S scaled)", 0, 0, 0.0f, Mode::Ladder},
+    {"Bookerly 10-26pt (R real / S scaled)", 0, 0, 0.0f, Mode::Ladder},
+    {"Noto Sans 10-26pt (R real / S scaled)", 1, 0, 0.0f, Mode::Ladder},
     {"Bookerly 24pt: real vs scaled from 18pt", BOOKERLY_24_FONT_ID, BOOKERLY_18_FONT_ID, 24.0f / 18.0f,
      Mode::Styles},
     {"Noto Sans 24pt: real vs scaled from 18pt", NOTOSANS_24_FONT_ID, NOTOSANS_18_FONT_ID, 24.0f / 18.0f,
@@ -139,7 +155,7 @@ void FontScalingTestActivity::renderContent() const {
   const int labelH = renderer.getLineHeight(UI_10_FONT_ID);
 
   if (p.mode == Mode::Ladder) {
-    renderLadder(contentRect.width, leftX, y, bottom);
+    renderLadder(contentRect.width, leftX, y, bottom, p.realFontId != 0);
     return;
   }
 
@@ -168,14 +184,16 @@ void FontScalingTestActivity::renderContent() const {
   }
 }
 
-void FontScalingTestActivity::renderLadder(const int contentWidth, const int leftX, int y, const int bottom) const {
+void FontScalingTestActivity::renderLadder(const int contentWidth, const int leftX, int y, const int bottom,
+                                           const bool notoSans) const {
+  const LadderRow* const ladder = notoSans ? kLadderNotoSans : kLadderBookerly;
   // A fixed label column so every specimen starts at the same x: the eye compares the left edges
   // of the text, and a ragged start would read as a size difference that is not there.
   const int textX = leftX + contentWidth * 15 / 100;
   const int labelH = renderer.getLineHeight(UI_10_FONT_ID);
 
   for (int i = 0; i < kLadderCount; ++i) {
-    const LadderRow& r = kLadder[i];
+    const LadderRow& r = ladder[i];
     const bool real = r.realId != 0;
     const int fontId = real ? r.realId : r.masterId;
     const float scale = real ? 1.0f : r.pt / kLadderMasterPt;
@@ -199,7 +217,13 @@ void FontScalingTestActivity::renderLadder(const int contentWidth, const int lef
 void FontScalingTestActivity::render(RenderLock&&) {
   renderer.clearScreen();
   renderContent();
-  renderer.displayBuffer();
+  // FULL refresh on every page, not FAST. This screen exists to judge glyph edges, and a FAST
+  // refresh leaves the previous page's ink as a differential baseline -- so a ghost of the page
+  // before can sit inside a stem and read exactly like a resampling artifact. Jens hit precisely
+  // that ambiguity and reasonably wondered whether an artifact he had seen was a one-time
+  // rendering effect. Paying ~2 s per page removes the doubt instead of leaving it to be argued
+  // about, which is the only reason this screen is worth having.
+  renderer.displayBuffer(HalDisplay::FULL_REFRESH);
 
   // The whole point is to judge anti-aliased output, so the grayscale passes run unconditionally
   // here rather than behind SETTINGS.textAntiAliasing: a comparison made with AA off would say

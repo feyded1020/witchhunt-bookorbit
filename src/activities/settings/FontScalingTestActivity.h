@@ -41,7 +41,7 @@ class FontScalingTestActivity final : public Activity {
   /// One comparison: `size` pt drawn for real, against `size` pt scaled from `fromSize`.
   struct Page {
     const char* title;
-    int realFontId;
+    int realFontId;  ///< for Mode::Ladder, 0 selects Bookerly and 1 Noto Sans
     int masterFontId;
     float scale;  ///< masterFontId is drawn at this scale to reach the real face's size
     Mode mode;
@@ -50,7 +50,7 @@ class FontScalingTestActivity final : public Activity {
   void renderContent() const;
   // Takes the content WIDTH rather than the Rect: Rect lives in GfxRenderer.h, and pulling that
   // into this header to name one field would be the wrong trade.
-  void renderLadder(int contentWidth, int leftX, int y, int bottom) const;
+  void renderLadder(int contentWidth, int leftX, int y, int bottom, bool notoSans) const;
 
   uint8_t page_ = 0;
   static const Page kPages[];
