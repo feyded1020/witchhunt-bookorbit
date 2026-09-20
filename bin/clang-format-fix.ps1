@@ -97,6 +97,7 @@ $exclude = @(
     'lib\Epub\Epub\hyphenation\generated'
     'lib\uzlib'
     'build'
+    '.claude'
     '.pio'
     '.venv'
     'third_party'
