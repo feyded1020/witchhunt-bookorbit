@@ -25,7 +25,12 @@ class BookOrbitCatalogActivity final : public Activity {
   ListRowTap::Result selectListRow(int index) override;
   void loop() override;
   void render(RenderLock&&) override;
-  bool preventAutoSleep() override { return true; }
+  // Only while the radio is actually working. Blocking sleep on the list screens would keep the
+  // device (and WiFi) awake for as long as the catalog is left open -- the OPDS browser draws the
+  // same line.
+  bool preventAutoSleep() override {
+    return state == State::WIFI || state == State::LOADING || state == State::DOWNLOADING;
+  }
 
  private:
   enum class State { WIFI, LOADING, LIST, DOWNLOADING, DONE, ERROR };

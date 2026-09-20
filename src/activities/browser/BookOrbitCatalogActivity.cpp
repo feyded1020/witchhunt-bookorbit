@@ -119,7 +119,9 @@ void BookOrbitCatalogActivity::onWifiReady(const bool connected) {
     loadCurrent();
     return;
   }
-  WiFi.setSleep(false);
+  // Modem sleep stays ON here, unlike the sync path: browsing is idle most of the time, and a
+  // catalog request being a few hundred ms slower costs nothing next to holding the radio awake
+  // for the whole session.
   HalClock::ensureUsableForTls(SETTINGS.ntpServer);
   loadCurrent();
 }
