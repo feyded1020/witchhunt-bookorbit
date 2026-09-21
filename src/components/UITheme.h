@@ -68,6 +68,14 @@ class UITheme {
   // Side hints occupy the physical right edge on X4, and both physical sides on X3.
   // The mapping to logical edges is orientation-dependent.
   static Rect getContentRect(const GfxRenderer& renderer, bool hasBottomHints, bool hasSideHints);
+  // The top strip the header, clock and battery are drawn in.
+  //
+  // Full width even on a screen that reserves the side edge for button hints, because those
+  // boxes sit at mid-height and the header is one topPadding from the top. Building the header
+  // from the narrowed content rect instead pulls the clock and battery inward by the width of
+  // the side strip, which is why they sit further right on Home -- the one screen of these that
+  // reserves no side edge -- than on any other.
+  static Rect getHeaderRect(const GfxRenderer& renderer);
   static std::string getCoverThumbPath(std::string coverBmpPath, int coverHeight);
   static std::string getCoverThumbPath(std::string coverBmpPath, int width, int height);
   // Edge length of the "this book has no usable cover" marker BMP written by
