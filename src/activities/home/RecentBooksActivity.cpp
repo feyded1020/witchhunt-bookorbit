@@ -6,6 +6,8 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+
+#include <cstdio>
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -293,7 +295,8 @@ void RecentBooksActivity::openOptionsForSelectedBook() {
   const auto& book = recentBooks[selectorIndex];
   const std::string label = book.title.empty() ? book.path : book.title;
   startActivityForResult(
-      std::make_unique<RecentBookOptionsActivity>(renderer, mappedInput, label), [this](const ActivityResult& result) {
+      std::make_unique<RecentBookOptionsActivity>(renderer, mappedInput, label, BOOKORBIT_STORE.hasCredentials()),
+      [this](const ActivityResult& result) {
         if (result.isCancelled) {
           requestUpdate();
           return;
@@ -432,6 +435,9 @@ void RecentBooksActivity::loop() {
       case RecentBookOptionsActivity::Action::Open:
         openSelectedBook(false);
         return;
+      case RecentBookOptionsActivity::Action::OpenAndSync:
+        openSelectedBook(true);
+        return;
       case RecentBookOptionsActivity::Action::Info:
         showSelectedBookInfo();
         return;
@@ -450,10 +456,18 @@ void RecentBooksActivity::loop() {
 
   ButtonEventManager::ButtonEvent ev;
   while (buttonEvents.consumeEvent(ev)) {
-    // Confirm short/long: open book (long = KOReader sync for EPUBs)
-    if (ev.button == MappedInputManager::Button::Confirm &&
-        (ev.type == ButtonEventManager::PressType::Short || ev.type == ButtonEventManager::PressType::Long)) {
-      openSelectedBook(ev.type == ButtonEventManager::PressType::Long);
+    // Confirm long: the options menu. MUST come before the short-press branch below -- a single
+    // branch matching both press types is what made the menu unreachable, since holding Open
+    // simply opened the book (with a sync pull) instead.
+    if (ev.button == MappedInputManager::Button::Confirm && ev.type == ButtonEventManager::PressType::Long) {
+      openOptionsForSelectedBook();
+      return;
+    }
+
+    // Confirm short: open the book. "Open and sync", which used to be this hold, is a row in the
+    // menu now.
+    if (ev.button == MappedInputManager::Button::Confirm && ev.type == ButtonEventManager::PressType::Short) {
+      openSelectedBook(false);
       return;
     }
 
@@ -516,14 +530,6 @@ void RecentBooksActivity::loop() {
         requestUpdate();
       }
       continue;
-    }
-
-    // Confirm long: the options menu. Every action in it is also on a direction-and-hold
-    // shortcut below, but those name Left/Right keys the X4 Pro does not have, and holding
-    // Select works on any board -- including by holding the on-screen Select button.
-    if (ev.button == MappedInputManager::Button::Confirm && ev.type == ButtonEventManager::PressType::Long) {
-      openOptionsForSelectedBook();
-      return;
     }
 
     // Left long: remove selected book (both views)
@@ -635,8 +641,12 @@ void RecentBooksActivity::renderListView(RenderLock&&) {
     const int hintY = contentRect.y + contentRect.height - metrics.verticalSpacing - 14;
     // On a board whose Left/Right live on the touch strip, naming those directions tells the
     // reader nothing they can act on. Point at the one gesture that works everywhere instead.
+    // Name the button as this screen labels it: the Confirm slot reads "Open" here, and a hint
+    // that says "Select" sends the reader looking for a button that is not on the screen.
+    char holdHint[48];
+    snprintf(holdHint, sizeof(holdHint), tr(STR_HOLD_FOR_OPTIONS_FORMAT), tr(STR_OPEN));
     const std::string hint = mappedInput.hasTouch()
-                                 ? std::string(tr(STR_HOLD_SELECT_OPTIONS))
+                                 ? std::string(holdHint)
                                  : std::string(tr(STR_DIR_UP)) + "+L: " + tr(STR_VIEW_GRID) + "/" +
                                        tr(STR_VIEW_LIST) + "   " + tr(STR_DIR_LEFT) + "+L: " + tr(STR_REMOVE) +
                                        "   " + tr(STR_DIR_RIGHT) + "+L: " + tr(STR_INFO);
