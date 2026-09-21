@@ -691,6 +691,11 @@ void setupDisplayAndFonts(bool seamless = false, bool skipSdFontDiscovery = fals
   }
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
+  // Bound once and never rebound: applyUiFontScale() leaves these alone, because their whole
+  // purpose is to be the size that does not move when the ladder does.
+  renderer.insertFont(FIT_SMALL_FONT_ID, smallFontFamily);
+  renderer.insertFont(FIT_BODY_FONT_ID, ui10FontFamily);
+  renderer.insertFont(FIT_TITLE_FONT_ID, ui12FontFamily);
   renderer.insertFont(BOOKERLY_14_FONT_ID, bookerly14FontFamily);
   renderer.insertFont(BOOKERLY_10_FONT_ID, bookerly10FontFamily);
   renderer.insertFont(BOOKERLY_12_FONT_ID, bookerly12FontFamily);

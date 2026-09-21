@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "RecentBooksStore.h"
+#include "UiFontScale.h"
 #include "components/BookProgressPresentation.h"
 #include "components/UITheme.h"
 #include "components/icons/book.h"
@@ -455,9 +456,19 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
     if (labels[i] != nullptr && labels[i][0] != '\0') {
       // Draw the filled background and border for a FULL-sized button
       renderer.fillRoundedRect(x, fullY, buttonWidth, buttonHeight, cornerRadius, Color::White);
-      const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
+      // Fit the label to the box. The box is a fixed width while the label's font grows with the
+      // UI font size, so at a large size a long label runs out of BOTH ends of its own box --
+      // the text is centred, so the overflow is symmetrical -- and sprawls across its neighbours.
+      //
+      // Shrink before clipping: a whole word a size smaller is still the word, where "Down..."
+      // is a guess at which of Down and Download the button means. Clipping is the last resort
+      // for a label too long even at the smaller face.
+      const int labelFont =
+          renderer.getTextWidth(SMALL_FONT_ID, labels[i]) > buttonWidth - 4 ? FIT_SMALL_FONT_ID : SMALL_FONT_ID;
+      const std::string label = renderer.truncatedText(labelFont, labels[i], buttonWidth - 4);
+      const int textWidth = renderer.getTextWidth(labelFont, label.c_str());
       const int textX = x + (buttonWidth - 1 - textWidth) / 2;
-      renderer.drawText(SMALL_FONT_ID, textX, fullY + textYOffset, labels[i]);
+      renderer.drawText(labelFont, textX, fullY + textYOffset, label.c_str());
       renderer.drawRoundedRect(x, fullY, buttonWidth, buttonHeight, 1, cornerRadius, roundTop, roundTop, roundBottom,
                                roundBottom, true);
     } else {
