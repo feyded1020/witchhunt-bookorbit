@@ -35,7 +35,7 @@ class FileContextMenuActivity final : public MenuListActivity {
       GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& filePath = "",
       CrossPointSettings::FILE_SORT_MODE sortMode = CrossPointSettings::SORT_BY_NAME,
       CrossPointSettings::FILE_SORT_DIRECTION sortDirection = CrossPointSettings::SORT_ASCENDING,
-      bool offerOpen = false);
+      bool offerOpen = false, bool offerRemove = false);
 
   void render(RenderLock&&) override;
 
@@ -46,6 +46,9 @@ class FileContextMenuActivity final : public MenuListActivity {
   // it the menu is the only thing Confirm can reach on a board with no Confirm key, and a folder
   // could not be entered from a button at all.
   bool offerOpen;
+  // Browser mode with a directory selected also offers Remove. doRemove() has taken an
+  // isDirectory flag and called removeDirRecursive() all along; nothing ever passed true.
+  bool offerRemove;
 
   // Display option state, edited inline via DynamicEnum and returned on close.
   // Sort state is per-session (held by FileBrowserActivity); visibility toggles

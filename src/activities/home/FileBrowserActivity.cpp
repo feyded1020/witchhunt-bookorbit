@@ -188,6 +188,17 @@ bool FileBrowserActivity::handleCustomInput() {
       return true;
     }
 
+    // ...and the page-back slot makes a folder, so moving a book somewhere new does not mean
+    // backing out of the picker, creating it, and starting the move again. A folders-only list
+    // is short enough that losing page-back to it costs little, and the side keys and a swipe
+    // still scroll.
+    if (model.getMode() == Mode::PickFolder &&
+        MappedInputManager::isDirection(ev.button, MappedInputManager::Direction::Left) &&
+        ev.type == ButtonEventManager::PressType::Short) {
+      createFolderHere();
+      return true;
+    }
+
     // Picking a destination: the page-forward slot commits instead. It is the one slot that is a
     // real key on a board that has them and a tappable box on one that does not, so the commit is
     // reachable everywhere without a hold. Paging stays on Left, the side keys and a swipe.
@@ -467,7 +478,9 @@ void FileBrowserActivity::drawFooter() {
   // Options is then the long press on Right. In a folder that fits on one screen there is nothing
   // to page, so the strip looks exactly as it always did.
   const bool pages = listPages();
-  const char* prevLabel = pages ? tr(STR_LIST_PAGE_PREV) : "";
+  const char* prevLabel = (model.getMode() == Mode::PickFolder) ? tr(STR_NEW)
+                          : pages                                ? tr(STR_LIST_PAGE_PREV)
+                                                                 : "";
   // Upstream puts Options on the page-forward slot in a folder too small to page. Where Confirm
   // already carries Options, that would draw the same word twice on one strip -- and the second
   // one is on a slot this board has no key for.
@@ -605,8 +618,9 @@ void FileBrowserActivity::openContextMenu() {
 
   const std::string entry = model.entryName(static_cast<size_t>(nav.selected));
   if (entry.empty() || entry.back() == '/') {
-    // A directory has no file actions, but it does have one thing worth doing: going into it.
-    showBrowserOptionsMenu(/*offerOpen=*/!entry.empty());
+    // A directory has no file actions, but it does have two things worth doing: going into it,
+    // and deleting it.
+    showBrowserOptionsMenu(/*offerOpen=*/!entry.empty(), entry);
     return;
   }
 
@@ -630,11 +644,19 @@ void FileBrowserActivity::openContextMenu() {
                          });
 }
 
-void FileBrowserActivity::showBrowserOptionsMenu(const bool offerOpen) {
+void FileBrowserActivity::showBrowserOptionsMenu(const bool offerOpen, const std::string& dirEntry) {
+  // Resolved now rather than in the handler: the menu cannot change the selection while it is
+  // open, but reading it back afterwards is a dependency on that staying true.
+  const bool isDir = !dirEntry.empty();
+  std::string dirPath = model.path();
+  if (isDir) {
+    if (dirPath.back() != '/') dirPath += "/";
+    dirPath += dirEntry.substr(0, dirEntry.length() - 1);
+  }
   startActivityForResult(
       std::make_unique<FileContextMenuActivity>(renderer, mappedInput, "", model.getSortMode(),
-                                                model.getSortDirection(), offerOpen),
-      [this](const ActivityResult& res) {
+                                                model.getSortDirection(), offerOpen, isDir),
+      [this, isDir, dirPath, dirEntry](const ActivityResult& res) {
         if (res.isCancelled) {
           requestUpdate();
           return;
@@ -647,9 +669,15 @@ void FileBrowserActivity::showBrowserOptionsMenu(const bool offerOpen) {
         // Open is only ever offered here for a directory, so it means enter it. Deferred the
         // way every other menu answer is: the menu has to be off screen before the next one
         // is built.
-        if (static_cast<FileContextMenuActivity::Action>(menuRes->action) ==
-            FileContextMenuActivity::Action::Open) {
+        const auto chosen = static_cast<FileContextMenuActivity::Action>(menuRes->action);
+        if (chosen == FileContextMenuActivity::Action::Open) {
           activateSelected(false);
+          return;
+        }
+        if (chosen == FileContextMenuActivity::Action::Remove && isDir) {
+          // The recursive delete and its confirmation were already here, reachable only for
+          // files. This is the call that was missing.
+          doRemove(dirPath, dirEntry.substr(0, dirEntry.length() - 1), /*isDirectory=*/true);
           return;
         }
         handleContextMenuAction(menuRes->action, "", "", menuRes);

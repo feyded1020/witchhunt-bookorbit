@@ -13,11 +13,12 @@ FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedIn
                                                  const std::string& filePath,
                                                  CrossPointSettings::FILE_SORT_MODE sortMode,
                                                  CrossPointSettings::FILE_SORT_DIRECTION sortDirection,
-                                                 const bool offerOpen)
+                                                 const bool offerOpen, const bool offerRemove)
     : MenuListActivity("FileContextMenu", renderer, mappedInput),
       filePath(filePath),
       isBrowserMode(filePath.empty()),
       offerOpen(offerOpen),
+      offerRemove(offerRemove),
       sortMode(static_cast<uint8_t>(sortMode)),
       sortDirection(static_cast<uint8_t>(sortDirection)),
       showHiddenFiles(SETTINGS.showHiddenFiles),
@@ -71,6 +72,9 @@ void FileContextMenuActivity::buildMenuItems() {
   if (isBrowserMode) {
     menuItems.push_back(SettingInfo::Separator(StrId::STR_TOOL_UTILITIES));
     menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
+    // Deleting a folder you just made should not need a computer. Last, and below the
+    // separator, because it is the one row here that cannot be undone.
+    if (offerRemove) menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
     return;
   }
 

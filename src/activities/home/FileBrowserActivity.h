@@ -49,7 +49,7 @@ class FileBrowserActivity final : public UiListActivity {
   [[nodiscard]] int listPageSize() const;
   [[nodiscard]] bool listPages() const;
   void pageSelection(int direction);
-  void showBrowserOptionsMenu(bool offerOpen = false);
+  void showBrowserOptionsMenu(bool offerOpen = false, const std::string& dirEntry = {});
   void activateSelected(bool longPress);
   void resetNavigation(int selected = 0);
   void materializeListWindow();
