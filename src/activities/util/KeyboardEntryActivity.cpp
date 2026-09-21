@@ -1,5 +1,6 @@
 #include "KeyboardEntryActivity.h"
 
+#include <HalCapabilities.h>
 #include <HalGPIO.h>
 #include <I18n.h>
 
@@ -625,25 +626,41 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   // the block taller, so the number of LINES has to be known before the first one can be given a
   // y. drawCenteredText centres without a width to respect, so at the large UI font step these
   // sentences simply ran off both edges of the screen.
+  // Every tip that starts with "Hold" needs Confirm held ACROSS TIME -- the handlers above test
+  // isPressed(Confirm) against getHeldTime(). A board with no Confirm pin never sees that: X4
+  // Pro's capacitive Home key emits press and release in the same pass, so the held time never
+  // accumulates, and holding the key is a BACK anyway. Those tips point at a gesture the
+  // hardware cannot make.
+  //
+  // Nothing is lost by dropping them there. Uppercase and secondary characters are what the
+  // on-screen shift and #@! keys do, one tap each, and they are already on the screen. The
+  // shortcut exists for boards where reaching shift costs several presses of a direction key,
+  // which is the arrangement it was written for and where it still shows.
+  //
+  // The "Press ..." tips are not gated: they name a key, not a hold, and work on any board.
+  const bool canHoldConfirm = HalCapabilities::hasBackAndConfirmButtons();
+
   const char* tips[3] = {nullptr, nullptr, nullptr};
   int tipCount = 0;
   if (cursorMode) {
     tips[tipCount++] = tr(STR_KB_HINT_RETURN_KEYBOARD);
   } else if (urlMode) {
     tips[tipCount++] = tr(STR_KB_HINT_EXIT_URL_MODE);
-    if (!text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
+    if (canHoldConfirm && !text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
   } else if (symMode) {
-    if (!text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
+    if (canHoldConfirm && !text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
   } else {
-    if (inputType == InputType::Url) {
-      tips[tipCount++] = tr(STR_KB_HINT_SECONDARY_CHAR);
-    } else if (shiftState > 0) {
-      tips[tipCount++] = tr(STR_KB_HINT_LOWER_SECONDARY);
-    } else {
-      tips[tipCount++] = tr(STR_KB_HINT_UPPER_SECONDARY);
+    if (canHoldConfirm) {
+      if (inputType == InputType::Url) {
+        tips[tipCount++] = tr(STR_KB_HINT_SECONDARY_CHAR);
+      } else if (shiftState > 0) {
+        tips[tipCount++] = tr(STR_KB_HINT_LOWER_SECONDARY);
+      } else {
+        tips[tipCount++] = tr(STR_KB_HINT_UPPER_SECONDARY);
+      }
     }
     if (inputType == InputType::Url) tips[tipCount++] = tr(STR_KB_HINT_URL_SNIPPETS);
-    if (!text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
+    if (canHoldConfirm && !text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
   }
 
   if (tipCount > 0) {
