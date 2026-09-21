@@ -223,6 +223,25 @@ bool KeyboardEntryActivity::handleKeyboardTouch() {
     return false;
   };
 
+  // A hold on the DEL key clears the field.
+  //
+  // Upstream binds that to holding Confirm while DEL is selected, which needs Confirm held
+  // across time. A board with no Confirm pin cannot produce it: X4 Pro's capacitive Home key
+  // reports a tap as press and release in one pass, and holding it is a BACK. So the capability
+  // was not merely hard to reach there, it was gone, leaving one backspace at a time.
+  //
+  // It lives on the key itself now, which is what the tip names anyway. Tested before the tap,
+  // since the hold fires while the finger is down and the lift would otherwise delete one
+  // character on top of the clear.
+  if (mappedInput.peekScreenLongPressIn(static_cast<touchtransform::Orientation>(renderer.getOrientation()), x, y) &&
+      hit(x, y) && isBottomRow(row) && col == static_cast<int>(SpecialKeyType::Del)) {
+    mappedInput.suppressTouchContact();
+    text.clear();
+    cursorPos = 0;
+    requestUpdate();
+    return true;
+  }
+
   // Claimed but not acted on, so the release that follows cannot also be read as something else.
   if (mappedInput.wasScreenTouchDown(x, y) && hit(x, y)) return true;
   if (!mappedInput.wasScreenTapped(x, y) || !hit(x, y)) return false;
@@ -640,6 +659,10 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   //
   // The "Press ..." tips are not gated: they name a key, not a hold, and work on any board.
   const bool canHoldConfirm = HalCapabilities::hasBackAndConfirmButtons();
+  // Clearing the field survives on a keyless board, because the hold moved onto the DEL key
+  // itself. The uppercase shortcut did not, and needs no replacement: shift and #@! are on the
+  // screen doing the same job in one tap.
+  const bool canClearByHold = canHoldConfirm || mappedInput.hasTouch();
 
   const char* tips[3] = {nullptr, nullptr, nullptr};
   int tipCount = 0;
@@ -647,9 +670,9 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     tips[tipCount++] = tr(STR_KB_HINT_RETURN_KEYBOARD);
   } else if (urlMode) {
     tips[tipCount++] = tr(STR_KB_HINT_EXIT_URL_MODE);
-    if (canHoldConfirm && !text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
+    if (canClearByHold && !text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
   } else if (symMode) {
-    if (canHoldConfirm && !text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
+    if (canClearByHold && !text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
   } else {
     if (canHoldConfirm) {
       if (inputType == InputType::Url) {
@@ -661,7 +684,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
       }
     }
     if (inputType == InputType::Url) tips[tipCount++] = tr(STR_KB_HINT_URL_SNIPPETS);
-    if (canHoldConfirm && !text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
+    if (canClearByHold && !text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
   }
 
   if (tipCount > 0) {
