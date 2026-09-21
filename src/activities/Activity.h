@@ -82,6 +82,22 @@ class Activity {
   // Left/Right buttons mean something other than list paging override this boundary.
   virtual bool pageList(ListPageDirection /*direction*/) { return false; }
 
+ protected:
+  // A HOLD on a row of the list this screen painted. Returns true and fills `index` with the
+  // item held, having claimed the contact; false when the hold was somewhere else, or there is
+  // no digitiser, leaving it for whoever wants it.
+  //
+  // Called from the screen's OWN loop(), not from a dispatcher, because what a screen does with
+  // it is open another activity -- which belongs on the path that already starts activities.
+  //
+  // It exists because on a board with no Back or Confirm pin a HOLD of either is not a gesture
+  // the hardware can make: X4 Pro's capacitive Home key is both buttons, and HalGPIO turns a
+  // tap on it into CONFIRM and a hold into BACK. Anything a screen hangs on "hold Select" is
+  // therefore unreachable there, while a hold on the row itself works on every board.
+  bool consumeListRowLongPress(int& index);
+
+ public:
+
   // Return true while this activity owns the raw serial input stream (e.g. the
   // USB serial file-transfer activity reading a binary protocol). When true,
   // main.cpp's line-based `CMD:` handler skips reading logSerial so it can't

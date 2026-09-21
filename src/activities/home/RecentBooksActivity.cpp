@@ -404,16 +404,21 @@ bool RecentBooksActivity::hitBookAt(const int x, const int y, int& index) {
 bool RecentBooksActivity::handleBookLongPress() {
   if (!mappedInput.hasTouch() || recentBooks.empty()) return false;
 
-  int x = 0;
-  int y = 0;
-  if (!mappedInput.peekScreenLongPressIn(static_cast<touchtransform::Orientation>(renderer.getOrientation()), x, y)) {
+  int index = -1;
+  if (APP_STATE.recentBooksGridView) {
+    // The cover grid is not a recorded row band, so it hit-tests its own geometry rather than
+    // going through Activity::consumeListRowLongPress().
+    int x = 0;
+    int y = 0;
+    if (!mappedInput.peekScreenLongPressIn(static_cast<touchtransform::Orientation>(renderer.getOrientation()), x, y)) {
+      return false;
+    }
+    if (!hitBookAt(x, y, index)) return false;
+    mappedInput.suppressTouchContact();
+  } else if (!consumeListRowLongPress(index) || index >= static_cast<int>(recentBooks.size())) {
     return false;
   }
 
-  int index = -1;
-  if (!hitBookAt(x, y, index)) return false;
-
-  mappedInput.suppressTouchContact();
   // The menu names the book it is about, so the selection has to follow the finger first --
   // a hold on one cover must not open the options for whichever one was highlighted before.
   selectorIndex = index;

@@ -51,3 +51,25 @@ void Activity::startActivityForResult(std::unique_ptr<Activity>&& activity, Acti
 void Activity::setResult(ActivityResult&& result) { this->result = std::move(result); }
 
 void Activity::finish() { activityManager.popActivity(); }
+
+bool Activity::consumeListRowLongPress(int& index) {
+  if (!mappedInput.hasTouch()) return false;
+
+  // Live orientation, not Portrait: GUI.drawList() paints in whatever orientation the renderer
+  // is in, so that is the frame its rows were recorded in. Only the hint strip forces Portrait.
+  int x = 0;
+  int y = 0;
+  if (!mappedInput.peekScreenLongPressIn(static_cast<touchtransform::Orientation>(renderer.getOrientation()), x, y)) {
+    return false;
+  }
+
+  const int row = ListTouchBand::hitTest(x, y);
+  if (row < 0) return false;
+
+  // peek + suppress, the contract ActivityManager::dispatchHintStripTap() uses: claimed only
+  // once the hold is known to be over a row, so a hold anywhere else still reaches the strip.
+  // Claiming it also stops the lift that ends the hold reading as a tap on the same row.
+  mappedInput.suppressTouchContact();
+  index = row;
+  return true;
+}

@@ -133,6 +133,22 @@ bool FileBrowserActivity::removeDirRecursive(const std::string& fullPath) {
 }
 
 bool FileBrowserActivity::handleCustomInput() {
+  // A hold on a row opens that row's context menu. Before the button queue, and before the tap
+  // routing further down loop(), because the hold fires while the finger is still down and the
+  // lift would otherwise open the file on top of the menu.
+  //
+  // The menu's other route is a long press on logical Right, which on a board with no Left or
+  // Right pin exists only as a long tap on a hint box. X4 Pro is that board -- see
+  // consumeListRowLongPress() -- so without this, Delete and the rest are effectively behind a
+  // gesture the hardware cannot make.
+  int heldRow = -1;
+  if (consumeListRowLongPress(heldRow) && heldRow < listCount()) {
+    app.clearTapFlash();
+    nav.selected = heldRow;
+    openContextMenu();
+    return true;
+  }
+
   ButtonEventManager::ButtonEvent ev;
   while (buttonEvents.consumeEvent(ev)) {
     if (ev.button == MappedInputManager::Button::Back) {
