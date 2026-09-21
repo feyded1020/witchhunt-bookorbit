@@ -12,10 +12,12 @@
 FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                  const std::string& filePath,
                                                  CrossPointSettings::FILE_SORT_MODE sortMode,
-                                                 CrossPointSettings::FILE_SORT_DIRECTION sortDirection)
+                                                 CrossPointSettings::FILE_SORT_DIRECTION sortDirection,
+                                                 const bool offerOpen)
     : MenuListActivity("FileContextMenu", renderer, mappedInput),
       filePath(filePath),
       isBrowserMode(filePath.empty()),
+      offerOpen(offerOpen),
       sortMode(static_cast<uint8_t>(sortMode)),
       sortDirection(static_cast<uint8_t>(sortDirection)),
       showHiddenFiles(SETTINGS.showHiddenFiles),
@@ -25,6 +27,12 @@ FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedIn
 
 void FileContextMenuActivity::buildMenuItems() {
   auto* self = this;
+
+  // Open leads, above the display options, because entering the folder is what someone opening
+  // this menu on a directory almost always came for.
+  if (offerOpen) {
+    menuItems.push_back(SettingInfo::Action(StrId::STR_OPEN, SettingAction::None));
+  }
 
   // --- Display options (always shown: files, directories, unsupported types) ---
   menuItems.push_back(SettingInfo::Separator(StrId::STR_SORT_BY));

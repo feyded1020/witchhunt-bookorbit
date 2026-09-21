@@ -431,7 +431,12 @@ void FileBrowserActivity::drawFooter() {
   // to page, so the strip looks exactly as it always did.
   const bool pages = listPages();
   const char* prevLabel = pages ? tr(STR_LIST_PAGE_PREV) : "";
-  const char* nextLabel = pages ? tr(STR_LIST_PAGE_NEXT) : (showOptionsHint ? tr(STR_OPTIONS) : "");
+  // Upstream puts Options on the page-forward slot in a folder too small to page. Where Confirm
+  // already carries Options, that would draw the same word twice on one strip -- and the second
+  // one is on a slot this board has no key for.
+  const char* nextLabel = pages                            ? tr(STR_LIST_PAGE_NEXT)
+                          : (showOptionsHint && !confirmOpensOptions()) ? tr(STR_OPTIONS)
+                                                                        : "";
   // Paging is bound to logical Left/Right and stepping to logical Up/Down, so which physical pair
   // carries which — and therefore which hint strip each label belongs on — is the orientation's
   // business, not this screen's.
@@ -464,7 +469,8 @@ void FileBrowserActivity::openContextMenu() {
 
   const std::string entry = model.entryName(static_cast<size_t>(nav.selected));
   if (entry.empty() || entry.back() == '/') {
-    showBrowserOptionsMenu();
+    // A directory has no file actions, but it does have one thing worth doing: going into it.
+    showBrowserOptionsMenu(/*offerOpen=*/!entry.empty());
     return;
   }
 
@@ -488,21 +494,30 @@ void FileBrowserActivity::openContextMenu() {
                          });
 }
 
-void FileBrowserActivity::showBrowserOptionsMenu() {
-  startActivityForResult(std::make_unique<FileContextMenuActivity>(renderer, mappedInput, "", model.getSortMode(),
-                                                                   model.getSortDirection()),
-                         [this](const ActivityResult& res) {
-                           if (res.isCancelled) {
-                             requestUpdate();
-                             return;
-                           }
-                           const auto* menuRes = std::get_if<MenuResult>(&res.data);
-                           if (!menuRes) {
-                             requestUpdate();
-                             return;
-                           }
-                           handleContextMenuAction(menuRes->action, "", "", menuRes);
-                         });
+void FileBrowserActivity::showBrowserOptionsMenu(const bool offerOpen) {
+  startActivityForResult(
+      std::make_unique<FileContextMenuActivity>(renderer, mappedInput, "", model.getSortMode(),
+                                                model.getSortDirection(), offerOpen),
+      [this](const ActivityResult& res) {
+        if (res.isCancelled) {
+          requestUpdate();
+          return;
+        }
+        const auto* menuRes = std::get_if<MenuResult>(&res.data);
+        if (!menuRes) {
+          requestUpdate();
+          return;
+        }
+        // Open is only ever offered here for a directory, so it means enter it. Deferred the
+        // way every other menu answer is: the menu has to be off screen before the next one
+        // is built.
+        if (static_cast<FileContextMenuActivity::Action>(menuRes->action) ==
+            FileContextMenuActivity::Action::Open) {
+          activateSelected(false);
+          return;
+        }
+        handleContextMenuAction(menuRes->action, "", "", menuRes);
+      });
 }
 
 void FileBrowserActivity::handleContextMenuAction(int action, const std::string& fullPath, const std::string& entry,

@@ -32,13 +32,18 @@ class FileContextMenuActivity final : public MenuListActivity {
   explicit FileContextMenuActivity(
       GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& filePath = "",
       CrossPointSettings::FILE_SORT_MODE sortMode = CrossPointSettings::SORT_BY_NAME,
-      CrossPointSettings::FILE_SORT_DIRECTION sortDirection = CrossPointSettings::SORT_ASCENDING);
+      CrossPointSettings::FILE_SORT_DIRECTION sortDirection = CrossPointSettings::SORT_ASCENDING,
+      bool offerOpen = false);
 
   void render(RenderLock&&) override;
 
  private:
   std::string filePath;  // Empty string = browser options mode (no file selected)
   bool isBrowserMode;
+  // Browser mode with a DIRECTORY selected: the menu leads with Open, which enters it. Without
+  // it the menu is the only thing Confirm can reach on a board with no Confirm key, and a folder
+  // could not be entered from a button at all.
+  bool offerOpen;
 
   // Display option state, edited inline via DynamicEnum and returned on close.
   // Sort state is per-session (held by FileBrowserActivity); visibility toggles
