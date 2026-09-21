@@ -433,9 +433,14 @@ void FileBrowserActivity::drawChrome() {
   const Rect contentRect = UITheme::getContentRect(renderer, true, true);
   const std::string here =
       (model.path() == "/") ? std::string(tr(STR_SD_CARD)) : model.path().substr(model.path().rfind('/') + 1);
+  // While picking, the header names the DESTINATION in full, not just the folder's own name.
+  // "Move here" means the folder being browsed, never the row under the highlight, and the first
+  // reading of it is the other way round -- so the header has to settle it before the button is
+  // pressed rather than after.
+  const std::string destination = (model.path() == "/") ? std::string(tr(STR_SD_CARD)) : model.path();
   std::string folderName = (model.getMode() == Mode::PickFirmware) ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
                            : (model.getMode() == Mode::PickFolder)
-                               ? std::string(tr(STR_MOVE_TO_FOLDER)) + ": " + here
+                               ? std::string(tr(STR_MOVE_TO_FOLDER)) + ": " + destination
                                : here;
   GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer),
                  folderName.c_str());

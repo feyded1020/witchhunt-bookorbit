@@ -116,6 +116,10 @@ void FileContextMenuActivity::buildMenuItems() {
   // Every file can be moved, whatever its type: on a FAT volume this is a rename, and rename
   // does not care what the bytes are.
   menuItems.push_back(SettingInfo::Action(StrId::STR_MOVE_TO_FOLDER, SettingAction::None));
+  // New Folder makes one in the directory being browsed, which has nothing to do with the row
+  // that happens to be highlighted. Listing it only in browser mode meant it vanished the moment
+  // a book was selected -- the one time you are most likely to want somewhere to put it.
+  menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
 }
 
 void FileContextMenuActivity::finishWithDisplayOptions(Action action) {
