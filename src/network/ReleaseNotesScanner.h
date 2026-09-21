@@ -10,7 +10,9 @@
 // own "body" field and keeps the first NOTES_MAX characters, which is all the dialog can show.
 class ReleaseNotesScanner {
  public:
-  static constexpr size_t NOTES_MAX = 400;
+  // Sized to what the dialog can show: ten lines of roughly fifty characters. Held as one
+  // std::string, so this is the entire memory cost however long the release notes are.
+  static constexpr size_t NOTES_MAX = 500;
 
   void feed(const char* data, const size_t len) {
     for (size_t i = 0; i < len && !finished; i++) {

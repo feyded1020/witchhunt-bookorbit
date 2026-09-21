@@ -9,6 +9,7 @@
 #include "activities/NetworkMemoryTrim.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/ConfirmDialog.h"
+#include "network/ReleaseNotesScanner.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
@@ -82,7 +83,7 @@ namespace {
 // Release notes are written for a web page, so they arrive with markdown in them. Strip the
 // markup the panel cannot render and keep the words: headings lose their #, bold and code lose
 // their markers, links keep their text, and runs of blank lines collapse.
-std::string plainNotes(const std::string& markdown) {
+std::string plainNotes(const std::string& markdown, const bool truncated) {
   std::string out;
   out.reserve(markdown.size());
   bool lineStart = true;
@@ -111,6 +112,20 @@ std::string plainNotes(const std::string& markdown) {
     lineStart = false;
   }
   while (!out.empty() && (out.back() == '\n' || out.back() == ' ')) out.pop_back();
+
+  // The scanner stops at a fixed number of characters, which lands mid-word as often as not.
+  // Drop back to the last line that ended on its own so the text finishes on a whole thought,
+  // and say that there is more rather than leaving a sentence hanging.
+  if (truncated) {
+    const size_t lastBreak = out.rfind('\n');
+    if (lastBreak != std::string::npos && lastBreak > out.size() / 2) {
+      out.resize(lastBreak);
+    } else {
+      const size_t lastSpace = out.rfind(' ');
+      if (lastSpace != std::string::npos && lastSpace > out.size() / 2) out.resize(lastSpace);
+    }
+    out += "\n...";
+  }
   return out;
 }
 }  // namespace
@@ -122,7 +137,9 @@ void OtaUpdateActivity::buildConfirmScreen(UiScreen& screen) {
   updateDialogBody = std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION + "\n" +
                      std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion();
   // What changed, so the answer to "Update?" is an informed one rather than a leap.
-  const std::string notes = plainNotes(updater.getReleaseNotes());
+  // A body that filled the scanner's buffer was almost certainly cut mid-sentence.
+  const std::string& raw = updater.getReleaseNotes();
+  const std::string notes = plainNotes(raw, raw.size() >= ReleaseNotesScanner::NOTES_MAX);
   if (!notes.empty()) {
     updateDialogBody += "\n\n" + notes;
   }
