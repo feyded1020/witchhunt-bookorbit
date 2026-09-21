@@ -38,6 +38,7 @@
 #include "components/themes/ListTouchBand.h"
 #include "components/themes/TapTargets.h"
 #include "fontIds.h"
+#include "UiFontScale.h"
 
 // Internal constants
 namespace {
@@ -458,12 +459,17 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       // Fit the label to the box. The box is a fixed 80px while the label's font grows with the
       // UI font size, so at a large size a long label runs out of BOTH ends of its own box --
       // the text is centred, so overflow is symmetrical -- and sprawls across its neighbours.
-      // A clipped word still says which button does what; a word lying across two boxes does
-      // not say which of them it belongs to.
-      const std::string label = renderer.truncatedText(SMALL_FONT_ID, labels[i], buttonWidth - 4);
-      const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, label.c_str());
+      //
+      // Shrink before clipping: a whole word a size smaller is still the word, where "Down..."
+      // is a guess at which of Down and Download the button means. Clipping stays as the last
+      // resort for a label too long even at the smaller face.
+      const int labelFont = renderer.getTextWidth(SMALL_FONT_ID, labels[i]) > buttonWidth - 4
+                                ? FIT_SMALL_FONT_ID
+                                : SMALL_FONT_ID;
+      const std::string label = renderer.truncatedText(labelFont, labels[i], buttonWidth - 4);
+      const int textWidth = renderer.getTextWidth(labelFont, label.c_str());
       const int textX = x + (buttonWidth - 1 - textWidth) / 2;
-      renderer.drawText(SMALL_FONT_ID, textX, fullY + textYOffset, label.c_str());
+      renderer.drawText(labelFont, textX, fullY + textYOffset, label.c_str());
       renderer.drawRoundedRect(x, fullY, buttonWidth, buttonHeight, 1, cornerRadius, roundTop, roundTop, roundBottom,
                                roundBottom, true);
     } else {

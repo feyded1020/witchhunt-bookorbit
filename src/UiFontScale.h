@@ -11,6 +11,25 @@
 // named after the family they carry at the DEFAULT step, and each step up SETTINGS.uiFontSize
 // rebinds them one rung higher. Keeping them logical is what makes the setting a two-line
 // change instead of a rename across ~600 call sites.
+// Font IDs bound permanently to the DEFAULT step's faces, whatever SETTINGS.uiFontSize is.
+//
+// The three slots above all move together: at the large step SMALL_FONT_ID is already the
+// smallest of them, so a piece of chrome that must fit a fixed box has nothing to fall back to.
+// This is that fallback. It costs no flash -- the face is compiled in either way, since the
+// default step draws everything with it -- only a second entry in the font map.
+//
+// They are for chrome whose geometry is FIXED and cannot grow with the text: the button hint
+// boxes, and a dashboard like the weather screen whose panels are sized in constants. Growing
+// the text inside a box that cannot grow does not make it more readable, it makes it overlap
+// the line below and the box beside it. Small and legible beats large and overlapping.
+//
+// Not hashed names like the ids in fontIds.h (that file is generated from the font files, and
+// these are second bindings of faces already in it), so they are small constants chosen to be
+// nowhere near the hash space.
+inline constexpr int FIT_SMALL_FONT_ID = -1001;
+inline constexpr int FIT_BODY_FONT_ID = -1002;
+inline constexpr int FIT_TITLE_FONT_ID = -1003;
+
 namespace UiFontLadder {
 
 // Line height (EpdFontData::advanceY) of each slot at each step, indexed by
