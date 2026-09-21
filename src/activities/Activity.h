@@ -94,6 +94,17 @@ class Activity {
   // here so the capture matches the display. Default is a no-op.
   virtual void prepareFramebufferForCapture() {}
 
+  // True when transitions INTO or OUT OF this activity must not paint a busy indicator. Checked
+  // on both ends, because the reasons run both directions:
+  //
+  //  - Sleep and the frontlight drawer paint by COMPOSITING onto whatever the write framebuffer
+  //    already holds. An indicator syncs the displayed frame into that buffer and swaps, so it
+  //    changes the very thing they are about to composite onto -- the sleep cover then appears
+  //    over the previous screen plus the indicator.
+  //  - Boot already shows a splash, so marking the hand-off to Home paints over it for nothing.
+  //  - Leaving a lightweight overlay is fast by construction; there is no wait to acknowledge.
+  virtual bool suppressesBusyIndicator() const { return false; }
+
   // Return true to suppress the minute-tick requestUpdate() from ActivityManager when nothing
   // status-bar-relevant has changed since the last render. Skipping avoids a no-op page render
   // followed by a no-diff e-ink refresh, which on X3 panels accumulates visible speckle.
