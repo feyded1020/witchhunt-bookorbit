@@ -63,7 +63,10 @@ class ChapterHtmlSlimParser final : public Print {
   std::function<void(int)> progressFn;  // Progress callback (0-100)
   int depth = 0;
   int skipUntilDepth = INT_MAX;
-  int skipTextUntilDepth = INT_MAX;  // skip character data inside synthetic zero-height spacer <p>
+  // Skip character data (words only; elements, images and spacing proceed) below this depth:
+  // synthetic zero-height spacer <p>, and elements whose text is transparent (color /
+  // -webkit-text-fill-color: transparent, alpha-zero colours). Single slot, shallowest wins.
+  int skipTextUntilDepth = INT_MAX;
   int boldUntilDepth = INT_MAX;
   int italicUntilDepth = INT_MAX;
   int underlineUntilDepth = INT_MAX;

@@ -97,10 +97,12 @@ constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
 // Layout: 4 enum bytes + 11 lengths + display byte + definedBits uint16 + 2 vertAlign bytes + cssFloat byte
 //         + smallCaps byte + fontSizeMultiplier float + fontSize flags byte + block flags byte
 //         (listStyleNone / pageBreakBefore / pageBreakAfter value+defined pairs)
+//         + visibility flags byte (colorTransparent / opacityZero / visibilityHidden value+defined pairs; v19)
 constexpr size_t CSS_FIXED_STYLE_BYTES = 4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
                                          sizeof(uint8_t) + sizeof(uint16_t) + 2 * sizeof(uint8_t) + sizeof(uint8_t) +
-                                         sizeof(uint8_t) + sizeof(float) + sizeof(uint8_t) + sizeof(uint8_t);
-static_assert(CSS_FIXED_STYLE_BYTES == 72,
+                                         sizeof(uint8_t) + sizeof(float) + sizeof(uint8_t) + sizeof(uint8_t) +
+                                         sizeof(uint8_t);
+static_assert(CSS_FIXED_STYLE_BYTES == 73,
               "style payload layout changed — update read/writeCssStylePayload and bump CSS_CACHE_VERSION");
 
 // Cache file name (version is CssParser::CSS_CACHE_VERSION)
@@ -414,6 +416,41 @@ bool CssParser::interpretImageSize(const std::string_view v, CssLength& out) {
 
 // Declaration parsing
 
+namespace {
+// "0", "0.0", ".0", "0%" -> true. No strtof: it is locale-sensitive and this only has to recognise
+// zero. Leading/trailing spaces tolerated because the value inside rgba( ... ) is not re-normalised.
+bool isZeroNumber(std::string_view s) {
+  while (!s.empty() && s.front() == ' ') s.remove_prefix(1);
+  while (!s.empty() && (s.back() == ' ' || s.back() == '%')) s.remove_suffix(1);
+  if (s.empty()) return false;
+  bool sawDigit = false;
+  for (const char c : s) {
+    if (c == '0')
+      sawDigit = true;
+    else if (c != '.')
+      return false;
+  }
+  return sawDigit;
+}
+
+// A colour value that paints nothing: the keyword, an rgba()/hsla() with alpha 0, or a hex
+// colour with an alpha channel of 00 (#rrggbb00, #rgb0). Six-digit hex has no alpha, so
+// #000000 is opaque black even though it ends in "00". Values are already lowercased.
+bool isTransparentColour(const std::string_view v) {
+  if (v == "transparent") return true;
+  if ((v.rfind("rgba(", 0) == 0 || v.rfind("hsla(", 0) == 0) && v.back() == ')') {
+    const size_t lastComma = v.rfind(',');
+    if (lastComma == std::string_view::npos) return false;
+    return isZeroNumber(v.substr(lastComma + 1, v.size() - lastComma - 2));
+  }
+  if (!v.empty() && v.front() == '#') {
+    if (v.size() == 9) return v[7] == '0' && v[8] == '0';
+    if (v.size() == 5) return v[4] == '0';
+  }
+  return false;
+}
+}  // namespace
+
 void CssParser::parseDeclarationIntoStyle(const std::string_view decl, CssStyle& style, std::string& propNameBuf,
                                           std::string& propValueBuf) {
   const size_t colonPos = decl.find(':');
@@ -505,6 +542,45 @@ void CssParser::parseDeclarationIntoStyle(const std::string_view decl, CssStyle&
     if (interpretImageSize(propValueBuf, len)) {
       style.imageWidth = len;
       style.defined.imageWidth = 1;
+    }
+  } else if (propNameBuf == "color" || propNameBuf == "-webkit-text-fill-color") {
+    // Only the INVISIBLE value defines the property. A visible colour UNDEFINES it instead of
+    // defining it false, for two reasons: a rule that only sets `color: red` still counts as
+    // "nothing we use" and stays out of the rule cache (see the SkipsRulesWithoutSupportedDeclarations
+    // test -- on a monochrome panel every book's colour rules would otherwise be retained for
+    // nothing); and within one declaration list `color: transparent; color: black` still ends
+    // visible, because black clears what transparent set. Across separate rules a later visible
+    // colour cannot cancel an earlier transparent one -- accepted: OCR layers do not toggle
+    // transparency by class. Cascade keywords (inherit/initial/unset/currentcolor) touch nothing.
+    const std::string_view val = propValueBuf;
+    if (isTransparentColour(val)) {
+      style.colorTransparent = true;
+      style.defined.colorTransparent = 1;
+    } else if (val != "inherit" && val != "initial" && val != "unset" && val != "currentcolor") {
+      style.colorTransparent = false;
+      style.defined.colorTransparent = 0;
+    }
+  } else if (propNameBuf == "visibility") {
+    // Same convention as color: hidden/collapse define, visible undefines.
+    const std::string_view val = propValueBuf;
+    if (val == "hidden" || val == "collapse") {
+      style.visibilityHidden = true;
+      style.defined.visibilityHidden = 1;
+    } else if (val == "visible") {
+      style.visibilityHidden = false;
+      style.defined.visibilityHidden = 0;
+    }
+  } else if (propNameBuf == "opacity") {
+    // Only fully transparent is invisible; 0.5 is dim and stays -- and, per the convention
+    // above, a non-zero number undefines rather than defining false. A value that is not a plain
+    // number (calc(), var()) leaves the property alone rather than guessing.
+    const std::string_view val = propValueBuf;
+    if (isZeroNumber(val)) {
+      style.opacityZero = true;
+      style.defined.opacityZero = 1;
+    } else if (!val.empty() && (val.front() == '.' || (val.front() >= '0' && val.front() <= '9'))) {
+      style.opacityZero = false;
+      style.defined.opacityZero = 0;
     }
   } else if (propNameBuf == "display") {
     const std::string_view displayValue = propValueBuf;
@@ -1317,6 +1393,16 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   style.defined.pageBreakBefore = (blockFlags & 0x08) != 0 ? 1 : 0;
   style.pageBreakAfter = (blockFlags & 0x10) != 0;
   style.defined.pageBreakAfter = (blockFlags & 0x20) != 0 ? 1 : 0;
+  uint8_t visibilityFlags = 0;
+  if (file.read(&visibilityFlags, 1) != 1) {
+    return false;
+  }
+  style.colorTransparent = (visibilityFlags & 0x01) != 0;
+  style.defined.colorTransparent = (visibilityFlags & 0x02) != 0 ? 1 : 0;
+  style.opacityZero = (visibilityFlags & 0x04) != 0;
+  style.defined.opacityZero = (visibilityFlags & 0x08) != 0 ? 1 : 0;
+  style.visibilityHidden = (visibilityFlags & 0x10) != 0;
+  style.defined.visibilityHidden = (visibilityFlags & 0x20) != 0 ? 1 : 0;
   return true;
 }
 
@@ -1377,6 +1463,12 @@ void CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
                              (style.pageBreakBefore ? 0x04 : 0x00) | (style.defined.pageBreakBefore ? 0x08 : 0x00) |
                              (style.pageBreakAfter ? 0x10 : 0x00) | (style.defined.pageBreakAfter ? 0x20 : 0x00);
   file.write(blockFlags);
+  // Visibility flags byte (v19): value/defined pairs, same convention.
+  const uint8_t visibilityFlags = (style.colorTransparent ? 0x01 : 0x00) |
+                                  (style.defined.colorTransparent ? 0x02 : 0x00) | (style.opacityZero ? 0x04 : 0x00) |
+                                  (style.defined.opacityZero ? 0x08 : 0x00) | (style.visibilityHidden ? 0x10 : 0x00) |
+                                  (style.defined.visibilityHidden ? 0x20 : 0x00);
+  file.write(visibilityFlags);
 }
 
 void CssParser::touchHotRule(const std::string& selector) const {
@@ -1629,7 +1721,7 @@ bool CssParser::ensureCacheIndexLoaded() const {
 
 // --- Sparse CssStyle compression for the resident pool ---
 // A style is serialized to a canonical, SPARSE record: only the fields the 'defined' mask
-// flags are written (a real rule sets a handful of 24 properties). Because the encoding is
+// flags are written (a real rule sets a handful of 27 properties). Because the encoding is
 // canonical, two equivalent styles produce identical bytes, so dedup is a memcmp — and lookup
 // decompresses back to a full CssStyle. Values are copied with memcpy so the byte-packed
 // (unaligned) records are safe to read on the C3.
@@ -1637,21 +1729,29 @@ bool CssParser::ensureCacheIndexLoaded() const {
 // Worst case: 4 (mask) + 2 (packed enums) + 11 lengths * 5 + 2 multipliers * 4 = 69 bytes.
 constexpr size_t kMaxCompressedStyle = 4 + 2 + 11 * 5 + 2 * 4;
 
-// Canonical 24-bit "which properties are set" mask. Bit order is the pool's dedup key and must
-// stay stable within a build (the pool is rebuilt each load, so it never persists to disk).
+// Canonical "which properties are set" mask: 27 defined bits (0-26), then the three boolean
+// VALUES of the invisibility properties in bits 27-29 -- the uint16 of enum values below is
+// full. (By the CssStyle invariant a defined invisibility property is currently always true, so
+// these value bits mirror bits 24-26; they are carried for uniformity, not information.) Bit
+// order is the pool's dedup key and must stay stable within a build (the pool is rebuilt each
+// load, so it never persists to disk).
 static uint32_t packDefinedMask(const CssPropertyFlags& d) {
   return (d.textAlign << 0) | (d.fontStyle << 1) | (d.fontWeight << 2) | (d.textDecoration << 3) | (d.textIndent << 4) |
          (d.marginTop << 5) | (d.marginBottom << 6) | (d.marginLeft << 7) | (d.marginRight << 8) | (d.paddingTop << 9) |
          (d.paddingBottom << 10) | (d.paddingLeft << 11) | (d.paddingRight << 12) | (d.imageHeight << 13) |
          (d.imageWidth << 14) | (d.display << 15) | (d.verticalAlign << 16) | (d.listStyleNone << 17) |
          (d.pageBreakBefore << 18) | (d.pageBreakAfter << 19) | (d.lineHeight << 20) | (d.fontSizeMultiplier << 21) |
-         (d.cssFloat << 22) | (d.smallCaps << 23);
+         (d.cssFloat << 22) | (d.smallCaps << 23) | (d.colorTransparent << 24) | (d.opacityZero << 25) |
+         (d.visibilityHidden << 26);
 }
 
 // Serialize `s` into `out` (>= kMaxCompressedStyle bytes); returns the record length.
 static size_t compressStyle(const CssStyle& s, uint8_t* out) {
   uint8_t* p = out;
-  const uint32_t mask = packDefinedMask(s.defined);
+  uint32_t mask = packDefinedMask(s.defined);
+  if (s.defined.colorTransparent && s.colorTransparent) mask |= 1u << 27;
+  if (s.defined.opacityZero && s.opacityZero) mask |= 1u << 28;
+  if (s.defined.visibilityHidden && s.visibilityHidden) mask |= 1u << 29;
   std::memcpy(p, &mask, 4);
   p += 4;
   uint16_t enums = 0;
@@ -1734,6 +1834,12 @@ static void decompressStyle(const uint8_t* in, CssStyle& out) {
   d.fontSizeMultiplier = isDefined(21);
   d.cssFloat = isDefined(22);
   d.smallCaps = isDefined(23);
+  d.colorTransparent = isDefined(24);
+  d.opacityZero = isDefined(25);
+  d.visibilityHidden = isDefined(26);
+  if (d.colorTransparent) out.colorTransparent = ((mask >> 27) & 1u) != 0;
+  if (d.opacityZero) out.opacityZero = ((mask >> 28) & 1u) != 0;
+  if (d.visibilityHidden) out.visibilityHidden = ((mask >> 29) & 1u) != 0;
   if (d.textAlign) out.textAlign = static_cast<CssTextAlign>(enums & 7u);
   if (d.fontStyle) out.fontStyle = static_cast<CssFontStyle>((enums >> 3) & 1u);
   if (d.fontWeight) out.fontWeight = static_cast<CssFontWeight>((enums >> 4) & 1u);

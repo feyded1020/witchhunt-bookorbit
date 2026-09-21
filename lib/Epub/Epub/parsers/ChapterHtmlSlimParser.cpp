@@ -1441,11 +1441,24 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     cssStyle.defined.display = 1;
   }
 
-  // Skip elements with display:none before all fast paths (tables, links, etc.).
-  if (cssStyle.hasDisplay() && cssStyle.display == CssDisplay::None) {
+  // Skip elements with display:none before all fast paths (tables, links, etc.). `opacity: 0`
+  // and `visibility: hidden` take the same exit: the element and everything in it -- images
+  // included -- is invisible, and an invisible block that still took its space would be a
+  // blank page on an e-reader, not fidelity.
+  if ((cssStyle.hasDisplay() && cssStyle.display == CssDisplay::None) || cssStyle.isElementHidden()) {
     self->skipUntilDepth = self->depth;
     self->depth += 1;
     return;
+  }
+
+  // Transparent text is different: the element stays (structure, images, spacing), only its
+  // words are dropped, via the same text-only skip the zero-height spacer uses. `<` rather than
+  // `=`: a transparent element nested inside a transparent ancestor must not shorten the
+  // ancestor's scope, and the reset in endElement only fires at the depth that set it.
+  // Known limit of the single slot: a descendant's explicit `color: black` cannot re-enable
+  // text inside a transparent ancestor. No OCR layer does that; a stack would if one ever does.
+  if (cssStyle.isTextTransparent() && self->depth < self->skipTextUntilDepth) {
+    self->skipTextUntilDepth = self->depth;
   }
 
   self->observeFontSizeBaseline(name, cssStyle);
@@ -2175,7 +2188,9 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
       self->startNewTextBlock(blockStyle);
       self->updateEffectiveInlineStyle();
 
-      self->skipTextUntilDepth = self->depth;
+      // `<`, not `=`: inside a transparent-text ancestor the slot already holds a shallower
+      // depth, and overwriting it would end the ancestor's scope when this spacer closes.
+      if (self->depth < self->skipTextUntilDepth) self->skipTextUntilDepth = self->depth;
       self->depth += 1;
       return;
     }
@@ -2870,7 +2885,7 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
     self->skipUntilDepth = INT_MAX;
   }
 
-  // Leaving zero-height spacer paragraph text-skip scope
+  // Leaving a text-skip scope (zero-height spacer paragraph, or a transparent-text element)
   if (self->skipTextUntilDepth == self->depth) {
     self->skipTextUntilDepth = INT_MAX;
   }
