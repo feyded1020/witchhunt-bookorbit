@@ -934,6 +934,12 @@ void ActivityManager::showBusyIndicator() {
   // there is no pendingActivity, which is exactly the drawer-exit case the source check covers.
   if (currentActivity->suppressesBusyIndicator()) return;
   if (pendingActivity && pendingActivity->suppressesBusyIndicator()) return;
+  // A HALF/FULL clean is armed for the screen that is about to be drawn. Shipping an indicator
+  // would CONSUME it (every ship goes through consumeRefreshOverride): the indicator pays for the
+  // clean, and the destination silently loses the one it was scheduled -- ghosting debt that does
+  // not surface for many page turns. Measured on X4 Pro: the promoted HALF cost a 112 ms push and
+  // a 1269 ms drain. Skip instead; the transition is about to repaint anyway.
+  if (renderer.hasRefreshOverridePending()) return;
 
   RenderLock lock;
 
