@@ -157,9 +157,6 @@ bool FileBrowserActivity::handleCustomInput() {
           mappedInput.flushTouchEvents();
           model.setPath(std::move(parent));  // empty -> "/"
           model.load();
-          mappedInput.flushTouchEvents();  // see activateSelected(): load() is long enough to
-                                           // let a fresh contact through behind this one
-          buttonEvents.drain();
           const auto pos = oldPath.find_last_of('/');
           const std::string dirName = oldPath.substr(pos + 1) + "/";
           const size_t idx = model.findEntry(dirName);
@@ -283,17 +280,6 @@ void FileBrowserActivity::activateSelected(const bool longPress) {
     mappedInput.flushTouchEvents();
     model.setPath(std::move(child));
     model.load();
-    // And again, because load() is the slow part: reading and sorting a directory takes long
-    // enough that the panel can report a whole contact while it runs, and that one is not
-    // covered by the flush above. It was aimed at the folder being left, but it arrives to find
-    // the new one on screen and gets routed to whatever row now sits under it -- which is the
-    // selection moving on its own, just after the new contents appear.
-    mappedInput.flushTouchEvents();
-    // Same for buttons. Changing folder is not an activity transition, so none of
-    // ActivityManager's drain applies here, yet the list underneath is replaced just as
-    // completely: a step queued against the old folder must not move the selection in the new
-    // one. Nav keys are how this screen is driven, so this is the likelier half of the two.
-    buttonEvents.drain();
     resetNavigation();
     requestUpdate();
     return;
