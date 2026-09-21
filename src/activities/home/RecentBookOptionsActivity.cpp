@@ -74,6 +74,8 @@ std::string RecentBookOptionsActivity::labelFor(const Action action) {
       return std::string(tr(STR_INFO));
     case Action::Remove:
       return std::string(tr(STR_REMOVE));
+    case Action::Controls:
+      return std::string(tr(STR_CONTROLS));
   }
   return std::string();
 }

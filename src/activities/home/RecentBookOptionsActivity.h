@@ -15,7 +15,7 @@ class RecentBookOptionsActivity final : public Activity {
  public:
   // Open and sync is offered only with a BookOrbit account configured, so the row order is not
   // fixed: the chosen Action is what comes back, never a row number.
-  enum class Action : int { Open = 0, OpenAndSync = 1, Info = 2, Remove = 3 };
+  enum class Action : int { Open = 0, OpenAndSync = 1, Info = 2, Remove = 3, Controls = 4 };
 
   explicit RecentBookOptionsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string bookTitle,
                                      bool offerSync)
@@ -24,6 +24,7 @@ class RecentBookOptionsActivity final : public Activity {
     if (offerSync) actions.push_back(Action::OpenAndSync);
     actions.push_back(Action::Info);
     actions.push_back(Action::Remove);
+    actions.push_back(Action::Controls);
   }
 
   void onEnter() override;

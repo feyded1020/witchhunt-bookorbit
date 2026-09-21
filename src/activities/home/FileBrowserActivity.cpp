@@ -27,6 +27,7 @@
 #include <HalCapabilities.h>
 
 #include "FileContextMenuActivity.h"
+#include "../util/ControlsActivity.h"
 #include "BookOrbitCredentialStore.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -158,6 +159,7 @@ bool FileBrowserActivity::handleCustomInput() {
           model.load();
           mappedInput.flushTouchEvents();  // see activateSelected(): load() is long enough to
                                            // let a fresh contact through behind this one
+          buttonEvents.drain();
           const auto pos = oldPath.find_last_of('/');
           const std::string dirName = oldPath.substr(pos + 1) + "/";
           const size_t idx = model.findEntry(dirName);
@@ -261,6 +263,11 @@ void FileBrowserActivity::activateSelected(const bool longPress) {
     // the new one on screen and gets routed to whatever row now sits under it -- which is the
     // selection moving on its own, just after the new contents appear.
     mappedInput.flushTouchEvents();
+    // Same for buttons. Changing folder is not an activity transition, so none of
+    // ActivityManager's drain applies here, yet the list underneath is replaced just as
+    // completely: a step queued against the old folder must not move the selection in the new
+    // one. Nav keys are how this screen is driven, so this is the likelier half of the two.
+    buttonEvents.drain();
     resetNavigation();
     requestUpdate();
     return;
@@ -468,6 +475,26 @@ bool FileBrowserActivity::confirmOpensOptions() const {
   return model.getMode() == Mode::Books && !HalCapabilities::hasBackAndConfirmButtons();
 }
 
+// See RecentBooksActivity::showControls(): only what this board can actually do, and only what
+// the hint strip cannot already say.
+void FileBrowserActivity::showControls() {
+  std::vector<ControlsActivity::Entry> entries;
+
+  if (mappedInput.hasTouch()) {
+    entries.push_back({tr(STR_OPEN), tr(STR_TAP_TWICE)});
+  }
+  // Where Confirm carries Options the strip says so, and repeating a visible button is noise.
+  // Where it does not, Options is a hold of the page-forward key and nothing announces that.
+  if (!confirmOpensOptions()) {
+    char held[48];
+    snprintf(held, sizeof(held), tr(STR_HOLD_FORMAT), tr(STR_LIST_PAGE_NEXT));
+    entries.push_back({tr(STR_OPTIONS), held});
+  }
+
+  startActivityForResult(std::make_unique<ControlsActivity>(renderer, mappedInput, std::move(entries)),
+                         [this](const ActivityResult&) { requestUpdate(); });
+}
+
 void FileBrowserActivity::openContextMenu() {
   // If no file selected or a directory selected, show browser options only
   if (model.entryCount() == 0 || nav.selected < 0 || nav.selected >= listCount()) {
@@ -532,6 +559,11 @@ void FileBrowserActivity::handleContextMenuAction(int action, const std::string&
                                                   const MenuResult* menuRes) {
   using Action = FileContextMenuActivity::Action;
   const Action actionEnum = static_cast<Action>(action);
+
+  if (actionEnum == Action::Controls) {
+    showControls();
+    return;
+  }
 
   // Display options: apply sort + visibility state returned from the menu.
   if (actionEnum == Action::DisplayOptionsChanged) {

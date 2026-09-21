@@ -1,6 +1,7 @@
 #include "RecentBooksActivity.h"
 
 #include "RecentBookOptionsActivity.h"
+#include "../util/ControlsActivity.h"
 
 #include <Bitmap.h>
 #include <Epub.h>
@@ -292,6 +293,34 @@ void RecentBooksActivity::switchViewMode(bool grid) {
   requestUpdate(true);
 }
 
+// What this screen can do that its hint strip cannot say.
+//
+// Only gestures THIS board can make: a hold of Select or of a direction key does not exist on a
+// board with no such key, and a hold of a row does not exist without a digitiser. Listing one
+// anyway is how the strip came to promise a gesture the hardware answers with Back.
+void RecentBooksActivity::showControls() {
+  std::vector<ControlsActivity::Entry> entries;
+  char held[48];
+  const auto hold = [&held](const char* button) {
+    snprintf(held, sizeof(held), tr(STR_HOLD_FORMAT), button);
+    return std::string(held);
+  };
+
+  if (mappedInput.hasTouch()) {
+    entries.push_back({tr(STR_OPTIONS), tr(STR_HOLD_BOOK)});
+    entries.push_back({tr(STR_OPEN), tr(STR_TAP_TWICE)});
+  }
+  if (HalCapabilities::hasBackAndConfirmButtons()) {
+    entries.push_back({tr(STR_OPEN_AND_SYNC), hold(tr(STR_SELECT))});
+    entries.push_back({std::string(tr(STR_VIEW_GRID)) + "/" + tr(STR_VIEW_LIST), hold(tr(STR_DIR_UP))});
+    entries.push_back({tr(STR_REMOVE), hold(tr(STR_DIR_LEFT))});
+    entries.push_back({tr(STR_INFO), hold(tr(STR_DIR_RIGHT))});
+  }
+
+  startActivityForResult(std::make_unique<ControlsActivity>(renderer, mappedInput, std::move(entries)),
+                         [this](const ActivityResult&) { requestUpdate(); });
+}
+
 void RecentBooksActivity::openOptionsForSelectedBook() {
   if (recentBooks.empty() || selectorIndex < 0 || selectorIndex >= static_cast<int>(recentBooks.size())) return;
   const auto& book = recentBooks[selectorIndex];
@@ -496,6 +525,9 @@ void RecentBooksActivity::loop() {
         return;
       case RecentBookOptionsActivity::Action::Remove:
         removeSelectedBook();
+        return;
+      case RecentBookOptionsActivity::Action::Controls:
+        showControls();
         return;
     }
   }

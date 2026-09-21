@@ -239,6 +239,14 @@ void ActivityManager::loop() {
       // Still have pending input — skip the activity loop but continue with
       // the rest (pending-action processing, render flushing) so that
       // transitions and screen updates are not delayed.
+      //
+      // Drain every pass, not only once when the window was armed. Skipping the activity's
+      // loop stops it CONSUMING events; it does not stop them being made. The release edge of
+      // the very button that caused the transition lands after the arming drain, gets
+      // classified into a Short, and waits in the queue until the window closes -- at which
+      // point the new screen acts on a press meant for the old one. On a list that reads as
+      // the selection stepping on its own, a moment after the screen appears.
+      buttonEvents.drain();
     } else {
       drainInput = false;
     }
