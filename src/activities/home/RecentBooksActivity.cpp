@@ -308,7 +308,10 @@ void RecentBooksActivity::showControls() {
 
   if (mappedInput.hasTouch()) {
     entries.push_back({tr(STR_OPTIONS), tr(STR_HOLD_BOOK)});
-    entries.push_back({tr(STR_OPEN), tr(STR_TAP_TWICE)});
+    // See FileBrowserActivity::showControls(): two taps are the reader's setting, not a given.
+    if (SETTINGS.touchListActivation != CrossPointSettings::TOUCH_LIST_ACTIVATE_IMMEDIATELY) {
+      entries.push_back({tr(STR_OPEN), tr(STR_TAP_TWICE)});
+    }
   }
   if (HalCapabilities::hasBackAndConfirmButtons()) {
     entries.push_back({tr(STR_OPEN_AND_SYNC), hold(tr(STR_SELECT))});

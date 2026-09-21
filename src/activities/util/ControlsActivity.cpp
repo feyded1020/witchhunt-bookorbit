@@ -20,11 +20,6 @@ void ControlsActivity::loop() {
     finish();
     return;
   }
-  // The selection exists only to scroll a list too long for one screen; drawList follows it.
-  buttonNavigator.onNextList(ButtonNavigator::getStepNextButtons(), selectorIndex, rowCount(),
-                             [this] { requestUpdate(); });
-  buttonNavigator.onPreviousList(ButtonNavigator::getStepPreviousButtons(), selectorIndex, rowCount(),
-                                 [this] { requestUpdate(); });
 }
 
 void ControlsActivity::render(RenderLock&&) {
@@ -38,17 +33,15 @@ void ControlsActivity::render(RenderLock&&) {
   const int listHeight = contentRect.height - listTop - metrics.verticalSpacing;
   // Action on the left, gesture on the right: the same shape as a settings row, which is the
   // arrangement everything else on this device reads in.
+  // -1: no row highlighted. drawList skips the highlight fill, starts at row 0 and draws every
+  // row in normal ink, which is what a page you only read should look like.
   GUI.drawList(
-      renderer, Rect{contentRect.x, listTop, contentRect.width, listHeight}, rowCount(), selectorIndex,
+      renderer, Rect{contentRect.x, listTop, contentRect.width, listHeight}, rowCount(), /*selectedIndex=*/-1,
       [this](int index) { return entries[index].action; }, nullptr, nullptr,
       [this](int index) { return entries[index].gesture; });
 
-  const auto hints = mappedInput.mapHints(tr(STR_BACK), "", "", "", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto hints = mappedInput.mapHints(tr(STR_BACK), "", "", "", "", "");
   GUI.drawButtonHints(renderer, hints.front.btn1, hints.front.btn2, hints.front.btn3, hints.front.btn4);
   GUI.drawSideButtonHints(renderer, hints.side.up, hints.side.down);
   renderer.displayBuffer();
-}
-
-ListRowTap::Result ControlsActivity::selectListRow(const int index) {
-  return ListRowTap::apply(index, rowCount(), selectorIndex);
 }

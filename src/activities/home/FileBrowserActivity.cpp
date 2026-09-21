@@ -480,8 +480,15 @@ bool FileBrowserActivity::confirmOpensOptions() const {
 void FileBrowserActivity::showControls() {
   std::vector<ControlsActivity::Entry> entries;
 
-  if (mappedInput.hasTouch()) {
+  // Only claim two taps when two taps are really needed: whether the first tap on a row opens
+  // it or only moves the selection is the reader's own setting, and a page that documents the
+  // wrong one is worse than no page. Where one tap opens, there is nothing here worth saying.
+  if (mappedInput.hasTouch() && SETTINGS.touchListActivation != CrossPointSettings::TOUCH_LIST_ACTIVATE_IMMEDIATELY) {
     entries.push_back({tr(STR_OPEN), tr(STR_TAP_TWICE)});
+  }
+  // Paging by swipe is real here (UiListActivity::loop) and nothing on screen says so.
+  if (mappedInput.hasTouch()) {
+    entries.push_back({tr(STR_LIST_PAGE_NEXT), tr(STR_SWIPE_PAGE)});
   }
   // Where Confirm carries Options the strip says so, and repeating a visible button is noise.
   // Where it does not, Options is a hold of the page-forward key and nothing announces that.

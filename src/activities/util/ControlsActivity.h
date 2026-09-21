@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "activities/Activity.h"
-#include "util/ButtonNavigator.h"
 
 // What this screen's buttons and gestures do, listed for the screen you came from.
 //
@@ -16,6 +15,11 @@
 //
 // Deliberately NOT a list of everything. The visible buttons are already labelled on the strip;
 // repeating them is noise. A caller lists what a reader could not otherwise discover.
+//
+// Nothing here is selectable and nothing is highlighted. It is something to read, and a page
+// that highlights a row and moves the highlight when you press a key is telling the reader they
+// are meant to pick something -- which they are not. Back is the only control it has. Lists are
+// short by construction, so there is nothing to scroll.
 class ControlsActivity final : public Activity {
  public:
   struct Entry {
@@ -29,12 +33,9 @@ class ControlsActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
-  ListRowTap::Result selectListRow(int index) override;
 
  private:
   int rowCount() const { return static_cast<int>(entries.size()); }
 
   std::vector<Entry> entries;
-  ButtonNavigator buttonNavigator;
-  int selectorIndex = 0;
 };
