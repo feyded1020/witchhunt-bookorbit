@@ -28,6 +28,7 @@
 #include "activities/ListRowTap.h"
 #include "activities/reader/ReaderActivity.h"
 #include "components/BookProgressPresentation.h"
+#include "components/themes/ListTouchBand.h"
 #include "components/CoverGridLayout.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -363,6 +364,63 @@ void RecentBooksActivity::openSelectedBook(const bool longPress) {
   activityManager.replaceWithReader(recentBooks[selectorIndex].path, std::move(hint));
 }
 
+// Which book is under a point, in the frame both views are painted in.
+//
+// Live orientation, not Portrait: the grid draws through computeGridLayout() and the list
+// through GUI.drawList(), and both paint in whatever orientation the renderer is in. Only
+// the hint strip forces Portrait, which is why that one is hit-tested differently.
+bool RecentBooksActivity::hitBookAt(const int x, const int y, int& index) {
+  if (APP_STATE.recentBooksGridView) {
+    const GridLayout layout = computeGridLayout(renderer);
+    const int cols = std::max(1, layout.cells.cols);
+    const int visibleRows = std::max(1, layout.cells.rows);
+    const int pageStartRow = (selectorIndex / cols / visibleRows) * visibleRows;
+    const int itemCount = static_cast<int>(recentBooks.size());
+    const int cell =
+        CoverGridLayout::hitTest(layout.cells, layout.content.x, layout.contentTop, pageStartRow, itemCount, x, y);
+    if (cell < 0) return false;
+    index = cell;
+    return true;
+  }
+  const int row = ListTouchBand::hitTest(x, y);
+  if (row < 0 || row >= static_cast<int>(recentBooks.size())) return false;
+  index = row;
+  return true;
+}
+
+// Holding a cover or a row opens that book's options menu.
+//
+// This is the gesture the menu hangs on, rather than a hold of Confirm, because on a board
+// with no Back or Confirm pin the Confirm hold does not exist. X4 Pro is that board: its
+// capacitive Home key is BOTH buttons, and HalGPIO routes a tap on it to CONFIRM and a
+// ~700 ms hold to BACK (see the home-key block in HalGPIO::readButtons). So holding the key
+// the strip labels "Open" can only ever mean Back, which this screen answers by going home
+// -- exactly what it looked like from the outside. Holding the book collides with nothing,
+// on any board.
+//
+// peek + suppress, the same contract dispatchHintStripTap() uses: the contact is claimed
+// only once the hold is known to be over a book, so a hold anywhere else still falls
+// through to the hint strip underneath.
+bool RecentBooksActivity::handleBookLongPress() {
+  if (!mappedInput.hasTouch() || recentBooks.empty()) return false;
+
+  int x = 0;
+  int y = 0;
+  if (!mappedInput.peekScreenLongPressIn(static_cast<touchtransform::Orientation>(renderer.getOrientation()), x, y)) {
+    return false;
+  }
+
+  int index = -1;
+  if (!hitBookAt(x, y, index)) return false;
+
+  mappedInput.suppressTouchContact();
+  // The menu names the book it is about, so the selection has to follow the finger first --
+  // a hold on one cover must not open the options for whichever one was highlighted before.
+  selectorIndex = index;
+  openOptionsForSelectedBook();
+  return true;
+}
+
 // A tap on a cover (grid) or a row (list).
 //
 // Point-then-confirm, the same rule ActivityManager::dispatchListTap() applies to every other
@@ -385,18 +443,7 @@ bool RecentBooksActivity::handleBookTouch() {
   MappedInputManager::RowTouch touch = MappedInputManager::RowTouch::None;
 
   if (APP_STATE.recentBooksGridView) {
-    const GridLayout layout = computeGridLayout(renderer);
-    const int cols = std::max(1, layout.cells.cols);
-    const int visibleRows = std::max(1, layout.cells.rows);
-    const int pageStartRow = (selectorIndex / cols / visibleRows) * visibleRows;
-    const int itemCount = static_cast<int>(recentBooks.size());
-    const auto hit = [&](const int x, const int y) {
-      const int cell =
-          CoverGridLayout::hitTest(layout.cells, layout.content.x, layout.contentTop, pageStartRow, itemCount, x, y);
-      if (cell < 0) return false;
-      index = cell;
-      return true;
-    };
+    const auto hit = [&](const int x, const int y) { return hitBookAt(x, y, index); };
     int x = 0;
     int y = 0;
     if (mappedInput.wasScreenTouchDown(x, y) && hit(x, y)) {
@@ -452,6 +499,11 @@ void RecentBooksActivity::loop() {
 
   // Ahead of the button queue: a tap that opens a book replaces this activity, and draining
   // queued button events into a screen that is going away serves nobody.
+  //
+  // Hold before tap, for the reason the swipe/tap ordering gives in ActivityManager: the hold
+  // fires while the finger is still down, and the lift that follows would otherwise read as a
+  // tap and open the book on top of the menu.
+  if (handleBookLongPress()) return;
   if (handleBookTouch()) return;
 
   ButtonEventManager::ButtonEvent ev;
@@ -640,13 +692,11 @@ void RecentBooksActivity::renderListView(RenderLock&&) {
   if (gridShowsGestureHint()) {
     const int hintY = contentRect.y + contentRect.height - metrics.verticalSpacing - 14;
     // On a board whose Left/Right live on the touch strip, naming those directions tells the
-    // reader nothing they can act on. Point at the one gesture that works everywhere instead.
-    // Name the button as this screen labels it: the Confirm slot reads "Open" here, and a hint
-    // that says "Select" sends the reader looking for a button that is not on the screen.
-    char holdHint[48];
-    snprintf(holdHint, sizeof(holdHint), tr(STR_HOLD_FOR_OPTIONS_FORMAT), tr(STR_OPEN));
+    // reader nothing they can act on. Point at the gesture that works on every board instead,
+    // and name the thing the finger goes on rather than a button: the one hint that was here
+    // before named a button whose hold means Back on the boards this line exists for.
     const std::string hint = mappedInput.hasTouch()
-                                 ? std::string(holdHint)
+                                 ? std::string(tr(STR_HOLD_BOOK_FOR_OPTIONS))
                                  : std::string(tr(STR_DIR_UP)) + "+L: " + tr(STR_VIEW_GRID) + "/" +
                                        tr(STR_VIEW_LIST) + "   " + tr(STR_DIR_LEFT) + "+L: " + tr(STR_REMOVE) +
                                        "   " + tr(STR_DIR_RIGHT) + "+L: " + tr(STR_INFO);

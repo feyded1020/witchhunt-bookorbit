@@ -90,6 +90,9 @@ class RecentBooksActivity final : public Activity {
   // Tap on a cover (grid) or a row (list): Down moves the selection, Tap opens. Returns true
   // when the touch was consumed. Inert on non-touch boards.
   bool handleBookTouch();
+  // True when the point lands on a cover (grid) or row (list); `index` is the item it hit.
+  bool hitBookAt(int x, int y, int& index);
+  bool handleBookLongPress();
 
  public:
   explicit RecentBooksActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, int focusIndex = -1)
