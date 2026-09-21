@@ -925,10 +925,12 @@ void ActivityManager::showTransitionMark() {
   // it without syncing first would ship something stale to the panel.
   renderer.syncWriteBufferFromDisplayed();
 
+  // Top centre, not a corner: a right hand resting on the case hides the bottom right, which is
+  // where a mark meant to be noticed must not be.
   constexpr int size = 18;
-  constexpr int inset = 10;
-  const int x = renderer.getScreenWidth() - size - inset;
-  const int y = renderer.getScreenHeight() - size - inset;
+  constexpr int inset = 8;
+  const int x = (renderer.getScreenWidth() - size) / 2;
+  const int y = inset;
   // White plate under a black square: legible over a page of text or an empty menu alike.
   renderer.fillRoundedRect(x - 2, y - 2, size + 4, size + 4, 4, Color::White);
   renderer.fillRoundedRect(x, y, size, size, 3, Color::Black);
