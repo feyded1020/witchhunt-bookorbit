@@ -24,6 +24,8 @@
 #include "BookInfoActivity.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include <HalCapabilities.h>
+
 #include "FileContextMenuActivity.h"
 #include "BookOrbitCredentialStore.h"
 #include "MappedInputManager.h"
@@ -133,22 +135,6 @@ bool FileBrowserActivity::removeDirRecursive(const std::string& fullPath) {
 }
 
 bool FileBrowserActivity::handleCustomInput() {
-  // A hold on a row opens that row's context menu. Before the button queue, and before the tap
-  // routing further down loop(), because the hold fires while the finger is still down and the
-  // lift would otherwise open the file on top of the menu.
-  //
-  // The menu's other route is a long press on logical Right, which on a board with no Left or
-  // Right pin exists only as a long tap on a hint box. X4 Pro is that board -- see
-  // consumeListRowLongPress() -- so without this, Delete and the rest are effectively behind a
-  // gesture the hardware cannot make.
-  int heldRow = -1;
-  if (consumeListRowLongPress(heldRow) && heldRow < listCount()) {
-    app.clearTapFlash();
-    nav.selected = heldRow;
-    openContextMenu();
-    return true;
-  }
-
   ButtonEventManager::ButtonEvent ev;
   while (buttonEvents.consumeEvent(ev)) {
     if (ev.button == MappedInputManager::Button::Back) {
@@ -190,6 +176,10 @@ bool FileBrowserActivity::handleCustomInput() {
 
     if (ev.button == MappedInputManager::Button::Confirm &&
         (ev.type == ButtonEventManager::PressType::Short || ev.type == ButtonEventManager::PressType::Long)) {
+      if (confirmOpensOptions()) {
+        openContextMenu();
+        return true;
+      }
       activateSelected(ev.type == ButtonEventManager::PressType::Long);
       return true;
     }
@@ -428,7 +418,10 @@ void FileBrowserActivity::drawFooter() {
     const std::string selectedEntry = model.entryName(static_cast<size_t>(nav.selected));
     selectingFirmwareFile = !selectedEntry.empty() && selectedEntry.back() != '/';
   }
-  const char* confirmLabel = !hasEntries ? "" : (selectingFirmwareFile ? tr(STR_SELECT) : tr(STR_OPEN));
+  const char* confirmLabel = !hasEntries      ? ""
+                             : selectingFirmwareFile ? tr(STR_SELECT)
+                             : confirmOpensOptions() ? tr(STR_OPTIONS)
+                                                     : tr(STR_OPEN);
   // The Options menu is available for every entry in Books mode. The menu always
   // offers the browser display options (sort + visibility); supported files get
   // extra file-specific actions appended. So the hint shows for files and dirs alike.
@@ -446,6 +439,20 @@ void FileBrowserActivity::drawFooter() {
       mappedInput.mapHints(backLabel, confirmLabel, prevLabel, nextLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, hints.front.btn1, hints.front.btn2, hints.front.btn3, hints.front.btn4);
   GUI.drawSideButtonHints(renderer, hints.side.up, hints.side.down);
+}
+
+// True when Confirm should open the entry's menu rather than the entry itself.
+//
+// Only on a board with no Back or Confirm key. There, Confirm exists solely as a tap -- on the
+// capacitive Home key, or on the hint box -- and every route this screen had to its menu is a
+// HOLD: of logical Right, or of a hint box, neither of which that hardware can make. So the menu
+// had no reachable home at all, while opening a file did: a tap on the row selects it and a
+// second tap opens it, through activateIndex() and not through this button.
+//
+// A board with the keys keeps Confirm as Open. Its owners have opened files with it for as long
+// as the browser has existed, and their menu is already one hold of Right away.
+bool FileBrowserActivity::confirmOpensOptions() const {
+  return model.getMode() == Mode::Books && !HalCapabilities::hasBackAndConfirmButtons();
 }
 
 void FileBrowserActivity::openContextMenu() {

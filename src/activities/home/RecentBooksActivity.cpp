@@ -8,6 +8,7 @@
 #include <GfxRenderer.h>
 
 #include <cstdio>
+#include <HalCapabilities.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -513,11 +514,22 @@ void RecentBooksActivity::loop() {
 
   ButtonEventManager::ButtonEvent ev;
   while (buttonEvents.consumeEvent(ev)) {
-    // Confirm long: the options menu. MUST come before the short-press branch below -- a single
-    // branch matching both press types is what made the menu unreachable, since holding Open
-    // simply opened the book (with a sync pull) instead.
+    // Confirm long. MUST come before the short-press branch below -- a single branch matching
+    // both press types is what made the menu unreachable.
+    //
+    // What it means depends on whether the board HAS a Confirm key. Where it does, this is
+    // upstream's open-and-pull-progress and stays that way: those boards have had this gesture
+    // since long before the menu existed, their owners have it in their fingers, and the menu
+    // is already reachable there on a hold of Left or Right. Where it does not -- X4 Pro, whose
+    // capacitive Home key turns a hold into BACK -- this branch only ever runs from a long tap
+    // on the hint box, and the menu is the more useful thing to put behind it. Open and sync is
+    // a row in that menu, so nothing is lost either way.
     if (ev.button == MappedInputManager::Button::Confirm && ev.type == ButtonEventManager::PressType::Long) {
-      openOptionsForSelectedBook();
+      if (HalCapabilities::hasBackAndConfirmButtons()) {
+        openSelectedBook(true);
+      } else {
+        openOptionsForSelectedBook();
+      }
       return;
     }
 

@@ -22,6 +22,7 @@ class FileBrowserActivity final : public UiListActivity {
  private:
   void clearFileMetadata(const std::string& fullPath);
   bool removeDirRecursive(const std::string& fullPath);
+  bool confirmOpensOptions() const;
   void openContextMenu();
   void handleContextMenuAction(int action, const std::string& fullPath, const std::string& entry,
                                const struct MenuResult* menuRes = nullptr);
