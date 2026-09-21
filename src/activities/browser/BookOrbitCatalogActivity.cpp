@@ -323,9 +323,11 @@ std::string BookOrbitCatalogActivity::rowSubtitle(const int index) const {
 
 std::string BookOrbitCatalogActivity::rowValue(const int index) const {
   const View& view = stack.back();
-  // A dot marks a catalog book already on the SD card (selecting it opens it).
-  if (view.kind == ViewKind::BOOKS && index < static_cast<int>(booksOnDevice.size()) && booksOnDevice[index]) {
-    return "\xE2\x80\xA2";
+  // Books carry their synced progress; a dot marks one already on the SD card. Progress wins when
+  // a book is both, since "42%" already implies you have it.
+  if (view.kind == ViewKind::BOOKS && index < static_cast<int>(books.size())) {
+    if (books[index].progressPercentage > 0) return std::to_string(books[index].progressPercentage) + "%";
+    if (index < static_cast<int>(booksOnDevice.size()) && booksOnDevice[index]) return "\xE2\x80\xA2";
   }
   if (view.kind == ViewKind::LOCAL && view.local == LocalKind::IN_PROGRESS && localBooks[index].percent >= 0) {
     return std::to_string(localBooks[index].percent) + "%";
@@ -729,14 +731,19 @@ void BookOrbitCatalogActivity::renderDetail(const Rect& contentRect, const int c
     y += lineHeight;
   }
   // Series, year, publisher and length on one line each only when the server sent them.
-  if (!detail.series.empty()) {
-    std::string line = detail.series;
+  if (!detail.subtitle.empty()) {
+    renderer.drawText(UI_10_FONT_ID, x, y,
+                      renderer.truncatedText(UI_10_FONT_ID, detail.subtitle.c_str(), width).c_str());
+    y += lineHeight;
+  }
+  if (!detail.seriesName.empty()) {
+    std::string line = detail.seriesName;
     if (!detail.seriesIndex.empty()) line += " #" + detail.seriesIndex;
     renderer.drawText(UI_10_FONT_ID, x, y, renderer.truncatedText(UI_10_FONT_ID, line.c_str(), width).c_str());
     y += lineHeight;
   }
   std::string facts;
-  if (!detail.published.empty()) facts = detail.published;
+  if (!detail.publishedYear.empty()) facts = detail.publishedYear;
   if (detail.pageCount > 0) {
     if (!facts.empty()) facts += " - ";
     facts += std::to_string(detail.pageCount) + tr(STR_PAGES_SUFFIX);  // the string carries its own space
@@ -751,6 +758,22 @@ void BookOrbitCatalogActivity::renderDetail(const Rect& contentRect, const int c
   }
   if (!facts.empty()) {
     renderer.drawText(UI_10_FONT_ID, x, y, renderer.truncatedText(UI_10_FONT_ID, facts.c_str(), width).c_str());
+    y += lineHeight;
+  }
+  // Where the server thinks you are in it, and what you made of it.
+  std::string status;
+  if (detail.progressPercentage > 0) status = std::to_string(detail.progressPercentage) + "% read";
+  if (detail.rating > 0) {
+    if (!status.empty()) status += " - ";
+    status += std::string(static_cast<size_t>(detail.rating), '*');
+  }
+  if (!status.empty()) {
+    renderer.drawText(UI_10_FONT_ID, x, y, status.c_str());
+    y += lineHeight;
+  }
+  if (!detail.genres.empty()) {
+    renderer.drawText(UI_10_FONT_ID, x, y,
+                      renderer.truncatedText(UI_10_FONT_ID, detail.genres.c_str(), width).c_str());
     y += lineHeight;
   }
   y += lineHeight / 2;

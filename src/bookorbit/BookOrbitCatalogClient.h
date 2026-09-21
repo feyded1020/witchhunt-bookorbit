@@ -23,7 +23,8 @@ struct BookOrbitCatalogFile {
 struct BookOrbitCatalogBook {
   int64_t id = 0;
   std::string title;
-  std::string author;  // first author only
+  std::string author;           // first author only
+  int progressPercentage = -1;  // -1 when the server reports none
 };
 
 struct BookOrbitFacetEntry {
@@ -49,21 +50,24 @@ struct BookOrbitBookQuery {
   std::string libraryId;
 };
 
-// What the detail screen shows before downloading. Everything except id/title/files is optional:
-// BookOrbit versions differ in which of these they send, and a field that is absent is simply not
-// drawn. Field names are accepted in the spellings seen in the wild (description/summary,
-// pageCount/pages, publishedYear/year), since the screen costs nothing for a name that never
-// arrives.
+// What the detail screen shows before downloading. Field names follow BookOrbit's own
+// KoreaderCatalogBookDetail (packages/types/src/koreader.ts); everything except id/title/files is
+// optional and a field the server omits is simply not drawn.
 struct BookOrbitBookDetail {
   int64_t id = 0;
   std::string title;
+  std::string subtitle;
   std::string author;
-  std::string series;
-  std::string seriesIndex;
+  std::string seriesName;
+  std::string seriesIndex;  // a string upstream: "3", "3.5"
   std::string publisher;
-  std::string published;    // year, or whatever date form the server uses
-  std::string description;  // synopsis, plain text once the screen strips any markup
+  std::string publishedYear;
+  std::string description;
+  std::string genres;      // first few, comma separated
+  std::string readStatus;  // server's own wording ("reading", "read", ...)
   int pageCount = 0;
+  int rating = 0;               // 1-5, 0 when unrated
+  int progressPercentage = -1;  // -1 when the server has no progress for this book
   std::vector<BookOrbitCatalogFile> files;
 };
 

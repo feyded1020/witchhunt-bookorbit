@@ -184,6 +184,7 @@ bool BookOrbitCatalogClient::fetchBooks(const BookOrbitBookQuery& query, const i
   filter["items"][0]["id"] = true;
   filter["items"][0]["title"] = true;
   filter["items"][0]["authors"] = true;
+  filter["items"][0]["progressPercentage"] = true;
   JsonDocument doc;
   if (!fetchJson(url, filter, doc)) return false;
   outPage.page = doc["page"] | page;
@@ -195,6 +196,9 @@ bool BookOrbitCatalogClient::fetchBooks(const BookOrbitBookQuery& query, const i
     book.id = item["id"] | 0;
     book.title = std::string(item["title"] | "");
     book.author = firstAuthor(item["authors"]);
+    if (!item["progressPercentage"].isNull()) {
+      book.progressPercentage = static_cast<int>((item["progressPercentage"] | 0.0f) + 0.5f);
+    }
     outPage.books.push_back(std::move(book));
   }
   return true;
@@ -249,19 +253,19 @@ bool BookOrbitCatalogClient::fetchBookDetail(const int64_t bookId, BookOrbitBook
   filter["id"] = true;
   filter["title"] = true;
   filter["authors"] = true;
-  // Optional metadata, in the spellings different BookOrbit versions use. A filter entry for a
-  // key the server never sends costs nothing.
+  // Names from BookOrbit's KoreaderCatalogBookDetail. An older server that omits one just leaves
+  // that line off the screen.
+  filter["subtitle"] = true;
   filter["description"] = true;
-  filter["summary"] = true;
-  filter["series"] = true;
+  filter["seriesName"] = true;
   filter["seriesIndex"] = true;
-  filter["seriesNumber"] = true;
   filter["publisher"] = true;
   filter["publishedYear"] = true;
-  filter["publishDate"] = true;
-  filter["year"] = true;
   filter["pageCount"] = true;
-  filter["pages"] = true;
+  filter["rating"] = true;
+  filter["readStatus"] = true;
+  filter["genres"] = true;
+  filter["progressPercentage"] = true;
   filter["files"][0]["id"] = true;
   filter["files"][0]["format"] = true;
   filter["files"][0]["sizeBytes"] = true;
@@ -271,15 +275,26 @@ bool BookOrbitCatalogClient::fetchBookDetail(const int64_t bookId, BookOrbitBook
   outDetail.id = doc["id"] | bookId;
   outDetail.title = std::string(doc["title"] | "");
   outDetail.author = firstAuthor(doc["authors"]);
-  outDetail.description = firstString(root, "description", "summary");
-  outDetail.series = firstString(root, "series", nullptr);
-  outDetail.seriesIndex = numberOrString(root, "seriesIndex", "seriesNumber");
+  outDetail.subtitle = firstString(root, "subtitle", nullptr);
+  outDetail.description = firstString(root, "description", nullptr);
+  outDetail.seriesName = firstString(root, "seriesName", nullptr);
+  outDetail.seriesIndex = numberOrString(root, "seriesIndex", nullptr);
   outDetail.publisher = firstString(root, "publisher", nullptr);
-  outDetail.published = numberOrString(root, "publishedYear", "year");
-  if (outDetail.published.empty()) outDetail.published = firstString(root, "publishDate", nullptr);
-  // A date like "1937-09-21" is only worth its year on a screen this size.
-  if (outDetail.published.size() > 4) outDetail.published.resize(4);
-  outDetail.pageCount = doc["pageCount"] | doc["pages"] | 0;
+  outDetail.publishedYear = numberOrString(root, "publishedYear", nullptr);
+  outDetail.readStatus = firstString(root, "readStatus", nullptr);
+  outDetail.pageCount = doc["pageCount"] | 0;
+  outDetail.rating = doc["rating"] | 0;
+  if (!doc["progressPercentage"].isNull()) {
+    outDetail.progressPercentage = static_cast<int>((doc["progressPercentage"] | 0.0f) + 0.5f);
+  }
+  // Genres are a list; two or three are as many as the line can carry.
+  for (JsonVariantConst genre : doc["genres"].as<JsonArrayConst>()) {
+    const char* name = genre.as<const char*>();
+    if (!name || !*name) continue;
+    if (!outDetail.genres.empty()) outDetail.genres += ", ";
+    outDetail.genres += name;
+    if (outDetail.genres.size() > 60) break;
+  }
   for (JsonObjectConst file : doc["files"].as<JsonArrayConst>()) {
     BookOrbitCatalogFile entry;
     entry.id = file["id"] | 0;
