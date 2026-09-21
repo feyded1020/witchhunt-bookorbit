@@ -4,6 +4,8 @@
 #include <vector>
 
 #include "../Activity.h"
+
+struct Rect;
 #include "bookorbit/BookOrbitCatalogClient.h"
 #include "util/ButtonNavigator.h"
 
@@ -33,7 +35,7 @@ class BookOrbitCatalogActivity final : public Activity {
   }
 
  private:
-  enum class State { WIFI, LOADING, LIST, DOWNLOADING, DONE, ERROR };
+  enum class State { WIFI, LOADING, LIST, DETAIL, DOWNLOADING, DONE, ERROR };
   enum class ViewKind { ROOT, BOOKS, FACET, LOCAL };
   enum class LocalKind { ON_DEVICE, IN_PROGRESS };
 
@@ -77,6 +79,12 @@ class BookOrbitCatalogActivity final : public Activity {
   std::vector<LocalBook> localBooks;
   bool hasMore = false;
 
+  // The book behind the DETAIL screen, and where its description has been scrolled to.
+  BookOrbitBookDetail detail;
+  bool detailOnDevice = false;
+  std::string detailPath;  // set when the book is already on the SD card
+  int detailScroll = 0;
+
   std::string statusMessage;
   std::string errorMessage;
   std::string downloadedPath;
@@ -99,6 +107,10 @@ class BookOrbitCatalogActivity final : public Activity {
   void pushBooks(std::string title, BookOrbitBookQuery query);
   void openSearch();
   void openBook(const std::string& path);
+  void openDetail(const BookOrbitCatalogBook& book);
   void downloadBook(const BookOrbitCatalogBook& book);
+  // Description wrapped to the content width; cached per DETAIL entry, not per render.
+  std::vector<std::string> detailLines;
+  void renderDetail(const Rect& contentRect, int contentTop, int contentHeight);
   void fail(const std::string& message);
 };

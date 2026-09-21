@@ -938,3 +938,4 @@ STR_SYNC_NOT_UPLOADED: "Sync was not finished - your progress stayed on this dev
 STR_PRESS_ANY_BUTTON: "Press any button to continue"
 STR_NOT_ENCRYPTED: "(not encrypted)"
 STR_INPUT_FEEDBACK: "Show Busy Indicator"
+STR_BOOKORBIT_NO_DESCRIPTION: "No description for this book"

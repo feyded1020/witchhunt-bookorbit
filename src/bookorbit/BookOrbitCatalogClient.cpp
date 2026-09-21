@@ -90,6 +90,30 @@ bool isSupportedSection(const std::string& id) {
   return false;
 }
 
+// First of the given keys that carries a non-empty string.
+std::string firstString(JsonObjectConst doc, const char* key, const char* fallbackKey) {
+  const char* value = doc[key] | "";
+  if (value && *value) return value;
+  if (!fallbackKey) return "";
+  const char* alt = doc[fallbackKey] | "";
+  return alt ? alt : "";
+}
+
+// Same, for fields servers send as either a number or a string.
+std::string numberOrString(JsonObjectConst doc, const char* key, const char* fallbackKey) {
+  for (const char* k : {key, fallbackKey}) {
+    if (!k || doc[k].isNull()) continue;
+    if (doc[k].is<const char*>()) {
+      const char* value = doc[k] | "";
+      if (value && *value) return value;
+    } else {
+      const long long value = doc[k] | 0LL;
+      if (value != 0) return std::to_string(value);
+    }
+  }
+  return "";
+}
+
 std::string firstAuthor(JsonVariantConst authors) {
   JsonArrayConst list = authors.as<JsonArrayConst>();
   if (list.isNull() || list.size() == 0) return "";
@@ -225,14 +249,37 @@ bool BookOrbitCatalogClient::fetchBookDetail(const int64_t bookId, BookOrbitBook
   filter["id"] = true;
   filter["title"] = true;
   filter["authors"] = true;
+  // Optional metadata, in the spellings different BookOrbit versions use. A filter entry for a
+  // key the server never sends costs nothing.
+  filter["description"] = true;
+  filter["summary"] = true;
+  filter["series"] = true;
+  filter["seriesIndex"] = true;
+  filter["seriesNumber"] = true;
+  filter["publisher"] = true;
+  filter["publishedYear"] = true;
+  filter["publishDate"] = true;
+  filter["year"] = true;
+  filter["pageCount"] = true;
+  filter["pages"] = true;
   filter["files"][0]["id"] = true;
   filter["files"][0]["format"] = true;
   filter["files"][0]["sizeBytes"] = true;
   JsonDocument doc;
   if (!fetchJson(url, filter, doc)) return false;
+  JsonObjectConst root = doc.as<JsonObjectConst>();
   outDetail.id = doc["id"] | bookId;
   outDetail.title = std::string(doc["title"] | "");
   outDetail.author = firstAuthor(doc["authors"]);
+  outDetail.description = firstString(root, "description", "summary");
+  outDetail.series = firstString(root, "series", nullptr);
+  outDetail.seriesIndex = numberOrString(root, "seriesIndex", "seriesNumber");
+  outDetail.publisher = firstString(root, "publisher", nullptr);
+  outDetail.published = numberOrString(root, "publishedYear", "year");
+  if (outDetail.published.empty()) outDetail.published = firstString(root, "publishDate", nullptr);
+  // A date like "1937-09-21" is only worth its year on a screen this size.
+  if (outDetail.published.size() > 4) outDetail.published.resize(4);
+  outDetail.pageCount = doc["pageCount"] | doc["pages"] | 0;
   for (JsonObjectConst file : doc["files"].as<JsonArrayConst>()) {
     BookOrbitCatalogFile entry;
     entry.id = file["id"] | 0;

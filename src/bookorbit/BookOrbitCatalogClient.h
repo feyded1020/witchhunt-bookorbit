@@ -49,10 +49,21 @@ struct BookOrbitBookQuery {
   std::string libraryId;
 };
 
+// What the detail screen shows before downloading. Everything except id/title/files is optional:
+// BookOrbit versions differ in which of these they send, and a field that is absent is simply not
+// drawn. Field names are accepted in the spellings seen in the wild (description/summary,
+// pageCount/pages, publishedYear/year), since the screen costs nothing for a name that never
+// arrives.
 struct BookOrbitBookDetail {
   int64_t id = 0;
   std::string title;
   std::string author;
+  std::string series;
+  std::string seriesIndex;
+  std::string publisher;
+  std::string published;    // year, or whatever date form the server uses
+  std::string description;  // synopsis, plain text once the screen strips any markup
+  int pageCount = 0;
   std::vector<BookOrbitCatalogFile> files;
 };
 

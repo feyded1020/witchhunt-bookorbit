@@ -404,14 +404,7 @@ void BookOrbitCatalogActivity::activateRow(const int index) {
         loadCurrent();
         return;
       }
-      if (index < static_cast<int>(booksOnDevice.size()) && booksOnDevice[index]) {
-        std::string path;
-        if (onDevicePath(books[index].title, books[index].author, path)) {
-          openBook(path);
-          return;
-        }
-      }
-      downloadBook(books[index]);
+      openDetail(books[index]);
       return;
     case ViewKind::FACET: {
       if (index >= static_cast<int>(facets.size())) {
@@ -464,6 +457,30 @@ void BookOrbitCatalogActivity::goBack() {
   }
   stack.pop_back();
   loadCurrent();
+}
+
+void BookOrbitCatalogActivity::openDetail(const BookOrbitCatalogBook& book) {
+  {
+    RenderLock lock(*this);
+    state = State::LOADING;
+    statusMessage = tr(STR_LOADING);
+  }
+  requestUpdateAndWait();
+
+  if (!BookOrbitCatalogClient::fetchBookDetail(book.id, detail)) {
+    fail(tr(STR_KOREADER_SYNC_NETWORK_ERROR));
+    return;
+  }
+  // The listing already knows these; a server that omits them in the detail keeps the row's copy.
+  if (detail.title.empty()) detail.title = book.title;
+  if (detail.author.empty()) detail.author = book.author;
+  detailOnDevice = onDevicePath(detail.title, detail.author, detailPath);
+  detailScroll = 0;
+  detailLines.clear();
+
+  RenderLock lock(*this);
+  state = State::DETAIL;
+  requestUpdate(true);
 }
 
 void BookOrbitCatalogActivity::downloadBook(const BookOrbitCatalogBook& book) {
@@ -567,6 +584,37 @@ void BookOrbitCatalogActivity::loop() {
     return;
   }
 
+  if (state == State::DETAIL) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      RenderLock lock(*this);
+      state = State::LIST;
+      requestUpdate(true);
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      if (detailOnDevice && !detailPath.empty()) {
+        openBook(detailPath);
+      } else {
+        BookOrbitCatalogBook book;
+        book.id = detail.id;
+        book.title = detail.title;
+        book.author = detail.author;
+        downloadBook(book);
+      }
+      return;
+    }
+    // Up/Down scroll the description rather than moving a selection.
+    const int lastLine = std::max(0, static_cast<int>(detailLines.size()) - 1);
+    if (mappedInput.wasLogicalReleased(MappedInputManager::Direction::Down) && detailScroll < lastLine) {
+      detailScroll++;
+      requestUpdate();
+    } else if (mappedInput.wasLogicalReleased(MappedInputManager::Direction::Up) && detailScroll > 0) {
+      detailScroll--;
+      requestUpdate();
+    }
+    return;
+  }
+
   // LIST
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     goBack();
@@ -639,6 +687,11 @@ void BookOrbitCatalogActivity::render(RenderLock&&) {
       if (BOOKORBIT_STORE.hasCredentials()) confirm = tr(STR_RETRY);
       break;
     }
+    case State::DETAIL:
+      renderDetail(contentRect, contentTop, contentHeight);
+      back = tr(STR_BACK);
+      confirm = detailOnDevice ? tr(STR_OPEN) : tr(STR_DOWNLOAD);
+      break;
     case State::LIST: {
       const int rows = rowCount();
       if (rows == 0) {
@@ -661,6 +714,59 @@ void BookOrbitCatalogActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, hints.front.btn1, hints.front.btn2, hints.front.btn3, hints.front.btn4);
   GUI.drawSideButtonHints(renderer, hints.side.up, hints.side.down);
   renderer.displayBuffer();
+}
+
+void BookOrbitCatalogActivity::renderDetail(const Rect& contentRect, const int contentTop,
+                                            const int contentHeight) {
+  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int x = contentRect.x + UITheme::getInstance().getMetrics().contentSidePadding;
+  const int width = contentRect.width - (x - contentRect.x) * 2;
+  int y = contentTop;
+
+  if (!detail.author.empty()) {
+    renderer.drawText(UI_10_FONT_ID, x, y, renderer.truncatedText(UI_10_FONT_ID, detail.author.c_str(), width).c_str(),
+                      true, EpdFontFamily::BOLD);
+    y += lineHeight;
+  }
+  // Series, year, publisher and length on one line each only when the server sent them.
+  if (!detail.series.empty()) {
+    std::string line = detail.series;
+    if (!detail.seriesIndex.empty()) line += " #" + detail.seriesIndex;
+    renderer.drawText(UI_10_FONT_ID, x, y, renderer.truncatedText(UI_10_FONT_ID, line.c_str(), width).c_str());
+    y += lineHeight;
+  }
+  std::string facts;
+  if (!detail.published.empty()) facts = detail.published;
+  if (detail.pageCount > 0) {
+    if (!facts.empty()) facts += " - ";
+    facts += std::to_string(detail.pageCount) + tr(STR_PAGES_SUFFIX);  // the string carries its own space
+  }
+  if (!detail.publisher.empty()) {
+    if (!facts.empty()) facts += " - ";
+    facts += detail.publisher;
+  }
+  if (detailOnDevice) {
+    if (!facts.empty()) facts += " - ";
+    facts += tr(STR_BOOKORBIT_ON_DEVICE);
+  }
+  if (!facts.empty()) {
+    renderer.drawText(UI_10_FONT_ID, x, y, renderer.truncatedText(UI_10_FONT_ID, facts.c_str(), width).c_str());
+    y += lineHeight;
+  }
+  y += lineHeight / 2;
+
+  // Wrapped once per book, not per frame: the reader scrolls a window over these lines.
+  const int roomForLines = std::max(1, (contentTop + contentHeight - y) / lineHeight);
+  if (detailLines.empty() && !detail.description.empty()) {
+    detailLines = renderer.wrappedText(UI_10_FONT_ID, detail.description.c_str(), width, 120);
+  }
+  if (detailLines.empty()) {
+    renderer.drawText(UI_10_FONT_ID, x, y, tr(STR_BOOKORBIT_NO_DESCRIPTION));
+    return;
+  }
+  for (int i = 0; i < roomForLines && detailScroll + i < static_cast<int>(detailLines.size()); i++) {
+    renderer.drawText(UI_10_FONT_ID, x, y + i * lineHeight, detailLines[detailScroll + i].c_str());
+  }
 }
 
 ListRowTap::Result BookOrbitCatalogActivity::selectListRow(const int index) {
