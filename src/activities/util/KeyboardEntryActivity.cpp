@@ -621,51 +621,84 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const int underlineBottom = inputStartY + inputHeight + lineHeight + metrics.verticalSpacing + 4;
   auto drawTip = [&](const char* tip, int y) { renderer.drawCenteredText(SMALL_FONT_ID, y, tip, true); };
 
+  // Collect the tips, wrap them, then place the block. The order matters: a tip that wraps makes
+  // the block taller, so the number of LINES has to be known before the first one can be given a
+  // y. drawCenteredText centres without a width to respect, so at the large UI font step these
+  // sentences simply ran off both edges of the screen.
+  const char* tips[3] = {nullptr, nullptr, nullptr};
   int tipCount = 0;
   if (cursorMode) {
-    tipCount = 1;
+    tips[tipCount++] = tr(STR_KB_HINT_RETURN_KEYBOARD);
   } else if (urlMode) {
-    tipCount = 1 + (!text.empty() ? 1 : 0);
+    tips[tipCount++] = tr(STR_KB_HINT_EXIT_URL_MODE);
+    if (!text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
   } else if (symMode) {
-    tipCount = !text.empty() ? 1 : 0;
+    if (!text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
   } else {
-    tipCount = 1 + (inputType == InputType::Url ? 1 : 0) + (!text.empty() ? 1 : 0);
+    if (inputType == InputType::Url) {
+      tips[tipCount++] = tr(STR_KB_HINT_SECONDARY_CHAR);
+    } else if (shiftState > 0) {
+      tips[tipCount++] = tr(STR_KB_HINT_LOWER_SECONDARY);
+    } else {
+      tips[tipCount++] = tr(STR_KB_HINT_UPPER_SECONDARY);
+    }
+    if (inputType == InputType::Url) tips[tipCount++] = tr(STR_KB_HINT_URL_SNIPPETS);
+    if (!text.empty()) tips[tipCount++] = tr(STR_KB_HINT_CLEAR_TEXT);
   }
 
   if (tipCount > 0) {
-    int y = (underlineBottom + keyboardStartY) / 2 - (tipCount + 1) * tipsLh / 2;
+    const int tipsMaxWidth = pageWidth - metrics.contentSidePadding * 2;
+
+    // Wrap once into a fixed table of (tip, offset, length), then draw. The table is needed
+    // because the block is centred vertically: its height has to be known before the first line
+    // can be given a y, and walking the tips twice instead would wrap every one of them twice.
+    //
+    // No heap: this runs on every render of this screen, and a few short sentences do not
+    // justify an allocation per line. getTextWidth takes a C string rather than a pointer and a
+    // length, so candidates are measured through a stack buffer that the draw reuses.
+    struct Line {
+      const char* begin;
+      uint8_t len;
+    };
+    Line lines[12];
+    int lineCount = 0;
+    char probe[128];
+    const auto widthOf = [&](const char* begin, const size_t len) {
+      const size_t n = len < sizeof(probe) - 1 ? len : sizeof(probe) - 1;
+      memcpy(probe, begin, n);
+      probe[n] = '\0';
+      return renderer.getTextWidth(SMALL_FONT_ID, probe);
+    };
+
+    for (int i = 0; i < tipCount && lineCount < static_cast<int>(std::size(lines)); ++i) {
+      const char* const tip = tips[i];
+      const size_t len = strlen(tip);
+      size_t from = 0;
+      while (from < len && lineCount < static_cast<int>(std::size(lines))) {
+        size_t take = len - from;
+        while (take > 0 && widthOf(tip + from, take) > tipsMaxWidth) {
+          size_t space = take;
+          while (space > 0 && tip[from + space - 1] != ' ') --space;
+          // One word wider than the screen: let it overhang rather than shrink a line that can
+          // never fit.
+          if (space == 0) break;
+          take = space - 1;
+        }
+        if (take == 0) take = len - from;
+        lines[lineCount++] = {tip + from, static_cast<uint8_t>(take)};
+        from += take;
+        while (from < len && tip[from] == ' ') ++from;
+      }
+    }
+
+    int y = (underlineBottom + keyboardStartY) / 2 - (lineCount + 1) * tipsLh / 2;
     drawTip(tr(STR_KB_TIPS), y);
     y += tipsLh;
-    if (cursorMode) {
-      drawTip(tr(STR_KB_HINT_RETURN_KEYBOARD), y);
-    } else if (urlMode) {
-      drawTip(tr(STR_KB_HINT_EXIT_URL_MODE), y);
+    for (int i = 0; i < lineCount; ++i) {
+      memcpy(probe, lines[i].begin, lines[i].len);
+      probe[lines[i].len] = '\0';
+      drawTip(probe, y);
       y += tipsLh;
-      if (!text.empty()) {
-        drawTip(tr(STR_KB_HINT_CLEAR_TEXT), y);
-      }
-    } else if (symMode) {
-      if (!text.empty()) {
-        drawTip(tr(STR_KB_HINT_CLEAR_TEXT), y);
-      }
-    } else {
-      const char* altCharTip;
-      if (inputType == InputType::Url) {
-        altCharTip = tr(STR_KB_HINT_SECONDARY_CHAR);
-      } else if (shiftState > 0) {
-        altCharTip = tr(STR_KB_HINT_LOWER_SECONDARY);
-      } else {
-        altCharTip = tr(STR_KB_HINT_UPPER_SECONDARY);
-      }
-      drawTip(altCharTip, y);
-      y += tipsLh;
-      if (inputType == InputType::Url) {
-        drawTip(tr(STR_KB_HINT_URL_SNIPPETS), y);
-        y += tipsLh;
-      }
-      if (!text.empty()) {
-        drawTip(tr(STR_KB_HINT_CLEAR_TEXT), y);
-      }
     }
   }
 
