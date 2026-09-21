@@ -70,6 +70,11 @@ class RecentBooksActivity final : public Activity {
   bool loadNextCover();
 
   void switchViewMode(bool grid);
+  void openOptionsForSelectedBook();
+  // Chosen in the options menu, acted on in the next loop() tick: the result handler runs while
+  // that menu is being popped, and starting the next activity from inside it re-enters the
+  // manager mid-transition (the same reason DictionaryWordSelectActivity defers its switch).
+  int pendingBookOption = -1;
   void removeSelectedBook();
   void showSelectedBookInfo();
 

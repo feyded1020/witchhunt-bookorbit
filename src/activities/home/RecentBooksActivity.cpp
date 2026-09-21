@@ -1,5 +1,7 @@
 #include "RecentBooksActivity.h"
 
+#include "RecentBookOptionsActivity.h"
+
 #include <Bitmap.h>
 #include <Epub.h>
 #include <FsHelpers.h>
@@ -286,6 +288,22 @@ void RecentBooksActivity::switchViewMode(bool grid) {
   requestUpdate(true);
 }
 
+void RecentBooksActivity::openOptionsForSelectedBook() {
+  if (recentBooks.empty() || selectorIndex < 0 || selectorIndex >= static_cast<int>(recentBooks.size())) return;
+  const auto& book = recentBooks[selectorIndex];
+  const std::string label = book.title.empty() ? book.path : book.title;
+  startActivityForResult(
+      std::make_unique<RecentBookOptionsActivity>(renderer, mappedInput, label), [this](const ActivityResult& result) {
+        if (result.isCancelled) {
+          requestUpdate();
+          return;
+        }
+        if (const auto* choice = std::get_if<MenuResult>(&result.data)) {
+          pendingBookOption = choice->action;
+        }
+      });
+}
+
 void RecentBooksActivity::removeSelectedBook() {
   if (recentBooks.empty() || selectorIndex >= static_cast<int>(recentBooks.size())) return;
   const std::string bookPath = recentBooks[selectorIndex].path;
@@ -406,6 +424,23 @@ bool RecentBooksActivity::handleBookTouch() {
 }
 
 void RecentBooksActivity::loop() {
+  // See pendingBookOption: the menu's answer is carried out here, once it has fully closed.
+  if (pendingBookOption >= 0) {
+    const auto action = static_cast<RecentBookOptionsActivity::Action>(pendingBookOption);
+    pendingBookOption = -1;
+    switch (action) {
+      case RecentBookOptionsActivity::Action::Open:
+        openSelectedBook(false);
+        return;
+      case RecentBookOptionsActivity::Action::Info:
+        showSelectedBookInfo();
+        return;
+      case RecentBookOptionsActivity::Action::Remove:
+        removeSelectedBook();
+        return;
+    }
+  }
+
   const bool gridView = APP_STATE.recentBooksGridView;
   const int listSize = static_cast<int>(recentBooks.size());
 
@@ -481,6 +516,14 @@ void RecentBooksActivity::loop() {
         requestUpdate();
       }
       continue;
+    }
+
+    // Confirm long: the options menu. Every action in it is also on a direction-and-hold
+    // shortcut below, but those name Left/Right keys the X4 Pro does not have, and holding
+    // Select works on any board -- including by holding the on-screen Select button.
+    if (ev.button == MappedInputManager::Button::Confirm && ev.type == ButtonEventManager::PressType::Long) {
+      openOptionsForSelectedBook();
+      return;
     }
 
     // Left long: remove selected book (both views)
@@ -590,20 +633,19 @@ void RecentBooksActivity::renderListView(RenderLock&&) {
 
   if (gridShowsGestureHint()) {
     const int hintY = contentRect.y + contentRect.height - metrics.verticalSpacing - 14;
-    const std::string hint = std::string(tr(STR_DIR_UP)) + "+L: " + tr(STR_VIEW_GRID) + "/" + tr(STR_VIEW_LIST) +
-                             "   " + tr(STR_DIR_LEFT) + "+L: " + tr(STR_REMOVE) + "   " + tr(STR_DIR_RIGHT) +
-                             "+L: " + tr(STR_INFO);
+    // On a board whose Left/Right live on the touch strip, naming those directions tells the
+    // reader nothing they can act on. Point at the one gesture that works everywhere instead.
+    const std::string hint = mappedInput.hasTouch()
+                                 ? std::string(tr(STR_HOLD_SELECT_OPTIONS))
+                                 : std::string(tr(STR_DIR_UP)) + "+L: " + tr(STR_VIEW_GRID) + "/" +
+                                       tr(STR_VIEW_LIST) + "   " + tr(STR_DIR_LEFT) + "+L: " + tr(STR_REMOVE) +
+                                       "   " + tr(STR_DIR_RIGHT) + "+L: " + tr(STR_INFO);
     renderer.drawText(SMALL_FONT_ID, contentRect.x + metrics.contentSidePadding, hintY, hint.c_str());
   }
 
   const bool hasBooks = !recentBooks.empty();
   const auto hints =
-      // Remove and Info are long presses of Left and Right. Labelling those two slots is what
-      // makes them exist at all on a board with no Left/Right keys: an unlabelled hint box is
-      // recorded inactive (see LyraTheme::drawButtonHints), so a touch-only device could never
-      // reach remove-book or book-info. A short tap still just moves the selection.
-      mappedInput.mapHints(tr(STR_HOME), hasBooks ? tr(STR_OPEN) : "", hasBooks ? tr(STR_REMOVE) : "",
-                           hasBooks ? tr(STR_INFO) : "", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+      mappedInput.mapHints(tr(STR_HOME), hasBooks ? tr(STR_OPEN) : "", "", "", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, hints.front.btn1, hints.front.btn2, hints.front.btn3, hints.front.btn4);
   GUI.drawSideButtonHints(renderer, hints.side.up, hints.side.down);
 
@@ -788,10 +830,7 @@ void RecentBooksActivity::renderGridView(RenderLock&&) {
     renderer.drawText(SMALL_FONT_ID, contentRect.x + metrics.contentSidePadding, hintY, hint.c_str());
   }
 
-  // Same as the grid view: the Left/Right slots carry their long-press actions so they are
-  // tappable on a device without those keys.
-  const auto hints =
-      mappedInput.mapHints(tr(STR_HOME), tr(STR_OPEN), tr(STR_REMOVE), tr(STR_INFO), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto hints = mappedInput.mapHints(tr(STR_HOME), tr(STR_OPEN), "", "", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, hints.front.btn1, hints.front.btn2, hints.front.btn3, hints.front.btn4);
   GUI.drawSideButtonHints(renderer, hints.side.up, hints.side.down);
 
