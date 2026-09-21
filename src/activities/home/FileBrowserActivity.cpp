@@ -156,6 +156,8 @@ bool FileBrowserActivity::handleCustomInput() {
           mappedInput.flushTouchEvents();
           model.setPath(std::move(parent));  // empty -> "/"
           model.load();
+          mappedInput.flushTouchEvents();  // see activateSelected(): load() is long enough to
+                                           // let a fresh contact through behind this one
           const auto pos = oldPath.find_last_of('/');
           const std::string dirName = oldPath.substr(pos + 1) + "/";
           const size_t idx = model.findEntry(dirName);
@@ -253,6 +255,12 @@ void FileBrowserActivity::activateSelected(const bool longPress) {
     mappedInput.flushTouchEvents();
     model.setPath(std::move(child));
     model.load();
+    // And again, because load() is the slow part: reading and sorting a directory takes long
+    // enough that the panel can report a whole contact while it runs, and that one is not
+    // covered by the flush above. It was aimed at the folder being left, but it arrives to find
+    // the new one on screen and gets routed to whatever row now sits under it -- which is the
+    // selection moving on its own, just after the new contents appear.
+    mappedInput.flushTouchEvents();
     resetNavigation();
     requestUpdate();
     return;
