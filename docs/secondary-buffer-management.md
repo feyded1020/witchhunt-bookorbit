@@ -277,3 +277,31 @@ Only use it immediately before reboot or deep sleep.
 The controller should be put to sleep before the host releases its buffers.
 `deepSleep()` sends a final power-down command over SPI. After `releaseBuffers()` there
 is no framebuffer to construct a valid SPI payload from, so the order matters.
+
+**Assuming `displayWindow()` updates the displayed-frame buffer**
+It does not. `swapBuffers()` is reached only from `displayBuffer()` /
+`triggerDisplay()`, so after a windowed refresh the panel shows the new content while
+`frameBufferActive` — the host's model of what is on the panel — still holds the old
+content for that rectangle. The next `displayBuffer()` reseeds RED from
+`frameBufferActive` wholesale, so the stale region survives into the next diff: where
+the incoming screen matches the old content (white on white is the common case), a
+FAST differential drives nothing and the pixels stay as the window left them.
+
+Any caller doing a partial repaint via `displayWindow()` is exposed. The fix is to copy
+the refreshed rectangle from `frameBuffer` into `frameBufferActive` after a windowed
+refresh actually happens — conditional, because the drivers silently reject a window
+they cannot honour and return no indication that they did.
+
+**Treating a borrowed secondary and a released secondary as the same state**
+`hasSecondaryBuffer()` is false in both, but they differ in a way that matters:
+
+- `releaseSecondaryBuffer()` calls `syncWriteBufferFromActive()` *before* freeing, so
+  the write buffer holds the on-screen frame and a partial repaint onto it is correct.
+- `borrowSecondaryBuffer()` sets `frameBufferActive = nullptr` with no such seeding, so
+  the write buffer is the frame from two refreshes ago.
+
+`syncWriteBufferFromActive()` is gated on `frameBufferActive` being non-null and
+silently does nothing in either state, so it cannot rescue the borrowed case. There is
+currently **no public accessor for `_secondaryLent`**, so a caller that needs a known-good
+frame and finds no secondary must treat the situation conservatively rather than assume
+the released case. A one-line `isSecondaryLent()` would make that check exact.
