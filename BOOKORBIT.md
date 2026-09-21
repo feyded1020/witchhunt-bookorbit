@@ -70,6 +70,12 @@ Versions are `<upstream release>.<fork build>` — 2.31.1 is the first fork buil
 because that is what the on-device version check can read, and the firmware file keeps its fixed
 name `firmware-x4pro.bin` so the updater always finds it.
 
+Test builds carry the number of the stable they are heading for plus an `-rc.N` suffix
+(`2.31.11-rc.1`), and go out as GitHub prereleases. A prerelease is invisible to the normal
+update check; **Settings → System → Include Beta Updates** is what asks for them. A stable
+outranks every rc of the same number, so a device on `2.31.11-rc.3` is offered `2.31.11` when it
+lands.
+
 Before your first flash, note which firmware you are on now and keep its `.bin`, so you can flash
 back to it the same way.
 
