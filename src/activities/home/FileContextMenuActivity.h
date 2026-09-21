@@ -27,6 +27,8 @@ class FileContextMenuActivity final : public MenuListActivity {
     SetAsSleepCover,
     FlashFirmware,
     Remove,
+    MoveTo,
+    NewFolder,
   };
 
   explicit FileContextMenuActivity(

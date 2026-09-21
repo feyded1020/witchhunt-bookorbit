@@ -95,12 +95,33 @@ bool FileBrowserModel::acceptForFirmware(const char* name, const bool isDir) {
   return FsHelpers::checkFileExtension(std::string_view{name}, ".bin");
 }
 
+bool FileBrowserModel::acceptForFolders(const char* name, const bool isDir) {
+  // Only somewhere a file can be put. Listing the files too would just be scenery to scroll past.
+  return isListableName(name) && isDir;
+}
+
 bool FileBrowserModel::acceptEntry(const char* name, const bool isDir) const {
-  return mode == Mode::PickFirmware ? acceptForFirmware(name, isDir) : acceptForBooks(name, isDir);
+  switch (mode) {
+    case Mode::PickFirmware:
+      return acceptForFirmware(name, isDir);
+    case Mode::PickFolder:
+      return acceptForFolders(name, isDir);
+    case Mode::Books:
+      break;
+  }
+  return acceptForBooks(name, isDir);
 }
 
 FileIndex::AcceptFn FileBrowserModel::indexFilter() const {
-  return mode == Mode::PickFirmware ? &acceptForFirmware : &acceptForBooks;
+  switch (mode) {
+    case Mode::PickFirmware:
+      return &acceptForFirmware;
+    case Mode::PickFolder:
+      return &acceptForFolders;
+    case Mode::Books:
+      break;
+  }
+  return &acceptForBooks;
 }
 
 void FileBrowserModel::openIndexIfLarge() {

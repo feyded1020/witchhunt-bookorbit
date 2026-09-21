@@ -66,8 +66,13 @@ void FileContextMenuActivity::buildMenuItems() {
       },
       [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->showFileExtensions = (v != 0) ? 1 : 0; }));
 
-  // In browser mode (no file / directory / unsupported type) we stop here.
-  if (isBrowserMode) return;
+  // In browser mode (no file / directory / unsupported type) the only action is making a folder
+  // here, which is what gives Move somewhere to go.
+  if (isBrowserMode) {
+    menuItems.push_back(SettingInfo::Separator(StrId::STR_TOOL_UTILITIES));
+    menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
+    return;
+  }
 
   // --- File-specific actions (only when a supported file is selected) ---
   const std::string_view name{filePath};
@@ -107,6 +112,10 @@ void FileContextMenuActivity::buildMenuItems() {
     menuItems.push_back(SettingInfo::Action(StrId::STR_MARK_AS_READ, SettingAction::None));
     menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
   }
+
+  // Every file can be moved, whatever its type: on a FAT volume this is a rename, and rename
+  // does not care what the bytes are.
+  menuItems.push_back(SettingInfo::Action(StrId::STR_MOVE_TO_FOLDER, SettingAction::None));
 }
 
 void FileContextMenuActivity::finishWithDisplayOptions(Action action) {
@@ -144,6 +153,10 @@ void FileContextMenuActivity::onActionSelected(int index) {
     action = Action::SetAsSleepCover;
   } else if (nameId == StrId::STR_FLASH_FIRMWARE) {
     action = Action::FlashFirmware;
+  } else if (nameId == StrId::STR_MOVE_TO_FOLDER) {
+    action = Action::MoveTo;
+  } else if (nameId == StrId::STR_NEW_FOLDER) {
+    action = Action::NewFolder;
   } else if (nameId == StrId::STR_REMOVE) {
     action = Action::Remove;
   }
