@@ -11,3 +11,4 @@ void heapTrackSizeHistogram(size_t* out, const int count) {
 void heapTrackPause() {}
 void heapTrackResume() {}
 int heapTrackTopSites(HeapTrackSite*, int) { return 0; }
+size_t heapTrackPeakSoFar() { return 0; }

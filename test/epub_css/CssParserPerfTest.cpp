@@ -302,6 +302,36 @@ TEST(CssParser, SkipsRulesWithoutSupportedDeclarations) {
   std::filesystem::remove(cssPath, rmEc);  // best-effort; see removePath()
 }
 
+// The invisibility properties are the one place `color` is consulted at all. Only the invisible
+// value counts as a supported declaration: transparent / opacity 0 / visibility hidden keep a
+// rule, while red / 0.5 / visible leave it as unsupported as it was before -- so a monochrome
+// panel does not start retaining every book's colour rules. Companion to the test above, which
+// is what caught the first version of this defining `color: red` and doubling its rule count.
+TEST(CssParser, KeepsOnlyInvisibleValuesOfInvisibilityProperties) {
+  const std::string css =
+      ".ocr { color: transparent; }\n"
+      ".fill { -webkit-text-fill-color: transparent; }\n"
+      ".alpha { color: rgba(0, 0, 0, 0); }\n"
+      ".gone { opacity: 0; }\n"
+      ".hid { visibility: hidden; }\n"
+      ".red { color: red; }\n"
+      ".hex { color: #000000; }\n"
+      ".dim { opacity: 0.5; }\n"
+      ".vis { visibility: visible; }\n";
+  const std::vector<uint8_t> cssData(css.begin(), css.end());
+  std::string cssPath;
+  ASSERT_TRUE(writeTempCssFile(cssData, cssPath));
+
+  CssParser parser("");
+  FsFile cssFile;
+  ASSERT_TRUE(Storage.openFileForRead("CSS", cssPath.c_str(), cssFile));
+  ASSERT_TRUE(parser.loadFromStream(cssFile));
+  EXPECT_EQ(parser.ruleCount(), 5u);  // .ocr .fill .alpha .gone .hid
+
+  std::error_code rmEc;
+  std::filesystem::remove(cssPath, rmEc);  // best-effort; see removePath()
+}
+
 TEST(CssParserPerf, ParseLargeCssEpub) {
   const std::string epubPath = FIXTURE_EPUB;
   const char* cssEntry = "OEBPS/styles/large.css";

@@ -163,6 +163,9 @@ bool runAndDump(const std::string& epubPath, const std::string& cacheDir, const 
       const auto us =
           std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - spineStart);
       spineStat(i, section.pageCount, us.count());
+      // Bench mode only (spineStat is set only by the CLI). The peak is monotonic, so the spine
+      // on which this number steps is the spine that set the book's high-water mark.
+      std::fprintf(stderr, "BENCHMARK spine_%d peak_so_far=%zu\n", i, heapTrackPeakSoFar());
     }
   }
   return true;

@@ -82,8 +82,11 @@ int main(const int argc, char** argv) {
     }
     // Where the allocations come from, not just how big they are. Raw addresses; pipe through
     // addr2line against this binary to get file:line.
-    HeapTrackSite sites[40];
-    const int siteCount = heapTrackTopSites(sites, 40);
+    // Every populated slot, not a top-N: the peak on an image-heavy book turned out to be spread
+    // across hundreds of small holders, which a 40-site cut hid entirely (attributed 3.5 KB of a
+    // 179 KB peak). Static so the table does not land on the stack.
+    static HeapTrackSite sites[4096];
+    const int siteCount = heapTrackTopSites(sites, 4096);
     for (int i = 0; i < siteCount; i++) {
       // Resolve in-process: the binary is position-independent, so a raw runtime address means
       // nothing to addr2line without the load base. dladdr gives both the symbol and the base,
@@ -101,8 +104,8 @@ int main(const int argc, char** argv) {
       // .exe resolves it. Without this the profiler's site list is a column of raw pointers.
       rel = sites[i].pc - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
 #endif
-      std::fprintf(stderr, "\nBENCHMARK alloc_site peakLive=%zu count=%zu bytes=%zu off=0x%llx sym=%s",
-                   sites[i].peakLive, sites[i].count, sites[i].bytes, rel, sym);
+      std::fprintf(stderr, "\nBENCHMARK alloc_site peakLive=%zu count=%zu bytes=%zu max=%zu off=0x%llx sym=%s",
+                   sites[i].peakLive, sites[i].count, sites[i].bytes, sites[i].maxSize, rel, sym);
     }
   }
   std::fprintf(stderr, "\n");

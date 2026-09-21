@@ -1,0 +1,145 @@
+BOOK title=Invisible Text lang=en spine=8 toc=0 reliableToc=0
+SPINE 0 href=OEBPS/chapter1.xhtml pages=1 truncated=0 cssFallback=0
+ PAGE 0 elements=3 footnotes=0
+  LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=3
+   W x=93 s=1 z=100 t=Fixed
+   W x=169 s=1 z=100 t=Layout
+   W x=293 s=1 z=100 t=Scan
+  IMG y=38 x=210 w=40 h=60 src=<cache>/epub_<hash>/img_1fd8b6a0c3056bf3.png
+  LINE y=98 x=0 align=0 mult=0.583 hfid=0 words=8
+   W x=10 s=0 z=100 t=VISIBLECAPTION
+   W x=88 s=0 z=100 t=the
+   W x=109 s=0 z=100 t=caption
+   W x=149 s=0 z=100 t=under
+   W x=179 s=0 z=100 t=the
+   W x=200 s=0 z=100 t=scan
+   W x=226 s=0 z=100 t=must
+   W x=252 s=0 z=100 t=survive.
+SPINE 1 href=OEBPS/chapter2.xhtml pages=1 truncated=0 cssFallback=0
+ PAGE 0 elements=2 footnotes=0
+  LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=2
+   W x=49 s=1 z=100 t=Stylesheet
+   W x=230 s=1 z=100 t=Transparent
+  LINE y=38 x=0 align=0 mult=1.000 hfid=0 words=7
+   W x=18 s=0 z=100 t=VISIBLETWO
+   W x=118 s=0 z=100 t=the
+   W x=155 s=0 z=100 t=paragraph
+   W x=248 s=0 z=100 t=after
+   W x=303 s=0 z=100 t=it
+   W x=325 s=0 z=100 t=must
+   W x=371 s=0 z=100 t=survive.
+SPINE 2 href=OEBPS/chapter3.xhtml pages=1 truncated=0 cssFallback=0
+ PAGE 0 elements=4 footnotes=0
+  LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=3
+   W x=80 s=1 z=100 t=Alpha
+   W x=173 s=1 z=100 t=Zero
+   W x=255 s=1 z=100 t=Colours
+  LINE y=38 x=0 align=0 mult=1.000 hfid=0 words=5
+   W x=18 s=0 z=100 t=VISIBLEOPAQUE
+   W x=149 s=0 z=100 t=opaque
+   W x=212 s=0 z=100 t=rgba
+   W x=255 s=0 z=100 t=must
+   W x=301 s=0 z=100 t=survive.
+  LINE y=62 x=0 align=0 mult=1.000 hfid=0 words=9
+   W x=18 s=0 z=100 t=VISIBLEHEXSIX
+   W x=156 s=0 z=100 t=six-digit
+   W x=234 s=0 z=100 t=hex
+   W x=268 s=0 z=100 t=ends
+   W x=311 s=0 z=100 t=in
+   W x=334 s=0 z=100 t=00
+   W x=364 s=0 z=100 t=but
+   W x=397 s=0 z=100 t=has
+   W x=436 s=0 z=100 t=no
+  LINE y=86 x=0 align=0 mult=1.000 hfid=0 words=1
+   W x=0 s=0 z=100 t=alpha.
+SPINE 3 href=OEBPS/chapter4.xhtml pages=1 truncated=0 cssFallback=0
+ PAGE 0 elements=2 footnotes=0
+  LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=3
+   W x=109 s=1 z=100 t=Text
+   W x=177 s=1 z=100 t=Fill
+   W x=241 s=1 z=100 t=Colour
+  LINE y=38 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=VISIBLEFOUR
+   W x=127 s=0 z=100 t=must
+   W x=173 s=0 z=100 t=survive.
+SPINE 4 href=OEBPS/chapter5.xhtml pages=1 truncated=0 cssFallback=0
+ PAGE 0 elements=2 footnotes=0
+  LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=2
+   W x=113 s=1 z=100 t=Visibility
+   W x=257 s=1 z=100 t=Hidden
+  LINE y=38 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=VISIBLEFIVE
+   W x=130 s=0 z=100 t=must
+   W x=176 s=0 z=100 t=survive.
+SPINE 5 href=OEBPS/chapter6.xhtml pages=1 truncated=0 cssFallback=0
+ PAGE 0 elements=3 footnotes=0
+  LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=2
+   W x=138 s=1 z=100 t=Opacity
+   W x=250 s=1 z=100 t=Zero
+  LINE y=38 x=0 align=0 mult=1.000 hfid=0 words=7
+   W x=18 s=0 z=100 t=VISIBLEDIM
+   W x=121 s=0 z=100 t=half
+   W x=170 s=0 z=100 t=opacity
+   W x=237 s=0 z=100 t=is
+   W x=258 s=0 z=100 t=dim,
+   W x=296 s=0 z=100 t=not
+   W x=335 s=0 z=100 t=invisible.
+  LINE y=62 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=VISIBLESIX
+   W x=126 s=0 z=100 t=must
+   W x=172 s=0 z=100 t=survive.
+SPINE 6 href=OEBPS/chapter7.xhtml pages=1 truncated=0 cssFallback=0
+ PAGE 0 elements=4 footnotes=0
+  LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=3
+   W x=39 s=1 z=100 t=Explicit
+   W x=163 s=1 z=100 t=Colours
+   W x=298 s=1 z=100 t=Survive
+  LINE y=38 x=0 align=0 mult=1.000 hfid=0 words=7
+   W x=18 s=0 z=100 t=VISIBLERED
+   W x=129 s=0 z=100 t=red
+   W x=160 s=0 z=100 t=is
+   W x=181 s=0 z=100 t=a
+   W x=199 s=0 z=100 t=colour,
+   W x=272 s=0 z=100 t=not
+   W x=311 s=0 z=100 t=transparency.
+  LINE y=62 x=0 align=0 mult=1.000 hfid=0 words=5
+   W x=18 s=0 z=100 t=VISIBLEOVERRIDE
+   W x=177 s=0 z=100 t=the
+   W x=214 s=0 z=100 t=later
+   W x=268 s=0 z=100 t=declaration
+   W x=378 s=0 z=100 t=wins.
+  LINE y=86 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=VISIBLESEVEN
+   W x=146 s=0 z=100 t=must
+   W x=192 s=0 z=100 t=survive.
+SPINE 7 href=OEBPS/chapter8.xhtml pages=1 truncated=0 cssFallback=0
+ PAGE 0 elements=5 footnotes=0
+  LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=3
+   W x=83 s=1 z=100 t=Nothing
+   W x=215 s=1 z=100 t=Hidden
+   W x=315 s=1 z=100 t=Here
+  LINE y=38 x=0 align=0 mult=1.000 hfid=0 words=10
+   W x=18 s=0 z=100 t=A
+   W x=33 s=0 z=100 t=control
+   W x=109 s=0 z=100 t=chapter:
+   W x=188 s=0 z=100 t=every
+   W x=241 s=0 z=100 t=word
+   W x=282 s=0 z=100 t=in
+   W x=306 s=0 z=100 t=it
+   W x=329 s=0 z=100 t=must
+   W x=376 s=0 z=100 t=appear
+   W x=436 s=0 z=100 t=in
+  LINE y=62 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=0 s=0 z=100 t=the
+   W x=37 s=0 z=100 t=golden.
+  LINE y=86 x=0 align=0 mult=1.000 hfid=0 words=7
+   W x=18 s=0 z=100 t=Including
+   W x=112 s=0 z=100 t=this
+   W x=160 s=0 z=100 t=red
+   W x=196 s=0 z=100 t=paragraph,
+   W x=302 s=0 z=100 t=which
+   W x=356 s=0 z=100 t=is
+   W x=382 s=0 z=100 t=coloured
+  LINE y=110 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=0 s=0 z=100 t=but
+   W x=33 s=0 z=100 t=visible.
