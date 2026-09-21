@@ -24,7 +24,9 @@
 class FileBrowserModel {
  public:
   // Books = the file types the reader can open; PickFirmware = .bin only.
-  enum class Mode { Books, PickFirmware };
+  // Books = the file types the reader can open; PickFirmware = .bin only;
+  // PickFolder = directories only, for choosing a destination to move a file into.
+  enum class Mode { Books, PickFirmware, PickFolder };
 
   explicit FileBrowserModel(const Mode mode = Mode::Books) : mode(mode) {}
 
@@ -72,6 +74,7 @@ class FileBrowserModel {
   // function pointer with no user data: indexFilter() hands over the one that matches.
   static bool acceptForBooks(const char* name, bool isDir);
   static bool acceptForFirmware(const char* name, bool isDir);
+  static bool acceptForFolders(const char* name, bool isDir);
   [[nodiscard]] bool acceptEntry(const char* name, bool isDir) const;
   [[nodiscard]] FileIndex::AcceptFn indexFilter() const;
 
