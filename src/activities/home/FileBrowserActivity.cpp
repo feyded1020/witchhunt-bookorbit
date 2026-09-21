@@ -405,7 +405,7 @@ void FileBrowserActivity::drawChrome() {
       (model.getMode() == Mode::PickFirmware)
           ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
           : ((model.path() == "/") ? std::string(tr(STR_SD_CARD)) : model.path().substr(model.path().rfind('/') + 1));
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer),
                  folderName.c_str());
 }
 

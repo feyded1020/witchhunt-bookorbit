@@ -684,7 +684,7 @@ void RecentBooksActivity::renderListView(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, true);
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer),
                  tr(STR_MENU_RECENT_BOOKS));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
@@ -860,7 +860,7 @@ void RecentBooksActivity::renderGridView(RenderLock&&) {
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer),
                  tr(STR_MENU_RECENT_BOOKS));
 
   if (recentBooks.empty()) {

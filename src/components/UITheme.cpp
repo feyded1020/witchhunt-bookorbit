@@ -97,6 +97,12 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
   UiFontLadder::applyTo(currentMetrics, fontGrowth());
 }
 
+Rect UITheme::getHeaderRect(const GfxRenderer& renderer) {
+  const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
+  const Rect full = getContentRect(renderer, /*hasBottomHints=*/true, /*hasSideHints=*/false);
+  return Rect{full.x, metrics.topPadding, full.width, metrics.headerHeight};
+}
+
 int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
                                      bool hasSubtitle) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
