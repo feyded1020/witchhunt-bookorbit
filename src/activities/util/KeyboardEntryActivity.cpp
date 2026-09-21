@@ -5,6 +5,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <vector>
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -673,55 +674,18 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     const int sideReserve = fullWidth - UITheme::getContentRect(renderer, true, true).width;
     const int tipsMaxWidth = fullWidth - sideReserve * 2 - metrics.contentSidePadding * 2;
 
-    // Wrap once into a fixed table of (tip, offset, length), then draw. The table is needed
-    // because the block is centred vertically: its height has to be known before the first line
-    // can be given a y, and walking the tips twice instead would wrap every one of them twice.
-    //
-    // No heap: this runs on every render of this screen, and a few short sentences do not
-    // justify an allocation per line. getTextWidth takes a C string rather than a pointer and a
-    // length, so candidates are measured through a stack buffer that the draw reuses.
-    struct Line {
-      const char* begin;
-      uint8_t len;
-    };
-    Line lines[12];
-    int lineCount = 0;
-    char probe[128];
-    const auto widthOf = [&](const char* begin, const size_t len) {
-      const size_t n = len < sizeof(probe) - 1 ? len : sizeof(probe) - 1;
-      memcpy(probe, begin, n);
-      probe[n] = '\0';
-      return renderer.getTextWidth(SMALL_FONT_ID, probe);
-    };
-
-    for (int i = 0; i < tipCount && lineCount < static_cast<int>(std::size(lines)); ++i) {
-      const char* const tip = tips[i];
-      const size_t len = strlen(tip);
-      size_t from = 0;
-      while (from < len && lineCount < static_cast<int>(std::size(lines))) {
-        size_t take = len - from;
-        while (take > 0 && widthOf(tip + from, take) > tipsMaxWidth) {
-          size_t space = take;
-          while (space > 0 && tip[from + space - 1] != ' ') --space;
-          // One word wider than the screen: let it overhang rather than shrink a line that can
-          // never fit.
-          if (space == 0) break;
-          take = space - 1;
-        }
-        if (take == 0) take = len - from;
-        lines[lineCount++] = {tip + from, static_cast<uint8_t>(take)};
-        from += take;
-        while (from < len && tip[from] == ' ') ++from;
-      }
+    // Collected before any of it is drawn: the block is centred vertically, so its height has to
+    // be known before the first line can be given a y.
+    std::vector<std::string> tipLines;
+    tipLines.emplace_back(tr(STR_KB_TIPS));
+    for (int i = 0; i < tipCount; ++i) {
+      const auto wrapped = renderer.wrappedText(SMALL_FONT_ID, tips[i], tipsMaxWidth, 4);
+      tipLines.insert(tipLines.end(), wrapped.begin(), wrapped.end());
     }
 
-    int y = (underlineBottom + keyboardStartY) / 2 - (lineCount + 1) * tipsLh / 2;
-    drawTip(tr(STR_KB_TIPS), y);
-    y += tipsLh;
-    for (int i = 0; i < lineCount; ++i) {
-      memcpy(probe, lines[i].begin, lines[i].len);
-      probe[lines[i].len] = '\0';
-      drawTip(probe, y);
+    int y = (underlineBottom + keyboardStartY) / 2 - static_cast<int>(tipLines.size()) * tipsLh / 2;
+    for (const auto& line : tipLines) {
+      drawTip(line.c_str(), y);
       y += tipsLh;
     }
   }
