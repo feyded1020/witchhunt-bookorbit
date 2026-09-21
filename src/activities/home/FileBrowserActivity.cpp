@@ -27,7 +27,6 @@
 #include <HalCapabilities.h>
 
 #include "FileContextMenuActivity.h"
-#include "../util/ControlsActivity.h"
 #include "BookOrbitCredentialStore.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -475,33 +474,6 @@ bool FileBrowserActivity::confirmOpensOptions() const {
   return model.getMode() == Mode::Books && !HalCapabilities::hasBackAndConfirmButtons();
 }
 
-// See RecentBooksActivity::showControls(): only what this board can actually do, and only what
-// the hint strip cannot already say.
-void FileBrowserActivity::showControls() {
-  std::vector<ControlsActivity::Entry> entries;
-
-  // Only claim two taps when two taps are really needed: whether the first tap on a row opens
-  // it or only moves the selection is the reader's own setting, and a page that documents the
-  // wrong one is worse than no page. Where one tap opens, there is nothing here worth saying.
-  if (mappedInput.hasTouch() && SETTINGS.touchListActivation != CrossPointSettings::TOUCH_LIST_ACTIVATE_IMMEDIATELY) {
-    entries.push_back({tr(STR_OPEN), tr(STR_TAP_TWICE)});
-  }
-  // Paging by swipe is real here (UiListActivity::loop) and nothing on screen says so.
-  if (mappedInput.hasTouch()) {
-    entries.push_back({tr(STR_LIST_PAGE_NEXT), tr(STR_SWIPE_PAGE)});
-  }
-  // Where Confirm carries Options the strip says so, and repeating a visible button is noise.
-  // Where it does not, Options is a hold of the page-forward key and nothing announces that.
-  if (!confirmOpensOptions()) {
-    char held[48];
-    snprintf(held, sizeof(held), tr(STR_HOLD_FORMAT), tr(STR_LIST_PAGE_NEXT));
-    entries.push_back({tr(STR_OPTIONS), held});
-  }
-
-  startActivityForResult(std::make_unique<ControlsActivity>(renderer, mappedInput, std::move(entries)),
-                         [this](const ActivityResult&) { requestUpdate(); });
-}
-
 void FileBrowserActivity::openContextMenu() {
   // If no file selected or a directory selected, show browser options only
   if (model.entryCount() == 0 || nav.selected < 0 || nav.selected >= listCount()) {
@@ -566,11 +538,6 @@ void FileBrowserActivity::handleContextMenuAction(int action, const std::string&
                                                   const MenuResult* menuRes) {
   using Action = FileContextMenuActivity::Action;
   const Action actionEnum = static_cast<Action>(action);
-
-  if (actionEnum == Action::Controls) {
-    showControls();
-    return;
-  }
 
   // Display options: apply sort + visibility state returned from the menu.
   if (actionEnum == Action::DisplayOptionsChanged) {

@@ -66,12 +66,8 @@ void FileContextMenuActivity::buildMenuItems() {
       },
       [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->showFileExtensions = (v != 0) ? 1 : 0; }));
 
-  // In browser mode (no file / directory / unsupported type) Controls is the last thing on the
-  // list, below the display options.
-  if (isBrowserMode) {
-    menuItems.push_back(SettingInfo::Action(StrId::STR_CONTROLS, SettingAction::None));
-    return;
-  }
+  // In browser mode (no file / directory / unsupported type) we stop here.
+  if (isBrowserMode) return;
 
   // --- File-specific actions (only when a supported file is selected) ---
   const std::string_view name{filePath};
@@ -111,8 +107,6 @@ void FileContextMenuActivity::buildMenuItems() {
     menuItems.push_back(SettingInfo::Action(StrId::STR_MARK_AS_READ, SettingAction::None));
     menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
   }
-
-  menuItems.push_back(SettingInfo::Action(StrId::STR_CONTROLS, SettingAction::None));
 }
 
 void FileContextMenuActivity::finishWithDisplayOptions(Action action) {
@@ -150,8 +144,6 @@ void FileContextMenuActivity::onActionSelected(int index) {
     action = Action::SetAsSleepCover;
   } else if (nameId == StrId::STR_FLASH_FIRMWARE) {
     action = Action::FlashFirmware;
-  } else if (nameId == StrId::STR_CONTROLS) {
-    action = Action::Controls;
   } else if (nameId == StrId::STR_REMOVE) {
     action = Action::Remove;
   }
