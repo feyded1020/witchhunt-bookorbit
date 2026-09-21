@@ -93,6 +93,12 @@ struct CssPropertyFlags {
   uint32_t fontSizeMultiplier : 1;
   uint32_t cssFloat : 1;
   uint32_t smallCaps : 1;
+  // Invisibility. Three bits, not one: they come from three properties that cascade
+  // independently, and a shared bit would let a later `visibility: visible` cancel an
+  // `opacity: 0` (or vice versa) purely by declaration order.
+  uint32_t colorTransparent : 1;
+  uint32_t opacityZero : 1;
+  uint32_t visibilityHidden : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -118,13 +124,16 @@ struct CssPropertyFlags {
         lineHeight(0),
         fontSizeMultiplier(0),
         cssFloat(0),
-        smallCaps(0) {}
+        smallCaps(0),
+        colorTransparent(0),
+        opacityZero(0),
+        visibilityHidden(0) {}
 
   [[nodiscard]] bool anySet() const {
     return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
            marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
            imageWidth || display || verticalAlign || listStyleNone || pageBreakBefore || pageBreakAfter || lineHeight ||
-           fontSizeMultiplier || cssFloat || smallCaps;
+           fontSizeMultiplier || cssFloat || smallCaps || colorTransparent || opacityZero || visibilityHidden;
   }
 
   void clearAll() {
@@ -133,7 +142,7 @@ struct CssPropertyFlags {
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
     imageHeight = imageWidth = display = verticalAlign = 0;
     listStyleNone = pageBreakBefore = pageBreakAfter = lineHeight = fontSizeMultiplier = cssFloat = 0;
-    smallCaps = 0;
+    smallCaps = colorTransparent = opacityZero = visibilityHidden = 0;
   }
 };
 
@@ -167,6 +176,19 @@ struct CssStyle {
   float fontSizeMultiplier = 1.0f;     // font-size multiplier relative to body em size
   CssFloat cssFloat = CssFloat::None;  // float: left/right — signals inline image context
   bool smallCaps = false;              // font-variant: small-caps
+  // Text made invisible while still in the flow. A PDF-to-EPUB conversion emits every OCR word
+  // as its own absolutely positioned div with `color: transparent` under a full-page scan; laid
+  // out as ordinary text that became eleven pages of single words per scan (Deckhand).
+  // colorTransparent hides TEXT only (images are not coloured); opacityZero and visibilityHidden
+  // hide the whole element, images included. `-webkit-text-fill-color` and alpha-zero colours
+  // (rgba/hsla/#rrggbb00) set colorTransparent too.
+  // Invariant: a DEFINED invisibility property is always true. The visible value (color: red,
+  // opacity: 0.5, visibility: visible) undefines it rather than defining it false, so a rule
+  // that sets only visible values still has no supported declaration and stays out of the rule
+  // cache. The value bools exist for uniformity with every other property; see CssParser.
+  bool colorTransparent = false;
+  bool opacityZero = false;
+  bool visibilityHidden = false;  // visibility: hidden | collapse
 
   CssPropertyFlags defined;  // Tracks which properties were explicitly set
 
@@ -272,6 +294,18 @@ struct CssStyle {
       smallCaps = base.smallCaps;
       defined.smallCaps = 1;
     }
+    if (base.hasColorTransparent()) {
+      colorTransparent = base.colorTransparent;
+      defined.colorTransparent = 1;
+    }
+    if (base.hasOpacityZero()) {
+      opacityZero = base.opacityZero;
+      defined.opacityZero = 1;
+    }
+    if (base.hasVisibilityHidden()) {
+      visibilityHidden = base.visibilityHidden;
+      defined.visibilityHidden = 1;
+    }
   }
 
   [[nodiscard]] bool hasTextAlign() const { return defined.textAlign; }
@@ -297,6 +331,15 @@ struct CssStyle {
   [[nodiscard]] bool hasListStyleNone() const { return defined.listStyleNone; }
   [[nodiscard]] bool hasCssFloat() const { return defined.cssFloat; }
   [[nodiscard]] bool hasSmallCaps() const { return defined.smallCaps; }
+  [[nodiscard]] bool hasColorTransparent() const { return defined.colorTransparent; }
+  [[nodiscard]] bool hasOpacityZero() const { return defined.opacityZero; }
+  [[nodiscard]] bool hasVisibilityHidden() const { return defined.visibilityHidden; }
+  // The element and everything in it is invisible (images too): opacity 0, or visibility
+  // hidden/collapse. Text-only invisibility (colorTransparent) is a separate question.
+  [[nodiscard]] bool isElementHidden() const {
+    return (defined.opacityZero && opacityZero) || (defined.visibilityHidden && visibilityHidden);
+  }
+  [[nodiscard]] bool isTextTransparent() const { return defined.colorTransparent && colorTransparent; }
   [[nodiscard]] bool hasPageBreakBefore() const { return defined.pageBreakBefore; }
   [[nodiscard]] bool hasPageBreakAfter() const { return defined.pageBreakAfter; }
   [[nodiscard]] bool hasLineHeight() const { return defined.lineHeight; }
@@ -320,6 +363,9 @@ struct CssStyle {
     fontSizeMultiplier = 1.0f;
     cssFloat = CssFloat::None;
     smallCaps = false;
+    colorTransparent = false;
+    opacityZero = false;
+    visibilityHidden = false;
     defined.clearAll();
   }
 };

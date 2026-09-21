@@ -63,7 +63,10 @@ class ChapterHtmlSlimParser final : public Print {
   std::function<void(int)> progressFn;  // Progress callback (0-100)
   int depth = 0;
   int skipUntilDepth = INT_MAX;
-  int skipTextUntilDepth = INT_MAX;  // skip character data inside synthetic zero-height spacer <p>
+  // Skip character data (words only; elements, images and spacing proceed) below this depth:
+  // synthetic zero-height spacer <p>, and elements whose text is transparent (color /
+  // -webkit-text-fill-color: transparent, alpha-zero colours). Single slot, shallowest wins.
+  int skipTextUntilDepth = INT_MAX;
   int boldUntilDepth = INT_MAX;
   int italicUntilDepth = INT_MAX;
   int underlineUntilDepth = INT_MAX;
@@ -434,6 +437,25 @@ class ChapterHtmlSlimParser final : public Print {
   // caching by (tag|classAttr) and styleAttr avoids repeated string operations and hash lookups.
   std::unordered_map<std::string, CssStyle> cssStyleCache_;
   std::unordered_map<std::string, CssStyle> inlineStyleCache_;
+  // Both are pure memos of deterministic resolves, so they are BOUNDED: once a memo holds
+  // kStyleMemoMaxEntries, later misses are resolved and used but not inserted, which changes
+  // nothing but time. A reflowable chapter has tens of unique keys and never reaches the cap.
+  // A PDF-derived chapter does not: every text run carries its own left/top in style="...", so
+  // every key is unique, the hit rate is 0%, and an unbounded memo grew one ~250 B node per
+  // element -- ~120 KB on a 66 KB chapter of Deckhand, 70% of the build's peak, against ~29 KB
+  // of contiguous heap while reading on the C3. The node cost is the key string plus the
+  // CssStyle payload, so it does not shrink on a 32-bit target.
+  static constexpr size_t kStyleMemoMaxEntries = 64;
+  bool styleMemoHasRoom(const std::unordered_map<std::string, CssStyle>& memo) const {
+    return memo.size() < kStyleMemoMaxEntries;
+  }
+  // parseInlineStyle(styleAttr), memoised while there is room. Returned by value: CssStyle is a
+  // flat struct with no heap members, and a reference into the memo would dangle on the
+  // no-insert path.
+  CssStyle inlineStyleFor(const std::string& styleAttr);
+  // cssParser->resolveStyle("img", classAttr) under the key "img|classAttr", memoised while
+  // there is room. Requires cssParser != nullptr.
+  CssStyle resolvedImgStyle(const std::string& classAttr);
 
   // Default size for superscript/subscript text, percent of the surrounding size.
   // Sup/sub scaling flows through the ordinary per-word size channel (the SUP/SUB

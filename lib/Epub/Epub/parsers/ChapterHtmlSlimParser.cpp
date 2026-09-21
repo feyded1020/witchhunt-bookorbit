@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <utility>
 
 #include "../../Epub.h"
 #include "../HashUtils.h"
@@ -631,6 +632,24 @@ CssStyle ChapterHtmlSlimParser::normalizeFontSizeForElement(const char* tagName,
   }
   return normalized;
 }
+CssStyle ChapterHtmlSlimParser::inlineStyleFor(const std::string& styleAttr) {
+  const auto it = inlineStyleCache_.find(styleAttr);
+  if (it != inlineStyleCache_.end()) return it->second;
+  CssStyle parsed = CssParser::parseInlineStyle(styleAttr);
+  if (styleMemoHasRoom(inlineStyleCache_)) inlineStyleCache_.emplace(styleAttr, parsed);
+  return parsed;
+}
+
+CssStyle ChapterHtmlSlimParser::resolvedImgStyle(const std::string& classAttr) {
+  std::string key("img|");
+  key += classAttr;
+  const auto it = cssStyleCache_.find(key);
+  if (it != cssStyleCache_.end()) return it->second;
+  CssStyle resolved = cssParser->resolveStyle("img", classAttr);
+  if (styleMemoHasRoom(cssStyleCache_)) cssStyleCache_.emplace(std::move(key), resolved);
+  return resolved;
+}
+
 bool ChapterHtmlSlimParser::ensureHeapForTextLayout(const char* phase) {
   if (streamFailed) {
     return false;
@@ -1402,19 +1421,15 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
           cssStyle = it->second;
         } else {
           CssStyle resolved = self->cssParser->resolveStyle(name, classAttr, idAttr);
-          if (resolved.defined.anySet())
-            cssStyle = self->cssStyleCache_.emplace(cacheKey, resolved).first->second;
-          else
-            cssStyle = resolved;  // transient fallback: skip cache so future calls can re-resolve
+          // An empty result stays out so future calls can re-resolve; anything else is memoised
+          // while the memo has room (kStyleMemoMaxEntries). Either way the element uses `resolved`.
+          if (resolved.defined.anySet() && self->styleMemoHasRoom(self->cssStyleCache_))
+            self->cssStyleCache_.emplace(std::move(cacheKey), resolved);
+          cssStyle = resolved;
         }
       }
     }
-    if (!styleAttr.empty()) {
-      auto it = self->inlineStyleCache_.find(styleAttr);
-      if (it == self->inlineStyleCache_.end())
-        it = self->inlineStyleCache_.emplace(styleAttr, CssParser::parseInlineStyle(styleAttr)).first;
-      cssStyle.applyOver(it->second);
-    }
+    if (!styleAttr.empty()) cssStyle.applyOver(self->inlineStyleFor(styleAttr));
   }
 
   // The HTML `hidden` attribute means display:none, and outranks the CSS that got
@@ -1426,11 +1441,24 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     cssStyle.defined.display = 1;
   }
 
-  // Skip elements with display:none before all fast paths (tables, links, etc.).
-  if (cssStyle.hasDisplay() && cssStyle.display == CssDisplay::None) {
+  // Skip elements with display:none before all fast paths (tables, links, etc.). `opacity: 0`
+  // and `visibility: hidden` take the same exit: the element and everything in it -- images
+  // included -- is invisible, and an invisible block that still took its space would be a
+  // blank page on an e-reader, not fidelity.
+  if ((cssStyle.hasDisplay() && cssStyle.display == CssDisplay::None) || cssStyle.isElementHidden()) {
     self->skipUntilDepth = self->depth;
     self->depth += 1;
     return;
+  }
+
+  // Transparent text is different: the element stays (structure, images, spacing), only its
+  // words are dropped, via the same text-only skip the zero-height spacer uses. `<` rather than
+  // `=`: a transparent element nested inside a transparent ancestor must not shorten the
+  // ancestor's scope, and the reset in endElement only fires at the depth that set it.
+  // Known limit of the single slot: a descendant's explicit `color: black` cannot re-enable
+  // text inside a transparent ancestor. No OCR layer does that; a stack would if one ever does.
+  if (cssStyle.isTextTransparent() && self->depth < self->skipTextUntilDepth) {
+    self->skipTextUntilDepth = self->depth;
   }
 
   self->observeFontSizeBaseline(name, cssStyle);
@@ -1639,18 +1667,8 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
 
       // Skip image if CSS display:none
       if (self->cssParser) {
-        std::string imgCacheKey("img|");
-        imgCacheKey += classAttr;
-        auto imgIt = self->cssStyleCache_.find(imgCacheKey);
-        if (imgIt == self->cssStyleCache_.end())
-          imgIt = self->cssStyleCache_.emplace(imgCacheKey, self->cssParser->resolveStyle("img", classAttr)).first;
-        CssStyle imgDisplayStyle = imgIt->second;
-        if (!styleAttr.empty()) {
-          auto it = self->inlineStyleCache_.find(styleAttr);
-          if (it == self->inlineStyleCache_.end())
-            it = self->inlineStyleCache_.emplace(styleAttr, CssParser::parseInlineStyle(styleAttr)).first;
-          imgDisplayStyle.applyOver(it->second);
-        }
+        CssStyle imgDisplayStyle = self->resolvedImgStyle(classAttr);
+        if (!styleAttr.empty()) imgDisplayStyle.applyOver(self->inlineStyleFor(styleAttr));
         if (imgDisplayStyle.hasDisplay() && imgDisplayStyle.display == CssDisplay::None) {
           // CSS-hidden images should behave like suppressed images for spacing.
           if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
@@ -1742,20 +1760,9 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
                 int displayWidth = 0;
                 int displayHeight = 0;
                 const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
-                std::string imgCacheKey("img|");
-                imgCacheKey += classAttr;
-                auto imgStyleIt = self->cssParser ? self->cssStyleCache_.find(imgCacheKey) : self->cssStyleCache_.end();
-                if (self->cssParser && imgStyleIt == self->cssStyleCache_.end())
-                  imgStyleIt =
-                      self->cssStyleCache_.emplace(imgCacheKey, self->cssParser->resolveStyle("img", classAttr)).first;
-                CssStyle imgStyle = self->cssParser ? imgStyleIt->second : CssStyle{};
+                CssStyle imgStyle = self->cssParser ? self->resolvedImgStyle(classAttr) : CssStyle{};
                 // Merge inline style (e.g. style="height: 2em") so it overrides stylesheet rules
-                if (!styleAttr.empty()) {
-                  auto it = self->inlineStyleCache_.find(styleAttr);
-                  if (it == self->inlineStyleCache_.end())
-                    it = self->inlineStyleCache_.emplace(styleAttr, CssParser::parseInlineStyle(styleAttr)).first;
-                  imgStyle.applyOver(it->second);
-                }
+                if (!styleAttr.empty()) imgStyle.applyOver(self->inlineStyleFor(styleAttr));
                 const bool hasCssHeight = imgStyle.hasImageHeight();
                 const bool hasCssWidth = imgStyle.hasImageWidth();
                 int containerWidth = self->viewportWidth;
@@ -2181,7 +2188,9 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
       self->startNewTextBlock(blockStyle);
       self->updateEffectiveInlineStyle();
 
-      self->skipTextUntilDepth = self->depth;
+      // `<`, not `=`: inside a transparent-text ancestor the slot already holds a shallower
+      // depth, and overwriting it would end the ancestor's scope when this spacer closes.
+      if (self->depth < self->skipTextUntilDepth) self->skipTextUntilDepth = self->depth;
       self->depth += 1;
       return;
     }
@@ -2876,7 +2885,7 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
     self->skipUntilDepth = INT_MAX;
   }
 
-  // Leaving zero-height spacer paragraph text-skip scope
+  // Leaving a text-skip scope (zero-height spacer paragraph, or a transparent-text element)
   if (self->skipTextUntilDepth == self->depth) {
     self->skipTextUntilDepth = INT_MAX;
   }

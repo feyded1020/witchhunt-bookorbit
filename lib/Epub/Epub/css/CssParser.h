@@ -84,7 +84,11 @@ class CssParser {
   // v18: `!important` is stripped from every declaration value, not only the dozen properties
   //      that remembered to do it, so margins, text-align, text-indent and the font/text
   //      shorthands no longer drop a declaration that carries the marker.
-  static constexpr uint8_t CSS_CACHE_VERSION = 18;
+  // v19: `color`/`-webkit-text-fill-color: transparent` (and alpha-zero colours), `opacity: 0`
+  //      and `visibility: hidden` are parsed and persisted (one visibility-flags byte). A cache
+  //      compiled by v18 never saw `color`, so it is stale for exactly the books this is for --
+  //      the PDF-to-EPUB conversions whose OCR layer is transparent text under a scan.
+  static constexpr uint8_t CSS_CACHE_VERSION = 19;
   // Bytes before the sorted offset index: version(1) + ruleCount(2) + totalSelectorCandidates(4)
   // + unsupportedSelectorSkips(4) + flags(1).
   static constexpr uint32_t CSS_CACHE_HEADER_BYTES = 12;

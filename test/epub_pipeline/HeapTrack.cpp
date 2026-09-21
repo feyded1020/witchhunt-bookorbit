@@ -56,6 +56,7 @@ std::atomic<size_t> g_siteBytes[kSiteSlots];
 // memory at the high-water mark", which is the question a fix has to answer.
 std::atomic<size_t> g_siteLive[kSiteSlots];
 std::atomic<size_t> g_peakSiteLive[kSiteSlots];
+std::atomic<size_t> g_siteMax[kSiteSlots];
 std::atomic<size_t> g_peakSnapshotBytes{0};
 
 int trackSite(const uintptr_t pc, const size_t sz) {
@@ -75,6 +76,9 @@ int trackSite(const uintptr_t pc, const size_t sz) {
       g_siteCount[slot].fetch_add(1, std::memory_order_relaxed);
       g_siteBytes[slot].fetch_add(sz, std::memory_order_relaxed);
       g_siteLive[slot].fetch_add(sz, std::memory_order_relaxed);
+      size_t prevMax = g_siteMax[slot].load(std::memory_order_relaxed);
+      while (sz > prevMax && !g_siteMax[slot].compare_exchange_weak(prevMax, sz, std::memory_order_relaxed)) {
+      }
       return static_cast<int>(slot);
     }
   }
@@ -258,6 +262,8 @@ size_t heapTrackEnd() {
 
 size_t heapTrackAllocCount() { return g_allocCount.load(); }
 
+size_t heapTrackPeakSoFar() { return g_peakBytes.load(std::memory_order_relaxed); }
+
 void heapTrackSizeHistogram(size_t* out, const int count) {
   for (int i = 0; i < count && i < kSizeBucketCount; i++) out[i] = g_sizeBuckets[i].load();
 }
@@ -275,6 +281,7 @@ int heapTrackTopSites(HeapTrackSite* out, const int count) {
     out[n].count = c;
     out[n].bytes = g_siteBytes[slot].load(std::memory_order_relaxed);
     out[n].peakLive = g_peakSiteLive[slot].load(std::memory_order_relaxed);
+    out[n].maxSize = g_siteMax[slot].load(std::memory_order_relaxed);
     ++n;
   }
   // Descending by what the site was HOLDING at the peak; n is a few hundred at most, so an

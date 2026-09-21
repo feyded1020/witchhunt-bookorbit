@@ -35,5 +35,12 @@ struct HeapTrackSite {
   size_t count;
   size_t bytes;
   size_t peakLive;
+  // Largest single allocation this site ever made. Names the sites behind the >=8 KB buckets,
+  // which cumulative bytes cannot: a 33 KB inflate ring made once per spine is invisible next
+  // to per-word string traffic in either `bytes` or `count`.
+  size_t maxSize;
 };
 int heapTrackTopSites(HeapTrackSite* out, int count);
+// Peak live bytes so far, readable while tracking is active (heapTrackEnd() stops tracking).
+// Lets a per-spine hook see which spine moved the high-water mark.
+size_t heapTrackPeakSoFar();
