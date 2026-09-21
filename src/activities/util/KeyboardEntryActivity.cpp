@@ -647,7 +647,14 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   }
 
   if (tipCount > 0) {
-    const int tipsMaxWidth = pageWidth - metrics.contentSidePadding * 2;
+    // NOT pageWidth: this screen builds its content rect with hasSideHints = deviceIsX3(), so on
+    // any other board that draws the Up/Down boxes -- X4 Pro does -- that width runs clear under
+    // them. Ask for the rect that does reserve them, and reserve it on BOTH sides, because
+    // drawCenteredText centres on the screen: a line as wide as the one-sided content rect would
+    // still push half of the difference into the boxes.
+    const int fullWidth = renderer.getScreenWidth();
+    const int sideReserve = fullWidth - UITheme::getContentRect(renderer, true, true).width;
+    const int tipsMaxWidth = fullWidth - sideReserve * 2 - metrics.contentSidePadding * 2;
 
     // Wrap once into a fixed table of (tip, offset, length), then draw. The table is needed
     // because the block is centred vertically: its height has to be known before the first line
