@@ -598,7 +598,12 @@ void RecentBooksActivity::renderListView(RenderLock&&) {
 
   const bool hasBooks = !recentBooks.empty();
   const auto hints =
-      mappedInput.mapHints(tr(STR_HOME), hasBooks ? tr(STR_OPEN) : "", "", "", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+      // Remove and Info are long presses of Left and Right. Labelling those two slots is what
+      // makes them exist at all on a board with no Left/Right keys: an unlabelled hint box is
+      // recorded inactive (see LyraTheme::drawButtonHints), so a touch-only device could never
+      // reach remove-book or book-info. A short tap still just moves the selection.
+      mappedInput.mapHints(tr(STR_HOME), hasBooks ? tr(STR_OPEN) : "", hasBooks ? tr(STR_REMOVE) : "",
+                           hasBooks ? tr(STR_INFO) : "", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, hints.front.btn1, hints.front.btn2, hints.front.btn3, hints.front.btn4);
   GUI.drawSideButtonHints(renderer, hints.side.up, hints.side.down);
 
@@ -783,7 +788,10 @@ void RecentBooksActivity::renderGridView(RenderLock&&) {
     renderer.drawText(SMALL_FONT_ID, contentRect.x + metrics.contentSidePadding, hintY, hint.c_str());
   }
 
-  const auto hints = mappedInput.mapHints(tr(STR_HOME), tr(STR_OPEN), "", "", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  // Same as the grid view: the Left/Right slots carry their long-press actions so they are
+  // tappable on a device without those keys.
+  const auto hints =
+      mappedInput.mapHints(tr(STR_HOME), tr(STR_OPEN), tr(STR_REMOVE), tr(STR_INFO), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, hints.front.btn1, hints.front.btn2, hints.front.btn3, hints.front.btn4);
   GUI.drawSideButtonHints(renderer, hints.side.up, hints.side.down);
 

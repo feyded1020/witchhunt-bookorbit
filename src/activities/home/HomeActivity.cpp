@@ -1,5 +1,7 @@
 #include "HomeActivity.h"
 
+#include "ButtonEventManager.h"
+
 #include <BookOrbitCredentialStore.h>
 
 #include <Bitmap.h>
@@ -886,6 +888,23 @@ void HomeActivity::loop() {
       selectorIndex = ButtonNavigator::previousIndex(selectorIndex, totalItems);
       requestUpdate();
     });
+  }
+
+  // A long Confirm on a cover opens the Recent Books screen at that book, which is where the
+  // per-book actions live (remove from the list, book info, grid/list). The carousel itself has
+  // room for none of that, and a long press here previously did nothing at all, so the only way
+  // to drop an accidentally opened book was to know that other screen existed.
+  {
+    const int recentsCount = static_cast<int>(recentBooks.size());
+    ButtonEventManager::ButtonEvent ev;
+    while (buttonEvents.consumeEvent(ev)) {
+      if (ev.button == MappedInputManager::Button::Confirm && ev.type == ButtonEventManager::PressType::Long &&
+          selectorIndex < recentsCount) {
+        // The manager drains the release that follows, so this cannot also open the book.
+        activityManager.goToRecentBooks(selectorIndex);
+        return;
+      }
+    }
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
