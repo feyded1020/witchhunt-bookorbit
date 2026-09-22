@@ -57,7 +57,14 @@ class LyraCarouselTheme : public LyraTheme {
  public:
   // Exact pixel dimensions for each carousel slot — used for exact-size thumbnail generation
   static constexpr int kCenterCoverW = 340;
-  static constexpr int kCenterCoverH = LyraCarouselMetrics::values.homeCoverHeight - 60;  // 540
+  // -88 rather than -60: the centre tile carries author, title AND a reading-history line under
+  // the dots, and the last of those had nowhere to go but on top of the icon row below. The
+  // 28px is one SMALL_FONT line plus its gap. Deliberately taken from the cover rather than by
+  // moving the icons down, which there is no room for on an 800px panel.
+  //
+  // Changing this re-keys the cover thumbnail cache (the path carries "WxH"), so every centre
+  // thumbnail regenerates once after an update. One slow pass through the carousel, then normal.
+  static constexpr int kCenterCoverH = LyraCarouselMetrics::values.homeCoverHeight - 88;  // 512
   static constexpr int kSideCoverW = 200;
   static constexpr int kSideCoverH = LyraCarouselMetrics::values.homeCoverHeight - 210;  // 390
 
