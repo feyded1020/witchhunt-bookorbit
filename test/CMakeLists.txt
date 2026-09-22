@@ -83,11 +83,17 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 set(I18N_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/I18n")
 set(I18N_GENERATED_KEYS "${I18N_GENERATED_DIR}/I18nKeys.h")
+# The generator writes the string blob alongside the keys. Declared as an OUTPUT below so a test
+# that needs the real strings (rather than just the StrId enum) can list it as a source: CMake
+# rejects a source that does not exist at CONFIGURE time unless it knows something generates it,
+# and these files are gitignored -- so a tree that has ever built configures fine while a clean
+# clone, i.e. CI, fails.
+set(I18N_GENERATED_STRINGS "${I18N_GENERATED_DIR}/I18nStrings.cpp")
 
 file(GLOB I18N_TRANSLATION_FILES "${REPO_ROOT}/lib/I18n/translations/*.yaml")
 
 add_custom_command(
-  OUTPUT ${I18N_GENERATED_KEYS}
+  OUTPUT ${I18N_GENERATED_KEYS} ${I18N_GENERATED_STRINGS}
   COMMAND ${CMAKE_COMMAND} -E make_directory ${I18N_GENERATED_DIR}
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/gen_i18n.py
           ${REPO_ROOT}/lib/I18n/translations ${I18N_GENERATED_DIR}
@@ -104,7 +110,7 @@ add_custom_command(
 # A test that pulls in the real <I18n.h> needs BOTH of the lines below:
 #   add_dependencies(<target> i18n_generated)
 #   target_include_directories(<target> PRIVATE ${I18N_GENERATED_DIR})
-add_custom_target(i18n_generated DEPENDS ${I18N_GENERATED_KEYS})
+add_custom_target(i18n_generated DEPENDS ${I18N_GENERATED_KEYS} ${I18N_GENERATED_STRINGS})
 
 add_subdirectory(${REPO_ROOT}/lib/SaxParser ${CMAKE_CURRENT_BINARY_DIR}/SaxParser)
 

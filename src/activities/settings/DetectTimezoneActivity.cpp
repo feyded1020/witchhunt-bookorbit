@@ -17,96 +17,12 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "util/TimezoneDetectMap.h"
+#include "util/Timezones.h"
 
 namespace {
-bool mapIanaTimezone(const std::string& tz, uint8_t& outSetting) {
-  using TZ = CrossPointSettings::TIMEZONE;
-  if (tz == "UTC" || tz == "Etc/UTC") {
-    outSetting = TZ::TZ_UTC;
-    return true;
-  }
-  if (tz == "Europe/London" || tz == "Europe/Guernsey" || tz == "Europe/Isle_of_Man" || tz == "Europe/Jersey") {
-    outSetting = TZ::TZ_UTC;
-    return true;
-  }
-  if (tz == "Europe/Athens" || tz == "Europe/Bucharest" || tz == "Europe/Helsinki" || tz == "Europe/Kiev" ||
-      tz == "Europe/Vilnius" || tz == "Europe/Riga" || tz == "Europe/Tallinn") {
-    outSetting = TZ::TZ_EET;
-    return true;
-  }
-  if (tz == "Europe/Moscow") {
-    outSetting = TZ::TZ_MSK;
-    return true;
-  }
-  if (tz.rfind("Europe/", 0) == 0) {
-    outSetting = TZ::TZ_CET;
-    return true;
-  }
-  if (tz == "America/New_York" || tz == "America/Toronto") {
-    outSetting = TZ::TZ_EST;
-    return true;
-  }
-  if (tz == "America/Chicago") {
-    outSetting = TZ::TZ_CST;
-    return true;
-  }
-  if (tz == "America/Denver") {
-    outSetting = TZ::TZ_MST;
-    return true;
-  }
-  if (tz == "America/Los_Angeles" || tz == "America/Vancouver") {
-    outSetting = TZ::TZ_PST;
-    return true;
-  }
-  if (tz == "America/Halifax" || tz == "America/Glace_Bay" || tz == "America/Moncton" || tz == "America/Thule") {
-    outSetting = TZ::TZ_AST_ADT;
-    return true;
-  }
-  if (tz == "America/Anchorage" || tz == "America/Juneau" || tz == "America/Nome" || tz == "America/Sitka" ||
-      tz == "America/Yakutat" || tz == "America/Metlakatla") {
-    outSetting = TZ::TZ_AKST_AKDT;
-    return true;
-  }
-  if (tz == "Australia/Adelaide" || tz == "Australia/Broken_Hill") {
-    outSetting = TZ::TZ_ACST_ACDT;
-    return true;
-  }
-  if (tz == "America/Sao_Paulo" || tz == "America/Argentina/Buenos_Aires" || tz == "America/Montevideo") {
-    outSetting = TZ::TZ_UTC_MINUS3;
-    return true;
-  }
-  if (tz == "Asia/Dubai" || tz == "Asia/Muscat") {
-    outSetting = TZ::TZ_UTC_PLUS4;
-    return true;
-  }
-  if (tz == "Asia/Kolkata") {
-    outSetting = TZ::TZ_IST;
-    return true;
-  }
-  if (tz == "Asia/Bangkok" || tz == "Asia/Ho_Chi_Minh" || tz == "Asia/Jakarta" || tz == "Asia/Phnom_Penh" ||
-      tz == "Asia/Vientiane") {
-    outSetting = TZ::TZ_UTC_PLUS7;
-    return true;
-  }
-  if (tz == "Asia/Shanghai" || tz == "Asia/Hong_Kong" || tz == "Asia/Singapore" || tz == "Asia/Taipei" ||
-      tz == "Asia/Kuala_Lumpur" || tz == "Asia/Manila") {
-    outSetting = TZ::TZ_UTC_PLUS8;
-    return true;
-  }
-  if (tz == "Asia/Tokyo" || tz == "Asia/Seoul") {
-    outSetting = TZ::TZ_UTC_PLUS9;
-    return true;
-  }
-  if (tz == "Australia/Sydney" || tz == "Australia/Melbourne" || tz == "Australia/Hobart") {
-    outSetting = TZ::TZ_AEST;
-    return true;
-  }
-  if (tz == "Pacific/Auckland") {
-    outSetting = TZ::TZ_NZST;
-    return true;
-  }
-  return false;
-}
+
+using timezone_detect::mapIanaTimezone;
 
 bool fetchTimezonePayload(const char* url, std::string& payload) {
   // Give DNS a moment after WiFi connect.
@@ -263,13 +179,13 @@ void DetectTimezoneActivity::performDetect() {
   // font cache. Idempotent - the secondary buffer is already gone by now.
   trimMemoryForNetworkSession(renderer, "CLK");
 
-  uint8_t detected = SETTINGS.timeZone;
+  uint8_t detected = SETTINGS.clockTimezone;
   detectedTimezone.clear();
   dstKnown = false;
   dstActive = false;
   if (detectTimezoneSetting(detected, detectedTimezone, dstKnown, dstActive)) {
-    SETTINGS.timeZone = detected;
-    HalClock::applyTimezone(SETTINGS.timeZone);
+    SETTINGS.clockTimezone = detected;
+    timezones::applyToClock();
     SETTINGS.saveToFile();
     state = SUCCESS;
   } else {
