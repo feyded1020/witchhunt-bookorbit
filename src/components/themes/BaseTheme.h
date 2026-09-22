@@ -168,6 +168,12 @@ class BaseTheme {
   // ship=Async returns while the panel paints; see PopupShip for what the caller then owes.
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message, bool overlayDisplayedFrame = true,
                          PopupShip ship = PopupShip::Blocking) const;
+  // Screen-centred, icon-only "working on it" box: an hourglass, no words. Deliberately wordless —
+  // a transition indicator is glanced at, not read, so text draws the eye for no added meaning and
+  // would need translating besides. Same frame, sync rule and ship contract as drawPopup(),
+  // including what PopupShip::Async leaves the caller owing.
+  virtual Rect drawBusyIndicator(const GfxRenderer& renderer, bool overlayDisplayedFrame = true,
+                                 PopupShip ship = PopupShip::Blocking) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
   virtual void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                              const int pageCount, std::string title, const int paddingBottom = 0,

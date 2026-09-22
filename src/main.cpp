@@ -681,6 +681,10 @@ void applyUiFontScale() {
 
 void setupDisplayAndFonts(bool seamless = false, bool skipSdFontDiscovery = false) {
   display.begin(seamless);
+  // Carry the panel's measured FAST cost across the reboot. Without this the first decision that
+  // depends on it is made blind, and on a slow panel that means one avoidable slow repaint per
+  // boot before the measurement catches up. Seed-only: a live measurement always wins.
+  display.seedLastFastRefreshMs(SETTINGS.measuredFastRefreshMs);
   renderer.begin();
   activityManager.begin();
   LOG_DBG("MAIN", "Display initialized");

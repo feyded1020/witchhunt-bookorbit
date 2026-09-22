@@ -545,3 +545,6 @@ void MyActivity::doNetworkStuff() {
   requestUpdate();
 }
 ```
+
+**Re-syncing the write buffer on a path that already prepared it**: `dispatchLightPanelGesture()` does `syncWriteBufferFromDisplayed()` *then* `prepareFramebufferForCapture()`, in that order and for the reason documented at its call site — in the reader the secondary holds Background-A's pre-rendered *next* page, so the sync alone restores the wrong page and only `prepareFramebufferForCapture()` puts the visible one back. Any later code in the same `loop()` tick that syncs again undoes step two and composites the drawer onto the wrong page. If you add a step between the gesture dispatchers and the pending-action loop, it must not sync unconditionally.
+
