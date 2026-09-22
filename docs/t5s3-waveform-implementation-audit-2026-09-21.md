@@ -87,12 +87,36 @@ At blob range 11 our substitute runs **fewer** frames than the vendor GC16 (42 v
 a win — it suggests we **under-drive** at that range, which is a quality and ghosting risk rather
 than a speed one.
 
-Note also that vendor GC16 is non-monotonic across temperature (46, 43, 40, 38, 38, 44, 57) while
-DU falls monotonically (25 -> 15). Our generator's self-normalising substitute is built on
-`L[15]`, which follows the DU curve, so it cannot track a GC16 curve that turns back up. Whatever
-the vendor knows about ranges 10-11 is not captured by `L[15]` alone.
+The mechanism is now clear, and it makes this an acceleration finding as much as a ghosting one.
 
-This is a candidate explanation for residual ghosting items still open in the 2026-09-15 audit.
+`L` is the **GC16 impulse vector** -- `impulse_vector(tables[(MODE_GC16, rng)])` -- and the
+generator proves GC16 is exactly separable with a zero diagonal, so `L[15]` is the vendor's
+maximum **net displacement**. But GC16's *phase count* is much larger than its net: 46 phases to
+deliver a net of 24 at range 5. The surplus is **scrub** -- back-and-forth that nets to zero and
+erases drive history -- and its length is **not a function of `L[15]`**:
+
+| blob range | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+|---|---|---|---|---|---|---|---|
+| vendor GC16 phases | 46 | 43 | 40 | 38 | 38 | 44 | 57 |
+| vendor net (`L[15]`) | 24 | 21 | 21 | 21 | 17 | 16 | 14 |
+| ours (`3 x L[15]`) | 72 | 63 | 63 | 63 | 51 | 48 | 42 |
+
+At warm ranges the vendor spends 57 phases to deliver a net of 14 -- almost pure scrub. That is
+physically sensible (warm ink moves faster, so less net drive but more settling), and it is why
+GC16 turns back up while the net keeps falling. `3 x L[15]` ties scrub length to net displacement
+and therefore cannot express it: too long when cold, too short when warm.
+
+**One change fixes both directions.** Derive the clean bank's length from the vendor's GC16 phase
+count per range rather than from `3 x L[15]`: ranges 5-8 go 72 -> 46 frames (~0.9 s faster per
+clean), ranges 10-11 go 42 -> 57 (fixing the under-drive, a candidate for the residual ghosting
+left open in the 2026-09-15 audit).
+
+This needs no runtime source-awareness. The lookup constraint applies at runtime only; the source
+data is available at generation time and `impulse_vector()` simply discards it. Force the source
+with a rail excursion, then emit the vendor's actual `phase[to][src=white]` column for the
+remainder -- source-aware by construction, destination-only at lookup. That is epdiy's
+`static_from`, applied in the generator. Estimated result is `L[15]` + vendor from-white descent
+~= `2 x L[15]` = 48 frames at range 5, against the vendor's 46.
 
 ## 5. Why teaching LovyanGFX source-awareness is expensive
 
@@ -116,10 +140,15 @@ holds only the target. LovyanGFX has no previous-frame plane; epdiy does.
 
 ## 6. Options
 
-1. **Keep the substitute, fix range 11 only.** Smallest change. Addresses the under-drive, which
-   is a correctness issue, and ignores the speed one. Does not need epdiy.
-2. **Port source-awareness into `Panel_EPD`.** Biggest win (0.8-0.9 s per clean) but requires all
-   four items in §5, including rewriting the asm inner loop. Upstreamable in principle.
+1. **Derive the clean bank from the vendor GC16 phase count per range** (see section 4), using a
+   forced-source rail excursion plus the vendor's from-white column. Fixes the warm-range
+   under-drive AND saves ~0.9 s per clean at cold ranges, in one change. Needs no runtime
+   source-awareness, no LUT restructuring, no epdiy. **This is the recommended first move.**
+2. **Port source-awareness into `Panel_EPD`.** Option 1 already captures the clean-path saving, so
+   what this adds is the *general* case: shortening the rail excursion itself (a pixel already
+   near a rail need not be driven the full `L[15]` to reach it) and source-aware transitions
+   outside the clean path. Requires all four items in §5, including rewriting the asm inner loop.
+   Upstreamable in principle, but do option 1 first and re-measure before deciding it is worth it.
 3. **Move to the epdiy backend** M5GFX already wraps. Gets source-awareness and area-limited
    updates at once, but abandons our waveform generator, the clean/fast bank model and everything
    the 2026-09-15 audit established. A port, not a swap.
