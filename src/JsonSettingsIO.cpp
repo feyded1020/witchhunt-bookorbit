@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <ObfuscationUtils.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstring>
 #include <string>
@@ -782,5 +783,31 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
   }
 
   LOG_DBG("RST", "Reading stats loaded (%zu books, %u s total)", store.books.size(), store.globalTotalSeconds);
+
+  // Derive the global counters when the file has book history but no totals.
+  //
+  // They are only ever accumulated forward by recordSession(), never derived, so a stats file
+  // written before these keys existed -- or by another firmware sharing this path -- loads with
+  // real per-book history and zeroed globals, and the stats screen then reports "no reading
+  // recorded yet" over a file full of it. Summing what was just loaded costs one pass and heals
+  // the file on its next save.
+  if (store.globalTotalSeconds == 0 && !store.books.empty()) {
+    for (const auto& book : store.books) {
+      store.globalTotalSeconds += book.totalSeconds;
+      store.globalTotalSessions += book.sessions;
+      store.globalTotalPagesTurned += book.pagesTurned;
+      for (const auto& day : book.days) {
+        if (day.dayIndex == 0) continue;  // the reserved clock-unknown bucket
+        auto it = std::lower_bound(store.globalDays.begin(), store.globalDays.end(), day.dayIndex,
+                                   [](const DayBucket& b, uint16_t d) { return b.dayIndex < d; });
+        if (it != store.globalDays.end() && it->dayIndex == day.dayIndex) {
+          it->seconds += day.seconds;
+        } else {
+          store.globalDays.insert(it, day);
+        }
+      }
+    }
+  }
+
   return true;
 }

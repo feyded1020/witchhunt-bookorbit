@@ -225,19 +225,35 @@ std::string historyLine(const RecentBook& book) {
     return {};
   }
 
-  std::string line = formatReadingDuration(stats->totalSeconds);
-  if (stats->sessions > 0) {
-    char buf[24];
-    snprintf(buf, sizeof(buf), stats->sessions == 1 ? tr(STR_SITTING_ONE) : tr(STR_SITTINGS_FORMAT), stats->sessions);
-    line += " - ";
+  char buf[48];
+  snprintf(buf, sizeof(buf), tr(STR_STATS_READ_FORMAT), formatReadingDuration(stats->totalSeconds).c_str());
+  std::string line = buf;
+
+  // Days the book was actually opened on, not sittings. Sittings counts every open, so a glance
+  // inflates it and 69 of them says nothing; days says how long you have been living with the
+  // book, which is the thing you can feel.
+  //
+  // dayIndex 0 is the reserved bucket for sessions recorded while the clock was unsynced. Those
+  // are real reading but belong to no known day, so they are excluded -- and on a device whose
+  // clock has never synced that leaves nothing to say, and the clause is dropped rather than
+  // claiming zero days.
+  size_t knownDays = 0;
+  for (const auto& day : stats->days) {
+    if (day.dayIndex != 0) ++knownDays;
+  }
+  if (knownDays > 0) {
+    snprintf(buf, sizeof(buf), knownDays == 1 ? tr(STR_STATS_DAY_ONE) : tr(STR_STATS_DAYS_FORMAT),
+             static_cast<unsigned>(knownDays));
+    line += " ";
     line += buf;
   }
   // Dropped rather than shown as unknown: a clock that has never synced would otherwise put
   // "last read: never" under a book you finished yesterday.
   const std::string last = formatLastRead(stats->lastReadEpoch);
   if (!last.empty()) {
+    snprintf(buf, sizeof(buf), tr(STR_STATS_LAST_FORMAT), last.c_str());
     line += " - ";
-    line += last;
+    line += buf;
   }
   return line;
 }

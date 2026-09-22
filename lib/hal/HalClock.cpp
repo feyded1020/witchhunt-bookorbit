@@ -18,6 +18,7 @@
 #include <cstdlib>
 
 #include "HalI2cBus.h"
+#include "TimezoneBySetting.h"
 
 // ---- RTC / I2C configuration ----------------------------------------------
 // Pins for ESP32-C3 (according to https://gist.github.com/CrazyCoder/1c5f846adee18e21f91e264601a6ddce)
@@ -601,10 +602,13 @@ static void capture(bool lpContinuous) {
 namespace HalClock {
 
 void applyTimezone(uint8_t timeZoneSetting) {
-  const size_t index = timeZoneSetting < (sizeof(TIMEZONES) / sizeof(TIMEZONES[0])) ? timeZoneSetting : 0;
-  setenv("TZ", TIMEZONES[index].tz, 1);
+  // Through TimezoneBySetting, never TIMEZONES[]: the argument is a persisted setting value, and
+  // TIMEZONES[] is a data list whose order has already changed underneath it once.
+  const size_t index = timeZoneSetting < TimezoneBySetting::COUNT ? timeZoneSetting : 0;
+  setenv("TZ", TimezoneBySetting::TZ[index], 1);
   tzset();
-  LOG_DBG("CLK", "Timezone applied: %s", TIMEZONES[index].tz);
+  LOG_DBG("CLK", "Timezone applied: setting %u -> %s", static_cast<unsigned>(timeZoneSetting),
+          TimezoneBySetting::TZ[index]);
 }
 
 static const char* sntpStatusName(sntp_sync_status_t status) {
