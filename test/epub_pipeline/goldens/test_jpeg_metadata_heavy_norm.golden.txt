@@ -1,0 +1,25 @@
+BOOK title=JPEG Metadata Heavy lang=en spine=1 toc=0 reliableToc=0
+SPINE 0 href=OEBPS/chapter.xhtml pages=1 truncated=0 cssFallback=0
+ PAGE 0 elements=6 footnotes=0
+  LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=2
+   W x=112 s=1 z=100 t=Metadata
+   W x=261 s=1 z=100 t=Heavy
+  LINE y=38 x=0 align=0 mult=1.000 hfid=0 words=6
+   W x=18 s=0 z=100 t=The
+   W x=65 s=0 z=100 t=paragraph
+   W x=172 s=0 z=100 t=before
+   W x=246 s=0 z=100 t=the
+   W x=297 s=0 z=100 t=photograph
+   W x=418 s=0 z=100 t=must
+  LINE y=62 x=0 align=0 mult=1.000 hfid=0 words=1
+   W x=0 s=0 z=100 t=survive.
+  IMG y=86 x=198 w=64 h=48 src=<cache>/epub_<hash>/img_cfb74c32da802915.jpg
+  LINE y=134 x=0 align=0 mult=1.000 hfid=0 words=6
+   W x=18 s=0 z=100 t=The
+   W x=66 s=0 z=100 t=paragraph
+   W x=174 s=0 z=100 t=after
+   W x=244 s=0 z=100 t=the
+   W x=296 s=0 z=100 t=photograph
+   W x=418 s=0 z=100 t=must
+  LINE y=158 x=0 align=0 mult=1.000 hfid=0 words=1
+   W x=0 s=0 z=100 t=survive.
