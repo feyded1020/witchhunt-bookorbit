@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ZipFile.h>
 #include <stdint.h>
 
 #include <string>
@@ -20,8 +21,12 @@ class JpegToFramebufferConverter final : public ImageToFramebufferDecoder {
   static bool getDimensionsStatic(const std::string& imagePath, ImageDimensions& out);
   // Parse dimensions from already-read header bytes (no file I/O). Needs ~4 KB for typical JPEGs.
   // When outMode is non-null it is set to the coding mode of the first SOF marker.
-  static bool getDimensionsFromBuffer(const uint8_t* buf, size_t len, ImageDimensions& out,
-                                      JpegMode* outMode = nullptr);
+  // When needMore is non-null it is set to true iff the walk ran out of buffer with the marker
+  // structure still consistent — the header simply continues past `len` (large Exif/IPTC/XMP/ICC
+  // segments) and a longer read would reach SOF — and to false for every other failure (not a
+  // JPEG, SOS before any SOF, corrupt segment length).
+  static bool getDimensionsFromBuffer(const uint8_t* buf, size_t len, ImageDimensions& out, JpegMode* outMode = nullptr,
+                                      bool* needMore = nullptr);
 
   // Stream the SOF marker out of a ZIP entry, skipping over arbitrarily large leading
   // metadata segments (Exif thumbnails, XMP, ICC profiles) that can push the SOF past
@@ -29,6 +34,11 @@ class JpegToFramebufferConverter final : public ImageToFramebufferDecoder {
   // When outMode is non-null it is set to the coding mode of the first SOF marker.
   static bool getDimensionsFromZipEntryStreaming(const std::string& epubPath, const std::string& entryPath,
                                                  ImageDimensions& out, JpegMode* outMode = nullptr);
+  // The same walk over a reader the caller has already opened on the entry, for a caller that
+  // holds the archive and the entry's central-directory stat (the image manifest) — no second
+  // ZipFile, no second central-directory scan. The reader's ring is the only memory involved.
+  static bool getDimensionsFromEntryReader(ZipFile::EntryReader& reader, ImageDimensions& out,
+                                           JpegMode* outMode = nullptr);
 
   bool decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer, const RenderConfig& config) override;
 
