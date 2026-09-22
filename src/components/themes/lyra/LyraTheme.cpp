@@ -27,6 +27,7 @@
 #include "components/icons/image24.h"
 #include "components/icons/library.h"
 #include "components/icons/recent.h"
+#include "components/icons/stats.h"
 #include "components/icons/settings2.h"
 #include "components/icons/text24.h"
 #include "components/icons/transfer.h"
@@ -109,6 +110,8 @@ const uint8_t* LyraTheme::iconForName(UIIcon icon, int size) {
         return BookIcon;
       case UIIcon::Recent:
         return RecentIcon;
+      case UIIcon::Stats:
+        return StatsIcon;
       case UIIcon::Settings:
         return Settings2Icon;
       case UIIcon::Transfer:
@@ -709,13 +712,20 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     const int historyLineHeight = renderer.getLineHeight(FIT_SMALL_FONT_ID);
     auto historyLines = history.empty() ? std::vector<std::string>{}
                                         : renderer.wrappedText(FIT_SMALL_FONT_ID, history.c_str(), textWidth, 2);
-    // A three-line title over a two-line author and a two-line series can already fill the tile.
-    // The history is the least important of the four, so it is what gives way -- its second line
-    // first, then the row entirely -- rather than the block spilling over the cover.
-    while (!historyLines.empty() && baseBlockHeight + historyLineHeight / 2 +
-                                            static_cast<int>(historyLines.size()) * historyLineHeight >
-                                        tileHeight) {
-      historyLines.pop_back();
+    // A three-line title over a two-line author and a two-line series can already fill the tile,
+    // and a large UI font size makes that the common case rather than the rare one. Dropping the
+    // history outright there loses the feature on exactly the setting that needs it most, so fall
+    // back to the short form instead: it says the same thing in one line where the sentence needs
+    // two. Only when even one line will not fit does the row go.
+    const auto historyFits = [&](size_t lines) {
+      return baseBlockHeight + historyLineHeight / 2 + static_cast<int>(lines) * historyLineHeight <= tileHeight;
+    };
+    if (!historyLines.empty() && !historyFits(historyLines.size())) {
+      const std::string compact = BookProgressPresentation::historyLineCompact(book);
+      historyLines.clear();
+      if (!compact.empty() && historyFits(1)) {
+        historyLines.push_back(renderer.truncatedText(FIT_SMALL_FONT_ID, compact.c_str(), textWidth));
+      }
     }
     const int historySpacing = historyLines.empty() ? 0 : (historyLineHeight / 2);
     const int historyHeight = static_cast<int>(historyLines.size()) * historyLineHeight;

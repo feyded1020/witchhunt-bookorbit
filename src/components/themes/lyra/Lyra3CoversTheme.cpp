@@ -21,7 +21,6 @@
 namespace {
 constexpr int hPaddingInSelection = 8;
 constexpr int cornerRadius = 6;
-constexpr int coverHeightOffset = 58;
 }  // namespace
 
 void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
@@ -29,21 +28,40 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
                                            bool& bufferRestored, std::function<bool()> storeCoverBuffer) const {
   const int tileWidth = (rect.width - 2 * Lyra3CoversMetrics::values.contentSidePadding) / 3;
   const int tileY = rect.y;
+  const bool hasContinueReading = !recentBooks.empty();
+  const int maxLineWidth = tileWidth - 2 * hPaddingInSelection;
+  const int titleLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   // A row held back under the title for the compact reading history. Reserved whether or not a
   // given book has one, so the three covers stay the same size as the selection moves across
   // them. The non-scaling small face keeps that reservation honest at any UI font size.
   const int historyLineHeight = renderer.getLineHeight(FIT_SMALL_FONT_ID);
-  const int coverHeight = std::max(120, rect.height - coverHeightOffset - historyLineHeight);
-  const bool hasContinueReading = !recentBooks.empty();
+
+  const int tileCount = hasContinueReading ? std::min(static_cast<int>(recentBooks.size()),
+                                                      Lyra3CoversMetrics::values.homeRecentBooksCount)
+                                           : 0;
+
+  // Wrap every visible title up front and size the covers from the tallest of them, so the block
+  // under the covers is always exactly as tall as it needs to be. This replaces a fixed 58px
+  // offset that assumed two title lines at the default UI font: at a larger one a three line
+  // title ran off the bottom of the tile and printed over the menu underneath it.
+  std::vector<std::vector<std::string>> titleLinesPerTile;
+  titleLinesPerTile.reserve(static_cast<size_t>(tileCount));
+  size_t maxTitleLines = 1;
+  for (int i = 0; i < tileCount; i++) {
+    titleLinesPerTile.push_back(renderer.wrappedText(SMALL_FONT_ID, recentBooks[i].title.c_str(), maxLineWidth, 3));
+    maxTitleLines = std::max(maxTitleLines, titleLinesPerTile.back().size());
+  }
+  // The tile is the top strip, the cover, then the text box; the box is the title block plus the
+  // history row plus its own padding. Whatever is left over is the cover.
+  const int textBoxHeight = static_cast<int>(maxTitleLines) * titleLineHeight + historyLineHeight +
+                            hPaddingInSelection + 5;
+  const int coverHeight = std::max(120, rect.height - hPaddingInSelection - textBoxHeight);
 
   // The three tiles published for touch. Recorded ahead of the draw loop, which is skipped on a
   // cached repaint (coverRendered) while the geometry above is recomputed every call. Values are
   // book indices, matching how HomeActivity numbers the covers in its selector.
   {
     TapTargets::Recorder::Builder coverTargets;
-    const int tileCount = hasContinueReading ? std::min(static_cast<int>(recentBooks.size()),
-                                                        Lyra3CoversMetrics::values.homeRecentBooksCount)
-                                             : 0;
     for (int i = 0; i < tileCount; i++) {
       const int tileX = Lyra3CoversMetrics::values.contentSidePadding + tileWidth * i;
       coverTargets.add(tileX + hPaddingInSelection, tileY + hPaddingInSelection, tileWidth - 2 * hPaddingInSelection,
@@ -130,25 +148,21 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
       }
     }
 
-    for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), Lyra3CoversMetrics::values.homeRecentBooksCount);
-         i++) {
+    for (int i = 0; i < tileCount; i++) {
       bool bookSelected = (selectorIndex == i);
       const int progressPercent = getRecentBookProgressPercent(recentBooks[i]);
 
       int tileX = Lyra3CoversMetrics::values.contentSidePadding + tileWidth * i;
 
-      const int maxLineWidth = tileWidth - 2 * hPaddingInSelection;
-
-      auto titleLines = renderer.wrappedText(SMALL_FONT_ID, recentBooks[i].title.c_str(), maxLineWidth, 3);
+      const auto& titleLines = titleLinesPerTile[static_cast<size_t>(i)];
 
       // A third of the screen wide is no room for a sentence, so this layout gets the short form
       // -- time in the book and the number of days it spans, nothing else.
       const std::string history = BookProgressPresentation::historyLineCompact(recentBooks[i]);
 
-      const int titleLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-      const int dynamicBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight + historyLineHeight;
-      // Add a little padding below the text inside the selection box just like the top padding (5 + hPaddingSelection)
-      const int dynamicTitleBoxHeight = dynamicBlockHeight + hPaddingInSelection + 5;
+      // One height for all three boxes, from the tallest title, so the row reads as a row rather
+      // than three cards of different depths.
+      const int dynamicTitleBoxHeight = textBoxHeight;
 
       if (bookSelected) {
         // Draw selection box
