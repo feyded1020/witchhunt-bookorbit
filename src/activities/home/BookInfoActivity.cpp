@@ -15,59 +15,10 @@
 #include <ctime>
 
 #include "ReadingStats.h"
+#include "components/BookProgressPresentation.h"
 #include "components/TapZones.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-
-namespace {
-
-std::string formatReadingDuration(uint32_t totalSeconds) {
-  const uint32_t h = totalSeconds / 3600;
-  const uint32_t m = (totalSeconds % 3600) / 60;
-  char buf[24];
-  if (h > 0) {
-    snprintf(buf, sizeof(buf), "%uh %02um", h, m);
-  } else {
-    snprintf(buf, sizeof(buf), "%um", m);
-  }
-  return buf;
-}
-
-// "N days ago" / "Nh ago" style, or an absolute date past a month. Empty when
-// the epoch is unknown or the clock isn't synced (caller then skips the row).
-std::string formatLastRead(time_t epoch) {
-  if (epoch == 0 || !HalClock::isSynced()) {
-    return {};
-  }
-  const time_t now = HalClock::now();
-  char buf[24];
-  if (now <= epoch) {
-    return "just now";
-  }
-  const uint32_t delta = static_cast<uint32_t>(now - epoch);
-  if (delta < 60) {
-    return "just now";
-  }
-  if (delta < 3600) {
-    snprintf(buf, sizeof(buf), "%um ago", delta / 60);
-    return buf;
-  }
-  if (delta < 86400) {
-    snprintf(buf, sizeof(buf), "%uh ago", delta / 3600);
-    return buf;
-  }
-  const uint32_t days = delta / 86400;
-  if (days < 30) {
-    snprintf(buf, sizeof(buf), "%ud ago", days);
-    return buf;
-  }
-  struct tm t{};
-  localtime_r(&epoch, &t);
-  snprintf(buf, sizeof(buf), "%04d-%02d-%02d", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
-  return buf;
-}
-
-}  // namespace
 
 std::string BookInfoActivity::formatFileSize(const size_t bytes) {
   char buf[16];
@@ -408,8 +359,8 @@ void BookInfoActivity::render(RenderLock&&) {
     char pctBuf[8];
     snprintf(pctBuf, sizeof(pctBuf), "%u%%", statProgress);
     drawStatRow(tr(STR_READING_STATS_PROGRESS), pctBuf);
-    drawStatRow(tr(STR_READING_STATS_TOTAL_TIME), formatReadingDuration(statTotalSeconds));
-    drawStatRow(tr(STR_READING_STATS_LAST_READ), formatLastRead(statLastReadEpoch));
+    drawStatRow(tr(STR_READING_STATS_TOTAL_TIME), BookProgressPresentation::formatReadingDuration(statTotalSeconds));
+    drawStatRow(tr(STR_READING_STATS_LAST_READ), BookProgressPresentation::formatLastRead(statLastReadEpoch));
   }
 
   topSectionBottom = std::max(topSectionBottom, metaY);

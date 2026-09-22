@@ -525,11 +525,12 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     // Clear from the top of the tile down through the author/title text area.
     // Use absolute coordinates so the clear covers the text regardless of what
     // rect.height HomeActivity computed (it may be smaller than homeCoverTileHeight).
-    const int textAreaBottom = centerTileY + kCenterCoverMaxH              // bottom of centre cover
-                               + 8 + kDotSize                              // dots
-                               + 6 + renderer.getLineHeight(kTitleFontId)  // author line
-                               + 2 + renderer.getLineHeight(kTitleFontId)  // title line
-                               + 4;                                        // small margin
+    const int textAreaBottom = centerTileY + kCenterCoverMaxH               // bottom of centre cover
+                               + 8 + kDotSize                               // dots
+                               + 6 + renderer.getLineHeight(kTitleFontId)   // author line
+                               + 2 + renderer.getLineHeight(kTitleFontId)   // title line
+                               + 3 + renderer.getLineHeight(SMALL_FONT_ID)  // history line
+                               + 4;                                         // small margin
     renderer.fillRect(rect.x, rect.y, rect.width, textAreaBottom - rect.y, false);
 
     // Sides first so centre renders on top.
@@ -584,6 +585,22 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
         renderer.truncatedText(kTitleFontId, recentBooks[centerIdx].title.c_str(), kCenterCoverMaxW);
     const int titleW = renderer.getTextWidth(kTitleFontId, titleTrunc.c_str());
     renderer.drawText(kTitleFontId, centerX + (kCenterCoverMaxW - titleW) / 2, titleY, titleTrunc.c_str(), true);
+
+    // What you have put into this book, under what it is. The badge on the cover says what is
+    // left of it; this says what it cost so far. A smaller face on purpose: it is a footnote to
+    // the book, not a third thing competing with the title.
+    //
+    // Centre tile only. The side tiles are thumbnails of where you are going, and a row of
+    // numbers under each would be noise. Empty for a book never opened, and then nothing is
+    // drawn -- the space above is still cleared, so no ghost of a previous book's line remains.
+    const std::string history = BookProgressPresentation::historyLine(recentBooks[centerIdx]);
+    if (!history.empty()) {
+      const int historyY = titleY + renderer.getLineHeight(kTitleFontId) + 3;
+      const std::string historyTrunc = renderer.truncatedText(SMALL_FONT_ID, history.c_str(), kCenterCoverMaxW);
+      const int historyW = renderer.getTextWidth(SMALL_FONT_ID, historyTrunc.c_str());
+      renderer.drawText(SMALL_FONT_ID, centerX + (kCenterCoverMaxW - historyW) / 2, historyY, historyTrunc.c_str(),
+                        true);
+    }
 
     // Only cache the frame buffer once all tiles are definitively resolved.
     // If any cover is still being generated we keep coverRendered=false so the next render will retry.

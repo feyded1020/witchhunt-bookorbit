@@ -2,7 +2,9 @@
 
 #include <Epub.h>
 #include <FsHelpers.h>
+#include <HalClock.h>
 #include <HalStorage.h>
+#include <I18n.h>
 #include <Txt.h>
 #include <Xtc.h>
 
@@ -169,6 +171,75 @@ void drawBadge(const GfxRenderer& renderer, Rect coverRect, const RecentBook& bo
   if (!line2.empty()) {
     renderer.drawText(SMALL_FONT_ID, badgeX + (badgeW - w2) / 2, badgeY + padY + textH + lineGap, line2.c_str(), true);
   }
+}
+
+std::string formatReadingDuration(uint32_t totalSeconds) {
+  const uint32_t h = totalSeconds / 3600;
+  const uint32_t m = (totalSeconds % 3600) / 60;
+  char buf[24];
+  if (h > 0) {
+    snprintf(buf, sizeof(buf), "%uh %02um", h, m);
+  } else {
+    snprintf(buf, sizeof(buf), "%um", m);
+  }
+  return buf;
+}
+
+// "N days ago" / "Nh ago" style, or an absolute date past a month. Empty when
+// the epoch is unknown or the clock isn't synced (caller then skips the row).
+std::string formatLastRead(time_t epoch) {
+  if (epoch == 0 || !HalClock::isSynced()) {
+    return {};
+  }
+  const time_t now = HalClock::now();
+  char buf[24];
+  if (now <= epoch) {
+    return "just now";
+  }
+  const uint32_t delta = static_cast<uint32_t>(now - epoch);
+  if (delta < 60) {
+    return "just now";
+  }
+  if (delta < 3600) {
+    snprintf(buf, sizeof(buf), "%um ago", delta / 60);
+    return buf;
+  }
+  if (delta < 86400) {
+    snprintf(buf, sizeof(buf), "%uh ago", delta / 3600);
+    return buf;
+  }
+  const uint32_t days = delta / 86400;
+  if (days < 30) {
+    snprintf(buf, sizeof(buf), "%ud ago", days);
+    return buf;
+  }
+  struct tm t{};
+  localtime_r(&epoch, &t);
+  snprintf(buf, sizeof(buf), "%04d-%02d-%02d", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
+  return buf;
+}
+
+std::string historyLine(const RecentBook& book) {
+  const BookReadingStats* stats = READING_STATS.findBook(KOReaderDocumentId::calculateFromFilename(book.path));
+  if (stats == nullptr || stats->totalSeconds == 0) {
+    return {};
+  }
+
+  std::string line = formatReadingDuration(stats->totalSeconds);
+  if (stats->sessions > 0) {
+    char buf[24];
+    snprintf(buf, sizeof(buf), stats->sessions == 1 ? tr(STR_SITTING_ONE) : tr(STR_SITTINGS_FORMAT), stats->sessions);
+    line += " - ";
+    line += buf;
+  }
+  // Dropped rather than shown as unknown: a clock that has never synced would otherwise put
+  // "last read: never" under a book you finished yesterday.
+  const std::string last = formatLastRead(stats->lastReadEpoch);
+  if (!last.empty()) {
+    line += " - ";
+    line += last;
+  }
+  return line;
 }
 
 }  // namespace BookProgressPresentation

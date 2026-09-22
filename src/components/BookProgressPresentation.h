@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ctime>
 #include <string>
 
 #include "GfxRenderer.h"
@@ -40,5 +41,19 @@ std::string formatStatus(const RecentBook& book, int progressPercent);
 // cover. Used where the cover is large enough to carry an overlaid label (e.g. the carousel
 // centre cover). Draws nothing when the book has no progress data.
 void drawBadge(const GfxRenderer& renderer, Rect coverRect, const RecentBook& book, int progressPercent);
+
+// "3h 07m" / "45m". Shared so the carousel line and the book info screen word a duration the
+// same way -- two spellings of the same number read as two different numbers.
+std::string formatReadingDuration(uint32_t totalSeconds);
+
+// "just now" / "5m ago" / "3d ago", falling back to an absolute date past a month. Empty when
+// the epoch is unknown or the clock was never synced, so the caller draws nothing.
+std::string formatLastRead(time_t epoch);
+
+// Compact reading-history line for a recent book, e.g. "3h 12m - 8 sittings - 3d ago".
+//
+// What you have put INTO the book, where drawProgressStatus() covers what is left of it. Empty
+// for a book that has never been read, so the caller draws nothing rather than a row of zeroes.
+std::string historyLine(const RecentBook& book);
 
 }  // namespace BookProgressPresentation
