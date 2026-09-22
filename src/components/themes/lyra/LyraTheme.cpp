@@ -699,8 +699,27 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     const int seriesHeight = static_cast<int>(seriesLines.size()) * smallLineHeight;
     const int statusSpacing = statusLine.empty() ? 0 : (smallLineHeight / 2);
     const int statusHeight = statusLine.empty() ? 0 : smallLineHeight;
-    const int totalBlockHeight =
+    const int baseBlockHeight =
         titleBlockHeight + titleAuthorSpacing + authorHeight + seriesHeight + statusSpacing + statusHeight;
+
+    // What you have put into the book, under what is left of it. This column is only the part of
+    // the tile the cover does not use, so the sentence usually needs two lines; it is set in the
+    // non-scaling small face so a larger UI font cannot push the block past the tile edges.
+    const std::string history = BookProgressPresentation::historyLine(book);
+    const int historyLineHeight = renderer.getLineHeight(FIT_SMALL_FONT_ID);
+    auto historyLines = history.empty() ? std::vector<std::string>{}
+                                        : renderer.wrappedText(FIT_SMALL_FONT_ID, history.c_str(), textWidth, 2);
+    // A three-line title over a two-line author and a two-line series can already fill the tile.
+    // The history is the least important of the four, so it is what gives way -- its second line
+    // first, then the row entirely -- rather than the block spilling over the cover.
+    while (!historyLines.empty() && baseBlockHeight + historyLineHeight / 2 +
+                                            static_cast<int>(historyLines.size()) * historyLineHeight >
+                                        tileHeight) {
+      historyLines.pop_back();
+    }
+    const int historySpacing = historyLines.empty() ? 0 : (historyLineHeight / 2);
+    const int historyHeight = static_cast<int>(historyLines.size()) * historyLineHeight;
+    const int totalBlockHeight = baseBlockHeight + historySpacing + historyHeight;
     int titleY = tileY + tileHeight / 2 - totalBlockHeight / 2;
     const int textX = tileX + hPaddingInSelection + coverWidth + LyraMetrics::values.verticalSpacing;
     for (const auto& line : titleLines) {
@@ -721,6 +740,14 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     if (!statusLine.empty()) {
       titleY += statusSpacing;
       renderer.drawText(UI_10_FONT_ID, textX, titleY, statusLine.c_str(), true, EpdFontFamily::BOLD);
+      titleY += smallLineHeight;
+    }
+    if (!historyLines.empty()) {
+      titleY += historySpacing;
+      for (const auto& line : historyLines) {
+        renderer.drawText(FIT_SMALL_FONT_ID, textX, titleY, line.c_str(), true);
+        titleY += historyLineHeight;
+      }
     }
   } else {
     drawEmptyRecents(renderer, rect);

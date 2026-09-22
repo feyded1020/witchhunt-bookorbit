@@ -56,4 +56,10 @@ std::string formatLastRead(time_t epoch);
 // for a book that has never been read, so the caller draws nothing rather than a row of zeroes.
 std::string historyLine(const RecentBook& book);
 
+// The same history, squeezed for a column too narrow to hold a sentence: "3h 12m · 5d",
+// or just "3h 12m" when no dated sessions are on record. Digits and unit letters only, so it
+// needs no translation string and no room for one -- the same reasoning as the "~45m" ETA in
+// formatStatus(). Empty for a book that has never been read.
+std::string historyLineCompact(const RecentBook& book);
+
 }  // namespace BookProgressPresentation

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "RecentBooksStore.h"
+#include "UiFontScale.h"
 #include "components/BookProgressPresentation.h"
 #include "components/UITheme.h"
 #include "components/icons/cover.h"
@@ -28,7 +29,11 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
                                            bool& bufferRestored, std::function<bool()> storeCoverBuffer) const {
   const int tileWidth = (rect.width - 2 * Lyra3CoversMetrics::values.contentSidePadding) / 3;
   const int tileY = rect.y;
-  const int coverHeight = std::max(120, rect.height - coverHeightOffset);
+  // A row held back under the title for the compact reading history. Reserved whether or not a
+  // given book has one, so the three covers stay the same size as the selection moves across
+  // them. The non-scaling small face keeps that reservation honest at any UI font size.
+  const int historyLineHeight = renderer.getLineHeight(FIT_SMALL_FONT_ID);
+  const int coverHeight = std::max(120, rect.height - coverHeightOffset - historyLineHeight);
   const bool hasContinueReading = !recentBooks.empty();
 
   // The three tiles published for touch. Recorded ahead of the draw loop, which is skipped on a
@@ -136,8 +141,12 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
 
       auto titleLines = renderer.wrappedText(SMALL_FONT_ID, recentBooks[i].title.c_str(), maxLineWidth, 3);
 
+      // A third of the screen wide is no room for a sentence, so this layout gets the short form
+      // -- time in the book and the number of days it spans, nothing else.
+      const std::string history = BookProgressPresentation::historyLineCompact(recentBooks[i]);
+
       const int titleLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-      const int dynamicBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight;
+      const int dynamicBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight + historyLineHeight;
       // Add a little padding below the text inside the selection box just like the top padding (5 + hPaddingSelection)
       const int dynamicTitleBoxHeight = dynamicBlockHeight + hPaddingInSelection + 5;
 
@@ -161,6 +170,10 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
       for (const auto& line : titleLines) {
         renderer.drawText(SMALL_FONT_ID, tileX + hPaddingInSelection, currentY, line.c_str(), true);
         currentY += titleLineHeight;
+      }
+      if (!history.empty()) {
+        const std::string historyTrunc = renderer.truncatedText(FIT_SMALL_FONT_ID, history.c_str(), maxLineWidth);
+        renderer.drawText(FIT_SMALL_FONT_ID, tileX + hPaddingInSelection, currentY, historyTrunc.c_str(), true);
       }
     }
   } else {

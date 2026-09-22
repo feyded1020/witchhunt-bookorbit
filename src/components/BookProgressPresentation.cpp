@@ -258,4 +258,25 @@ std::string historyLine(const RecentBook& book) {
   return line;
 }
 
+std::string historyLineCompact(const RecentBook& book) {
+  const BookReadingStats* stats = READING_STATS.findBook(KOReaderDocumentId::calculateFromFilename(book.path));
+  if (stats == nullptr || stats->totalSeconds == 0) {
+    return {};
+  }
+
+  std::string line = formatReadingDuration(stats->totalSeconds);
+  // Same dayIndex 0 exclusion as historyLine(): sessions recorded on an unsynced clock belong
+  // to no known day.
+  size_t knownDays = 0;
+  for (const auto& day : stats->days) {
+    if (day.dayIndex != 0) ++knownDays;
+  }
+  if (knownDays > 0) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), " · %ud", static_cast<unsigned>(knownDays));
+    line += buf;
+  }
+  return line;
+}
+
 }  // namespace BookProgressPresentation
