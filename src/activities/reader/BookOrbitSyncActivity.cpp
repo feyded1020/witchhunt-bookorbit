@@ -184,9 +184,14 @@ void BookOrbitSyncActivity::applyRemoteAndFinish() {
   sync.resultHasListItemIndex = remotePosition.hasListItemIndex;
   APP_STATE.saveToFile();
 
-  if (syncIntent == KOReaderSyncIntentState::AUTO_PULL) {
-    // Auto-pull skips the success-screen dwell — the reader will render the new
-    // position immediately, which is the only visible feedback the user needs.
+  if (syncIntent == KOReaderSyncIntentState::AUTO_PULL && !promptWasShown) {
+    // A SILENT auto-pull skips the success screen: the reader renders the new position
+    // immediately, which is the only feedback that pull needed.
+    //
+    // Not when the compare screen was shown. Answering a question and getting nothing back reads
+    // as the answer having been lost -- doubly so here, because the other choice on that same
+    // screen does confirm: uploading skips only under AUTO_PUSH, which an auto-pull session is
+    // not. Same prompt, two different behaviours, and the quiet one looks like the broken one.
     esp_wifi_stop();
     resumeReader(KOReaderSyncOutcomeState::APPLIED_REMOTE);
     return;
@@ -422,6 +427,7 @@ void BookOrbitSyncActivity::performFetchAndCompare() {
   {
     RenderLock lock(*this);
     state = SHOWING_RESULT;
+    promptWasShown = true;
     // Default to the option matching the furthest progress.
     selectedOption = comparison > 0 ? 1 /* Upload local */ : 0 /* Apply remote */;
   }
