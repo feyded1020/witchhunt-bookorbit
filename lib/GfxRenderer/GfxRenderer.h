@@ -450,6 +450,8 @@ class GfxRenderer {
   // panel. Ask this before spending the async gap on work; see
   // HalDisplay::supportsAsyncRefresh.
   bool supportsAsyncRefresh() const { return display.supportsAsyncRefresh(); }
+  // What a FAST refresh costs on this panel, measured. 0 until one has run. See HalDisplay.
+  uint16_t getLastFastRefreshMs() const { return display.getLastFastRefreshMs(); }
 
   // Non-blocking display split.
   // triggerDisplay() sends pixels, issues the refresh command and returns

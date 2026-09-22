@@ -940,16 +940,29 @@ void ActivityManager::showBusyIndicator() {
   // not surface for many page turns. Measured on X4 Pro: the promoted HALF cost a 112 ms push and
   // a 1269 ms drain. Skip instead; the transition is about to repaint anyway.
   if (renderer.hasRefreshOverridePending()) return;
-  // Only where the panel can ship it cheaply. Without an async refresh the indicator blocks for a
-  // whole waveform BEFORE the transition it is acknowledging even starts, which is the opposite of
-  // the point. Device feedback from a T5S3 (LgfxEpdDriver, the only driver we ship with
-  // supportsAsyncDisplay() == false): "definitely more annoying than helpful, the delay it creates
-  // is noticeable". X3, X4 and X4 Pro report async on every driver they can probe into, and were
-  // reported working as expected.
+  // Only where the panel can ship it cheaply, judged by what a FAST refresh actually COSTS on
+  // the controller in front of us rather than by which board this is. An X4 Pro can come up on
+  // SSD1677, UC8179 or UC8279 and they do not agree, so the board name is not the question.
   //
-  // This is a cost predicate, not a driver one: if a windowed partial refresh ever lands (see
-  // docs/display-capability-audit-2026-08-17.md), that is also cheap and belongs in this test.
-  if (!renderer.supportsAsyncRefresh()) return;
+  // An absolute threshold, not a ratio: the indicator buys the user roughly one waveform of
+  // earlier feedback and costs the destination screen roughly one waveform of delay (its
+  // displayBuffer() opens with syncPendingAsync() and drains ours). Those cancel, so what decides
+  // whether it is worth having is the magnitude of that one waveform, nothing else.
+  //
+  // Device-measured FAST durations, excluding refreshes that already carried a drain:
+  //   X3 ~435 ms, X4 Pro ~792 ms -- reported working as expected
+  //   T5S3 ~1329 ms              -- reported "more annoying than helpful"
+  // 1000 ms sits between them with real margin on both sides. Re-check it if a new panel lands
+  // near the line rather than moving it on a hunch.
+  //
+  // Zero means never measured and nothing persisted, which only happens before this panel's first
+  // FAST. Allow it: one indicator is a cheap price for learning the number.
+  constexpr uint16_t kMaxFastRefreshMs = 1000;
+  const uint16_t fastRefreshMs = renderer.getLastFastRefreshMs();
+  if (fastRefreshMs > kMaxFastRefreshMs) return;
+  // Keep the persisted copy current in memory; the next ordinary settings save carries it to NVS,
+  // so this costs no extra write.
+  if (fastRefreshMs != 0) SETTINGS.measuredFastRefreshMs = fastRefreshMs;
 
   RenderLock lock;
 

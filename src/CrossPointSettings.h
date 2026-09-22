@@ -489,6 +489,11 @@ class CrossPointSettings {
   uint8_t uiTheme = LYRA;
   // Acknowledge a press that starts a slow screen change. See ActivityManager::showBusyIndicator().
   uint8_t showBusyIndicator = 1;
+  // NOT a preference: the measured cost of a FAST refresh on this panel, carried across boots so
+  // the first decision after a reboot is as good as the last one before it. Written from
+  // HalDisplay's measurement, never from the UI, and absent from the JSON settings file for that
+  // reason. 0 means not yet measured.
+  uint16_t measuredFastRefreshMs = 0;
   // Menu/chrome text size (UI_FONT_SIZE)
   uint8_t uiFontSize = UI_FONT_SIZE_DEFAULT;
   // Sunlight fading compensation

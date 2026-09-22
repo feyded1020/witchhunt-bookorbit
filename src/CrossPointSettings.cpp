@@ -175,6 +175,7 @@ void CrossPointSettings::loadStartupFromNvs() {
   btnShortPower = nvs.getUChar("bSPwr", BTN_DEFAULT);
   btnDoublePower = nvs.getUChar("bDPwr", BTN_DEFAULT);
   useClock = nvs.getUChar("useClk", 0);
+  measuredFastRefreshMs = nvs.getUShort("fastMs", 0);
   nvs.end();
 }
 
@@ -184,6 +185,10 @@ void CrossPointSettings::saveStartupToNvs() const {
   nvs.putUChar("bSPwr", btnShortPower);
   nvs.putUChar("bDPwr", btnDoublePower);
   nvs.putUChar("useClk", useClock);
+  // Only when it has actually changed: this rides on the settings save, and SPIFFS/NVS sectors
+  // have a finite erase budget. The measurement is stable per panel, so after the first boot on a
+  // given device this writes nothing.
+  if (nvs.getUShort("fastMs", 0) != measuredFastRefreshMs) nvs.putUShort("fastMs", measuredFastRefreshMs);
   nvs.end();
 }
 
