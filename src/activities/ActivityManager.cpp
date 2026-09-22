@@ -940,6 +940,16 @@ void ActivityManager::showBusyIndicator() {
   // not surface for many page turns. Measured on X4 Pro: the promoted HALF cost a 112 ms push and
   // a 1269 ms drain. Skip instead; the transition is about to repaint anyway.
   if (renderer.hasRefreshOverridePending()) return;
+  // Only where the panel can ship it cheaply. Without an async refresh the indicator blocks for a
+  // whole waveform BEFORE the transition it is acknowledging even starts, which is the opposite of
+  // the point. Device feedback from a T5S3 (LgfxEpdDriver, the only driver we ship with
+  // supportsAsyncDisplay() == false): "definitely more annoying than helpful, the delay it creates
+  // is noticeable". X3, X4 and X4 Pro report async on every driver they can probe into, and were
+  // reported working as expected.
+  //
+  // This is a cost predicate, not a driver one: if a windowed partial refresh ever lands (see
+  // docs/display-capability-audit-2026-08-17.md), that is also cheap and belongs in this test.
+  if (!renderer.supportsAsyncRefresh()) return;
 
   RenderLock lock;
 
