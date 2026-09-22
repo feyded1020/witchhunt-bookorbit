@@ -187,3 +187,49 @@ overlay composes onto, and whether the plane-restore step depends on it cannot b
 settled off the panel. It costs one buffer copy per AA pass on one board; being
 wrong costs the page-inversion bug again. Remove it behind a device test, not an
 argument. The call-site comment says the same.
+
+---
+
+## Addendum, 2026-09-21 — `displayWindow()` has no capability query at all
+
+The table above lists primitives the SDK offers that we never call.
+`displayWindow()` is the inverse, and a worse case: we **do** call it, and there
+is no capability query to call alongside it.
+
+Only `Ssd1677Driver` and `PaperMonoDriver` override `PanelDriver::displayWindow`.
+The base implementation is a whole-panel refresh:
+
+```cpp
+virtual void displayWindow(EpdBus& bus, const uint8_t* fb, const uint8_t* prev,
+                           uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                           bool turnOff) {
+  display(bus, fb, prev, RefreshMode::Fast, turnOff);
+}
+```
+
+So `displayWindow()` silently means "small partial" on two drivers and "repaint
+the entire panel" on the other ten, and nothing lets a caller tell which. That is
+this document's root cause in its purest form: the question is a driver
+capability, and there is no way to ask it.
+
+| Driver | overrides `displayWindow` | `supportsAsyncDisplay` |
+|---|---|---|
+| `Ssd1677Driver` | yes | yes |
+| `PaperMonoDriver` | yes | no |
+| `Uc8179Driver`, `Uc8279Driver`, `Uc8279X4Driver`, `Uc8253X3Driver` | no | yes |
+| `LgfxEpdDriver`, `It8951Driver`, `Ed2208M5Driver`, `M5OfficialDriver`, `Uc8253MurphyDriver`, `Uc8279cA4Driver` | no | no |
+
+Both overrides additionally reject a window they cannot honour
+(`if (x % 8 != 0 || w % 8 != 0) return;`) silently and with no return value, so a
+caller cannot distinguish "refreshed your window", "refreshed the whole panel
+instead", and "did nothing at all".
+
+**Direction:** add `PanelDriver::supportsWindowedRefresh()` — false in the base,
+true in the two overriding drivers — surfaced through the facade, `HalDisplay`
+and `GfxRenderer` the way `supportsAsyncRefresh()` now is. The byte-alignment
+snapping belongs in `GfxRenderer::displayWindow`, which is already the layer that
+maps logical to physical coordinates; doing it in a caller cannot be correct,
+because which logical axis the constraint lands on flips with orientation.
+
+Found while reviewing PR #282, whose central cost claim assumed the partial path
+was universal.

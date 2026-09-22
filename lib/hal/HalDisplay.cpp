@@ -180,6 +180,12 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
   const unsigned long refreshStart = millis();
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
   const unsigned long refreshMs = millis() - refreshStart;
+  // Keep the FAST figure: callers weighing an extra intermediate repaint need to know what one
+  // costs on the controller actually in front of them. Clamped so a one-off stall (a contended
+  // bus, a cold panel) cannot poison the measurement permanently.
+  if (mode == RefreshMode::FAST_REFRESH) {
+    lastFastRefreshMs = static_cast<uint16_t>(refreshMs > 60000 ? 60000 : refreshMs);
+  }
   const char* const modeName =
       mode == RefreshMode::FAST_REFRESH ? "FAST" : (mode == RefreshMode::HALF_REFRESH ? "HALF" : "FULL");
   const unsigned long seq = ++panelSeq;

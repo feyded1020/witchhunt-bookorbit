@@ -373,6 +373,7 @@ class CrossPointSettings {
     TZ_AST_ADT = 16,
     TZ_ACST_ACDT = 17,
     TZ_AKST_AKDT = 18,
+    TZ_COUNT = 19,  // keep in step with TimezoneBySetting::TZ
     TIMEZONE_COUNT
   };
 
@@ -487,6 +488,13 @@ class CrossPointSettings {
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // UI Theme
   uint8_t uiTheme = LYRA;
+  // Acknowledge a press that starts a slow screen change. See ActivityManager::showBusyIndicator().
+  uint8_t showBusyIndicator = 1;
+  // NOT a preference: the measured cost of a FAST refresh on this panel, carried across boots so
+  // the first decision after a reboot is as good as the last one before it. Written from
+  // HalDisplay's measurement, never from the UI, and absent from the JSON settings file for that
+  // reason. 0 means not yet measured.
+  uint16_t measuredFastRefreshMs = 0;
   // Menu/chrome text size (UI_FONT_SIZE)
   uint8_t uiFontSize = UI_FONT_SIZE_DEFAULT;
   // Sunlight fading compensation

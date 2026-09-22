@@ -96,6 +96,14 @@ class ActivityManager {
   // This variable must only be set by the main loop, to avoid race conditions
   volatile bool requestedUpdate = false;
 
+  // Set when something earlier in THIS loop() tick has already put the displayed frame in the
+  // write framebuffer, so a later partial paint must not sync over it. Cleared at the top of
+  // every tick. See the "Re-syncing the write buffer" pitfall in docs/activity-manager.md.
+  bool framebufferPreparedThisTick = false;
+
+  // Paints the "working on it" banner before a queued transition runs. See the .cpp.
+  void showBusyIndicator();
+
   // When true, input events are consumed (discarded) until all buttons are released
   // and no press/release events remain.  Armed automatically on activity transitions
   // (push / pop / replace) so that the button used to leave one activity cannot bleed
