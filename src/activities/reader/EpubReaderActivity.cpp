@@ -4651,9 +4651,16 @@ void EpubReaderActivity::renderContents(RenderLock& lock, std::unique_ptr<Page> 
     // ran, so nothing is walked twice.
     renderer.copyGrayscaleLsbBuffers(capLsb.get());
     renderer.copyGrayscaleMsbBuffers(capMsb.get());
-    // Base and greys as ONE waveform. No triggerDisplay/completeDisplay split:
-    // there is nothing to overlap with, because the plane work already happened.
-    renderer.displayGrayscaleFrame(pageRefreshMode);
+    // Base and greys as ONE waveform. Deferred, not blocking: there is no AA work left to
+    // overlap -- the planes went out with the page -- but there is plenty of OTHER work, and it
+    // was all sitting behind this call. The pre-render scheduling and lock.unlock() below exist
+    // precisely to hand the waveform window to the loop task, and a blocking display here meant
+    // the waveform was already over by the time they ran. completeDisplay() after the unlock
+    // collects it, exactly as the trigger paths do.
+    //
+    // Measured on a T5S3, where this is the only path that advertises supportsGrayFrame():
+    // 1.4-2.7 s per page turn during which stepCurrentSectionBuild() could not run at all.
+    renderer.triggerGrayscaleFrame(pageRefreshMode);
     lastRenderStats.usedGrayscale = true;
     lastRenderStats.textAntiAliasing = true;
   } else if (inlineAaThisRender) {

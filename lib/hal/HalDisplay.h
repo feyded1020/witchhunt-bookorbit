@@ -177,6 +177,10 @@ class HalDisplay {
   // a plain displayBuffer() on a panel that cannot, so callers need no branch of
   // their own beyond deciding whether to stage planes at all.
   void displayGrayscaleFrame(RefreshMode refreshMode, bool turnOffScreen = false);
+  // Deferred displayGrayscaleFrame(): returns while the waveform runs where the driver can, so
+  // the caller can release its lock and let other work use the window. The caller owes a
+  // completeDisplay() before the panel is touched again. Blocking fallback elsewhere.
+  void triggerGrayscaleFrame(RefreshMode refreshMode, bool turnOffScreen = false);
 
   // Grey levels this panel resolves in one refresh. 4 on every dual-plane
   // controller (X3, X4, X4 Pro, M5 Paper Mono) — two selector bits per pixel is

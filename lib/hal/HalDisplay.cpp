@@ -446,6 +446,16 @@ bool HalDisplay::beginAbsoluteGrayPass(const RefreshMode fallback, const bool tu
   return true;
 }
 
+void HalDisplay::triggerGrayscaleFrame(const RefreshMode refreshMode, const bool turnOffScreen) {
+  HalSpiBus::Lock spiLock;
+  lastRefreshMode = refreshMode;
+  lastDisplayModeByte = refreshModeToByte(refreshMode);
+  LOG_DBG(
+      "DISP", "#%lu triggerGrayscaleFrame mode=%s", static_cast<unsigned long>(++panelSeq),
+      refreshMode == RefreshMode::FAST_REFRESH ? "FAST" : (refreshMode == RefreshMode::HALF_REFRESH ? "HALF" : "FULL"));
+  einkDisplay.triggerGrayscaleFrame(convertRefreshMode(refreshMode), turnOffScreen);
+}
+
 void HalDisplay::displayGrayscaleFrame(const RefreshMode refreshMode, const bool turnOffScreen) {
   HalSpiBus::Lock spiLock;
   einkDisplay.displayGrayscaleFrame(convertRefreshMode(refreshMode), turnOffScreen);

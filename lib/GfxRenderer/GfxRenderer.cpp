@@ -3533,6 +3533,14 @@ void GfxRenderer::compositeBwRectOntoGray8Canvas(const Gray8Target& gray8, const
 
 bool GfxRenderer::supportsGrayFrame() const { return display.supportsGrayFrame(); }
 
+void GfxRenderer::triggerGrayscaleFrame(const HalDisplay::RefreshMode mode) const {
+  const HalDisplay::RefreshMode effectiveMode = consumeRefreshOverride(mode);
+  noteRefresh(effectiveMode);
+  display.triggerGrayscaleFrame(effectiveMode, fadingFix);
+  // No cached-pointer resync here: unlike triggerDisplay(), this path deliberately does not swap
+  // buffers (see FreeInkDisplay::displayGrayscaleFrame), so frameBuffer still points where it did.
+}
+
 void GfxRenderer::displayGrayscaleFrame(const HalDisplay::RefreshMode mode) const {
   const HalDisplay::RefreshMode effectiveMode = consumeRefreshOverride(mode);
   noteRefresh(effectiveMode);

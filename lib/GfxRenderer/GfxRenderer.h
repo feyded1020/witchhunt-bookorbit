@@ -746,6 +746,8 @@ class GfxRenderer {
   // pointer afterwards for the same reason triggerDisplay() does: the display
   // swaps buffers, and every later draw must target the new write buffer.
   void displayGrayscaleFrame(HalDisplay::RefreshMode mode) const;
+  // Deferred form: see HalDisplay::triggerGrayscaleFrame. Caller owes completeDisplay().
+  void triggerGrayscaleFrame(HalDisplay::RefreshMode mode) const;
 
   // Render both grayscale planes sequentially into the BW framebuffer, streaming
   // each plane to the controller immediately after rendering it. No extra allocation
