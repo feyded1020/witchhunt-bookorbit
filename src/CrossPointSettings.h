@@ -373,6 +373,7 @@ class CrossPointSettings {
     TZ_AST_ADT = 16,
     TZ_ACST_ACDT = 17,
     TZ_AKST_AKDT = 18,
+    TZ_COUNT = 19,  // keep in step with TimezoneBySetting::TZ
     TIMEZONE_COUNT
   };
 
