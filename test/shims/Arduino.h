@@ -14,11 +14,13 @@ class EspClass {
   uint32_t getFreeHeap() const { return freeHeap_; }
   void setFreeHeap(uint32_t heap) { freeHeap_ = heap; }  // test-only: simulate heap pressure
   uint32_t getMinFreeHeap() const { return 150 * 1024; }
-  uint32_t getMaxAllocHeap() const { return 100 * 1024; }
+  uint32_t getMaxAllocHeap() const { return maxAllocHeap_; }
+  void setMaxAllocHeap(uint32_t bytes) { maxAllocHeap_ = bytes; }  // test-only: simulate fragmentation
   void restart() {}
 
  private:
   uint32_t freeHeap_ = 200 * 1024;
+  uint32_t maxAllocHeap_ = 100 * 1024;
 };
 inline EspClass ESP;
 

@@ -805,7 +805,8 @@ void drawUnsupportedPlaceholder(GfxRenderer& renderer, const RenderConfig& confi
 }  // namespace
 
 bool JpegToFramebufferConverter::getDimensionsFromBuffer(const uint8_t* buf, const size_t len, ImageDimensions& out,
-                                                         JpegMode* outMode) {
+                                                         JpegMode* outMode, bool* needMore) {
+  if (needMore) *needMore = false;
   if (!buf || len < 4) return false;
   if (buf[0] != 0xFF || buf[1] != 0xD8) return false;
 
@@ -821,11 +822,11 @@ bool JpegToFramebufferConverter::getDimensionsFromBuffer(const uint8_t* buf, con
     if (marker == 0x00 || marker == 0xD8 || marker == 0xD9 || (marker >= 0xD0 && marker <= 0xD7)) continue;
     if (pos + 1 >= len) break;
     const uint16_t segLen = (static_cast<uint16_t>(buf[pos]) << 8) | buf[pos + 1];
-    if (segLen < 2) break;
+    if (segLen < 2) return false;
     const bool isSof = (marker >= 0xC0 && marker <= 0xC3) || (marker >= 0xC5 && marker <= 0xC7) ||
                        (marker >= 0xC9 && marker <= 0xCB) || (marker >= 0xCD && marker <= 0xCF);
     if (isSof) {
-      if (pos + 6 >= len) return false;
+      if (pos + 6 >= len) break;  // the frame header straddles the end of the buffer
       const uint16_t h = (static_cast<uint16_t>(buf[pos + 3]) << 8) | buf[pos + 4];
       const uint16_t w = (static_cast<uint16_t>(buf[pos + 5]) << 8) | buf[pos + 6];
       if (w == 0 || h == 0 || w > 0x7FFF || h > 0x7FFF) return false;
@@ -834,8 +835,13 @@ bool JpegToFramebufferConverter::getDimensionsFromBuffer(const uint8_t* buf, con
       if (outMode) *outMode = classifyJpegMode(marker);
       return true;
     }
+    if (marker == 0xDA) return false;  // SOS — entropy data begins, no SOF was found
     pos += segLen;
   }
+  // Ran off the end with the marker structure still consistent: the header continues beyond
+  // `len` (Photoshop-style Exif/IPTC/XMP/ICC runs to tens of KB) and a longer read finds SOF.
+  // Distinct from the failures above, which no amount of extra bytes would fix.
+  if (needMore) *needMore = true;
   return false;
 }
 
@@ -845,6 +851,12 @@ bool JpegToFramebufferConverter::getDimensionsFromZipEntryStreaming(const std::s
   ZipFile zip(epubPath);
   ZipFile::EntryReader reader(zip, 512);
   if (!reader.open(entryPath.c_str())) return false;
+  return getDimensionsFromEntryReader(reader, out, outMode);
+}
+
+bool JpegToFramebufferConverter::getDimensionsFromEntryReader(ZipFile::EntryReader& reader, ImageDimensions& out,
+                                                              JpegMode* outMode) {
+  if (!reader.isOpen()) return false;
 
   // Pull decompressed bytes one chunk at a time. Segment bodies are skipped byte-by-byte
   // through this same source, so memory stays bounded no matter how large the metadata is.

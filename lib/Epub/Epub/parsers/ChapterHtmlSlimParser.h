@@ -481,6 +481,10 @@ class ChapterHtmlSlimParser final : public Print {
   // the call site, never latched: the heap recovers between pages, and a single dip must not
   // disable images for the rest of the chapter (that result gets baked into the section cache).
   bool heapAllowsImageHeaderRead() const;
+  // Gate for the streaming header walk of a deferred image: walkBytes is what the walk will
+  // allocate (EpubImageManifest::deferredWalkBytes — one contiguous inflate ring of up to 32 KB
+  // plus its read chunk), so contiguous heap is the hard bar.
+  bool heapAllowsImageWalk(size_t walkBytes) const;
   // Last resort before an image degrades to alt text: drop the rebuildable SD-font
   // glyph caches, which are usually what is holding the contiguous space the header
   // read needs. One shot per parse — once they are gone there is nothing left to

@@ -276,9 +276,17 @@ class Epub {
   // Non-const: section indexing resolves + caches new image dimensions through it.
   EpubImageManifest* getImageManifest() { return imageManifest.get(); }
   const EpubImageManifest* getImageManifest() const { return imageManifest.get(); }
-  // Flush newly-resolved image dimensions to images.bin (no-op when nothing changed).
-  void persistImageManifest() {
-    if (imageManifest) imageManifest->persistIfDirty();
+  // End-of-build hook: walk any image whose header read was deferred mid-parse (see
+  // EpubImageManifest::resolvePending), then flush newly-resolved dimensions to images.bin.
+  // Returns true when at least one deferred image was resolved — i.e. a build that degraded
+  // an image to alt text would now come out clean, so the caller can rebuild it.
+  // walkArena: an idle build arena (the borrowed secondary framebuffer) to carve the walk's ring
+  // from, or nullptr to use the heap — see EpubImageManifest::resolvePending.
+  bool persistImageManifest(BuildArena* walkArena = nullptr) {
+    if (!imageManifest) return false;
+    const bool resolvedDeferred = imageManifest->resolvePending(walkArena) > 0;
+    imageManifest->persistIfDirty();
+    return resolvedDeferred;
   }
   int resolveHrefToSpineIndex(const std::string& href) const;
 

@@ -140,7 +140,16 @@ class HalFile : public Print {
 
   size_t position() const { return fp_ ? static_cast<size_t>(ftell(fp_)) : 0; }
   uint64_t position64() const { return position(); }
-  int available() const { return fp_ ? 1 : 0; }
+  // Bytes left to read, as on device: EpubImageManifest::load() sizes its corruption guard from
+  // this, so a constant here made every persisted manifest look corrupt on the host.
+  int available() const {
+    if (!fp_) return 0;
+    const long cur = ftell(fp_);
+    fseek(fp_, 0, SEEK_END);
+    const long end = ftell(fp_);
+    fseek(fp_, cur, SEEK_SET);
+    return end > cur ? static_cast<int>(end - cur) : 0;
+  }
 
   size_t size() { return fileSize(); }
   size_t fileSize() {
