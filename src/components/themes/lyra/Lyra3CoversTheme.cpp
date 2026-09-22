@@ -45,6 +45,16 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
   const int coverHeight = Lyra3CoversMetrics::coverRenderHeight(rect.height);
   const int textBoxHeight = rect.height - hPaddingInSelection - coverHeight;
 
+  // Frame the cover at the proportions a cover actually has, not at the full width of the tile.
+  //
+  // Thumbnails are generated 6:10, so a cover this tall is only 0.6 * coverHeight wide. The frame
+  // used to span the whole tile regardless, which was invisible while covers were tall enough to
+  // overflow it and get cropped, and became a band of white beside every cover once the block
+  // under them grew. Take the narrower of the two and centre it: a correctly proportioned cover
+  // in the middle of the tile reads as deliberate, one in the corner of a wide box reads broken.
+  const int coverBoxWidth = std::min(tileWidth - 2 * hPaddingInSelection, coverHeight * 6 / 10);
+  const int coverBoxInset = (tileWidth - 2 * hPaddingInSelection - coverBoxWidth) / 2;
+
   // Wrap each title to the number of lines the block can actually hold rather than to three
   // regardless. Three lines of a large UI font do not fit under a cover sized for them plus the
   // history row, and the lines that did not fit were printing over the menu below.
@@ -99,16 +109,15 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
               const float bitmapHeight = static_cast<float>(bitmap.getHeight());
               const float bitmapWidth = static_cast<float>(bitmap.getWidth());
               const float ratio = bitmapWidth / bitmapHeight;
-              const float tileRatio =
-                  static_cast<float>(tileWidth - 2 * hPaddingInSelection) / static_cast<float>(coverHeight);
+              const float tileRatio = static_cast<float>(coverBoxWidth) / static_cast<float>(coverHeight);
               const float cropX = std::max(0.0f, 1.0f - (tileRatio / ratio));
 
               // Clear tile to white before drawing: 1-bit BMPs only draw dark pixels,
               // leaving white pixels transparent — any stale dark content shows through.
-              renderer.fillRect(tileX + hPaddingInSelection, tileY + hPaddingInSelection,
-                                tileWidth - 2 * hPaddingInSelection, coverHeight, false);
-              renderer.drawBitmap(bitmap, tileX + hPaddingInSelection, tileY + hPaddingInSelection,
-                                  tileWidth - 2 * hPaddingInSelection, coverHeight, cropX);
+              renderer.fillRect(tileX + hPaddingInSelection + coverBoxInset, tileY + hPaddingInSelection,
+                                coverBoxWidth, coverHeight, false);
+              renderer.drawBitmap(bitmap, tileX + hPaddingInSelection + coverBoxInset, tileY + hPaddingInSelection,
+                                  coverBoxWidth, coverHeight, cropX);
             } else {
               hasCover = false;
             }
@@ -120,7 +129,7 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
           }
         }
         // Draw either way
-        renderer.drawRect(tileX + hPaddingInSelection, tileY + hPaddingInSelection, tileWidth - 2 * hPaddingInSelection,
+        renderer.drawRect(tileX + hPaddingInSelection + coverBoxInset, tileY + hPaddingInSelection, coverBoxWidth,
                           coverHeight, true);
 
         if (!hasCover) {
@@ -129,14 +138,14 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
             const char* loadingText = tr(STR_LOADING);
             const int textW = renderer.getTextWidth(SMALL_FONT_ID, loadingText);
             const int textH = renderer.getLineHeight(SMALL_FONT_ID);
-            renderer.drawText(SMALL_FONT_ID,
-                              tileX + hPaddingInSelection + (tileWidth - 2 * hPaddingInSelection - textW) / 2,
+            renderer.drawText(SMALL_FONT_ID, tileX + hPaddingInSelection + coverBoxInset + (coverBoxWidth - textW) / 2,
                               tileY + hPaddingInSelection + (coverHeight - textH) / 2, loadingText, true);
           } else {
             // No cover at all — render empty cover placeholder
-            renderer.fillRect(tileX + hPaddingInSelection, tileY + hPaddingInSelection + (coverHeight / 3),
-                              tileWidth - 2 * hPaddingInSelection, 2 * coverHeight / 3, true);
-            renderer.drawIcon(CoverIcon, tileX + hPaddingInSelection + 24, tileY + hPaddingInSelection + 24, 32, 32);
+            renderer.fillRect(tileX + hPaddingInSelection + coverBoxInset, tileY + hPaddingInSelection + (coverHeight / 3),
+                              coverBoxWidth, 2 * coverHeight / 3, true);
+            renderer.drawIcon(CoverIcon, tileX + hPaddingInSelection + coverBoxInset + (coverBoxWidth - 32) / 2,
+                              tileY + hPaddingInSelection + 24, 32, 32);
           }
         }
       }
@@ -177,8 +186,8 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
       }
 
       BookProgressPresentation::drawIndicator(static_cast<const GfxRenderer&>(renderer),
-                                              Rect{tileX + hPaddingInSelection, tileY + hPaddingInSelection,
-                                                   tileWidth - 2 * hPaddingInSelection, coverHeight},
+                                              Rect{tileX + hPaddingInSelection + coverBoxInset,
+                                                   tileY + hPaddingInSelection, coverBoxWidth, coverHeight},
                                               progressPercent);
 
       int currentY = tileY + coverHeight + hPaddingInSelection + 5;
