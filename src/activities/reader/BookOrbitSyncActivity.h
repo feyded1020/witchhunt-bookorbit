@@ -142,10 +142,6 @@ class BookOrbitSyncActivity final : public Activity {
   // millis() when the current question first went up; 0 when no question is pending.
   unsigned long decisionShownAtMs = 0;
   // True once the question has been recorded as abandoned, so it is written once.
-  // True once the compare screen has actually been put in front of the reader. A sync that ran
-  // silently and a sync the reader answered a question in are not the same event, and only the
-  // first one can justify finishing without saying anything.
-  bool promptWasShown = false;
   bool decisionAbandoned = false;
   // Tracks the pending question: starts the timer, and records the abandon when it runs out.
   void serviceDecisionTimeout();
