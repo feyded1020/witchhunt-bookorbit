@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "RecentBooksStore.h"
+#include "UiFontScale.h"
 #include "components/BookProgressPresentation.h"
 #include "components/UITheme.h"
 #include "components/icons/book.h"
@@ -83,7 +84,9 @@ void recordCarouselCoverTargets(const int screenW, const int screenH, const int 
 
 constexpr int kTitleFontId = UI_12_FONT_ID;
 constexpr int kDotSize = 8;  // px square dot
-constexpr int kDotGap = 6;   // px between dots
+// Breathing room for the history line, which is measured against the screen rather than the cover.
+constexpr int kHistorySideMargin = 10;
+constexpr int kDotGap = 6;  // px between dots
 
 constexpr int kCornerRadius = 6;
 constexpr int kThinOutlineW = 1;    // always-visible outline around centre cover
@@ -598,11 +601,20 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
     // drawn -- the space above is still cleared, so no ghost of a previous book's line remains.
     const std::string history = BookProgressPresentation::historyLine(recentBooks[centerIdx]);
     if (!history.empty()) {
+      // Measured against the SCREEN, not the cover. The author and title above are held to the
+      // cover's width so they sit visually inside it, but this line is a sentence rather than a
+      // label: holding it to 340px on a 480px panel threw away 70px a side and cut "last 1m ago"
+      // to "last 1...". Centred on the screen, which is where the cover is centred anyway.
       const int historyY = titleY + renderer.getLineHeight(kTitleFontId) + 3;
-      const std::string historyTrunc = renderer.truncatedText(SMALL_FONT_ID, history.c_str(), kCenterCoverMaxW);
-      const int historyW = renderer.getTextWidth(SMALL_FONT_ID, historyTrunc.c_str());
-      renderer.drawText(SMALL_FONT_ID, centerX + (kCenterCoverMaxW - historyW) / 2, historyY, historyTrunc.c_str(),
-                        true);
+      const int historyMaxW = screenW - kHistorySideMargin * 2;
+      // Drop a size before clipping, the same order the button hints use: this is a sentence, and
+      // half a sentence tells you less than the whole one a little smaller. FIT_SMALL_FONT_ID
+      // does not move with the UI font setting, which is what makes it a floor to fall back to.
+      const int historyFont =
+          renderer.getTextWidth(SMALL_FONT_ID, history.c_str()) > historyMaxW ? FIT_SMALL_FONT_ID : SMALL_FONT_ID;
+      const std::string historyTrunc = renderer.truncatedText(historyFont, history.c_str(), historyMaxW);
+      const int historyW = renderer.getTextWidth(historyFont, historyTrunc.c_str());
+      renderer.drawText(historyFont, (screenW - historyW) / 2, historyY, historyTrunc.c_str(), true);
     }
 
     // Only cache the frame buffer once all tiles are definitively resolved.

@@ -26,7 +26,7 @@ constexpr time_t JULY = 1752537600;     // 2025-07-15 00:00:00 UTC
 int offsetAt(const char* tzString, time_t when) {
   setenv("TZ", tzString, 1);
   tzset();
-  struct tm local {};
+  struct tm local{};
   localtime_r(&when, &local);
   return static_cast<int>(local.tm_gmtoff);
 }
@@ -40,12 +40,24 @@ struct Expectation {
 
 // Hundredths of an hour keeps half-hour zones exact without floating point.
 constexpr Expectation EXPECTED[] = {
-    {0, "TZ_UTC", 0, 100},            {1, "TZ_CET", 100, 200},        {2, "TZ_EET", 200, 300},
-    {3, "TZ_MSK", 300, 300},          {4, "TZ_UTC_PLUS4", 400, 400},  {5, "TZ_IST", 550, 550},
-    {6, "TZ_UTC_PLUS7", 700, 700},    {7, "TZ_UTC_PLUS8", 800, 800},  {8, "TZ_UTC_PLUS9", 900, 900},
-    {9, "TZ_AEST", 1100, 1000},       {10, "TZ_NZST", 1300, 1200},    {11, "TZ_UTC_MINUS3", -300, -300},
-    {12, "TZ_EST", -500, -400},       {13, "TZ_CST", -600, -500},     {14, "TZ_MST", -700, -600},
-    {15, "TZ_PST", -800, -700},       {16, "TZ_AST_ADT", -400, -300}, {17, "TZ_ACST_ACDT", 1050, 950},
+    {0, "TZ_UTC", 0, 100},
+    {1, "TZ_CET", 100, 200},
+    {2, "TZ_EET", 200, 300},
+    {3, "TZ_MSK", 300, 300},
+    {4, "TZ_UTC_PLUS4", 400, 400},
+    {5, "TZ_IST", 550, 550},
+    {6, "TZ_UTC_PLUS7", 700, 700},
+    {7, "TZ_UTC_PLUS8", 800, 800},
+    {8, "TZ_UTC_PLUS9", 900, 900},
+    {9, "TZ_AEST", 1100, 1000},
+    {10, "TZ_NZST", 1300, 1200},
+    {11, "TZ_UTC_MINUS3", -300, -300},
+    {12, "TZ_EST", -500, -400},
+    {13, "TZ_CST", -600, -500},
+    {14, "TZ_MST", -700, -600},
+    {15, "TZ_PST", -800, -700},
+    {16, "TZ_AST_ADT", -400, -300},
+    {17, "TZ_ACST_ACDT", 1050, 950},
     {18, "TZ_AKST_AKDT", -900, -800},
 };
 
