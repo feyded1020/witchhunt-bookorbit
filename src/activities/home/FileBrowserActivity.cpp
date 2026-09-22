@@ -423,8 +423,7 @@ void FileBrowserActivity::drawChrome() {
           // row under the highlight, and the first reading of it is the other way round.
           ? std::string(tr(STR_MOVE_TO_FOLDER)) + ": " + destination
           : ((model.path() == "/") ? std::string(tr(STR_SD_CARD)) : model.path().substr(model.path().rfind('/') + 1));
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 folderName.c_str());
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), folderName.c_str());
 }
 
 void FileBrowserActivity::drawFooter() {
