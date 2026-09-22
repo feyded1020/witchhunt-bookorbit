@@ -27,18 +27,24 @@ class FileContextMenuActivity final : public MenuListActivity {
     SetAsSleepCover,
     FlashFirmware,
     Remove,
+    MoveTo,
+    NewFolder,
   };
 
   explicit FileContextMenuActivity(
       GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& filePath = "",
       CrossPointSettings::FILE_SORT_MODE sortMode = CrossPointSettings::SORT_BY_NAME,
-      CrossPointSettings::FILE_SORT_DIRECTION sortDirection = CrossPointSettings::SORT_ASCENDING);
+      CrossPointSettings::FILE_SORT_DIRECTION sortDirection = CrossPointSettings::SORT_ASCENDING,
+      bool offerDirectoryActions = false);
 
   void render(RenderLock&&) override;
 
  private:
   std::string filePath;  // Empty string = browser options mode (no file selected)
   bool isBrowserMode;
+  // Browser mode with a DIRECTORY selected: it gets Open and Remove of its own, which the
+  // display options alone cannot express.
+  bool offerDirectoryActions;
 
   // Display option state, edited inline via DynamicEnum and returned on close.
   // Sort state is per-session (held by FileBrowserActivity); visibility toggles

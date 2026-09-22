@@ -12,10 +12,12 @@
 FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                  const std::string& filePath,
                                                  CrossPointSettings::FILE_SORT_MODE sortMode,
-                                                 CrossPointSettings::FILE_SORT_DIRECTION sortDirection)
+                                                 CrossPointSettings::FILE_SORT_DIRECTION sortDirection,
+                                                 const bool offerDirectoryActions)
     : MenuListActivity("FileContextMenu", renderer, mappedInput),
       filePath(filePath),
       isBrowserMode(filePath.empty()),
+      offerDirectoryActions(offerDirectoryActions),
       sortMode(static_cast<uint8_t>(sortMode)),
       sortDirection(static_cast<uint8_t>(sortDirection)),
       showHiddenFiles(SETTINGS.showHiddenFiles),
@@ -25,6 +27,11 @@ FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedIn
 
 void FileContextMenuActivity::buildMenuItems() {
   auto* self = this;
+
+  // Entering the folder is what someone opening this menu on a directory almost always came for.
+  if (offerDirectoryActions) {
+    menuItems.push_back(SettingInfo::Action(StrId::STR_OPEN, SettingAction::None));
+  }
 
   // --- Display options (always shown: files, directories, unsupported types) ---
   menuItems.push_back(SettingInfo::Separator(StrId::STR_SORT_BY));
@@ -58,8 +65,17 @@ void FileContextMenuActivity::buildMenuItems() {
       },
       [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->showFileExtensions = (v != 0) ? 1 : 0; }));
 
-  // In browser mode (no file / directory / unsupported type) we stop here.
-  if (isBrowserMode) return;
+  // Browser mode stops after the display options, except for the two things that belong to the
+  // folder you are standing in rather than to any row: making one, and (for a directory)
+  // deleting the one selected.
+  if (isBrowserMode) {
+    menuItems.push_back(SettingInfo::Separator(StrId::STR_TOOL_UTILITIES));
+    menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
+    if (offerDirectoryActions) {
+      menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
+    }
+    return;
+  }
 
   // --- File-specific actions (only when a supported file is selected) ---
   const std::string_view name{filePath};
@@ -99,6 +115,11 @@ void FileContextMenuActivity::buildMenuItems() {
     menuItems.push_back(SettingInfo::Action(StrId::STR_MARK_AS_READ, SettingAction::None));
     menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
   }
+
+  // Every file can be moved, whatever its type: this is a rename, and rename does not care what
+  // the bytes are.
+  menuItems.push_back(SettingInfo::Action(StrId::STR_MOVE_TO_FOLDER, SettingAction::None));
+  menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
 }
 
 void FileContextMenuActivity::finishWithDisplayOptions(Action action) {
@@ -136,6 +157,10 @@ void FileContextMenuActivity::onActionSelected(int index) {
     action = Action::SetAsSleepCover;
   } else if (nameId == StrId::STR_FLASH_FIRMWARE) {
     action = Action::FlashFirmware;
+  } else if (nameId == StrId::STR_MOVE_TO_FOLDER) {
+    action = Action::MoveTo;
+  } else if (nameId == StrId::STR_NEW_FOLDER) {
+    action = Action::NewFolder;
   } else if (nameId == StrId::STR_REMOVE) {
     action = Action::Remove;
   }
