@@ -4,6 +4,7 @@
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "settings/SettingActionDispatch.h"
 #include "settings/SettingsSubmenuActivity.h"
 
 namespace fui = freeink::ui;
@@ -54,6 +55,28 @@ void MenuListActivity::toggleCurrentItem() {
   if (selectedIndex < 0 || selectedIndex >= static_cast<int>(menuItems.size())) return;
   const auto& item = menuItems[selectedIndex];
   if (item.isSeparator) return;
+
+  // A row that asked for a full-screen picker gets one here, the same way SettingsActivity and
+  // SettingsSubmenuActivity already give one to rows in their lists. Without this the flag was
+  // simply ignored by every plain MenuListActivity screen, and the 86-option timezone row cycled
+  // one press at a time.
+  //
+  // onSettingToggled() is what the result handler calls, so a subclass needs no new hook: the
+  // branch that already reacted to an inline cycle reacts to a pick as well.
+  //
+  // SettingsSubmenuActivity overrides this function and returns before reaching here, so its
+  // rows are still handled once, not twice.
+  if (item.usesSelectorActivity) {
+    auto selector = createSelectorActivity(item, renderer, mappedInput);
+    if (selector) {
+      const int index = selectedIndex;
+      startActivityForResult(std::move(selector), [this, index](const ActivityResult&) {
+        onSettingToggled(index);
+        requestUpdate();
+      });
+    }
+    return;
+  }
 
   if (item.type == SettingType::ACTION) {
     if (item.action == SettingAction::Submenu) {

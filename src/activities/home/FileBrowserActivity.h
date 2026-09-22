@@ -22,9 +22,6 @@ class FileBrowserActivity final : public UiListActivity {
  private:
   void clearFileMetadata(const std::string& fullPath);
   bool removeDirRecursive(const std::string& fullPath);
-  bool confirmOpensOptions() const;
-  void createFolderHere();
-  void moveToFolder(const std::string& fullPath, const std::string& entry);
   void openContextMenu();
   void handleContextMenuAction(int action, const std::string& fullPath, const std::string& entry,
                                const struct MenuResult* menuRes = nullptr);
@@ -49,7 +46,10 @@ class FileBrowserActivity final : public UiListActivity {
   [[nodiscard]] int listPageSize() const;
   [[nodiscard]] bool listPages() const;
   void pageSelection(int direction);
-  void showBrowserOptionsMenu(bool offerOpen = false, const std::string& dirEntry = {});
+  void createFolderHere();
+  void moveToFolder(const std::string& fullPath, const std::string& entry);
+  bool confirmOpensOptions() const;
+  void showBrowserOptionsMenu(const std::string& dirEntry = {});
   void activateSelected(bool longPress);
   void resetNavigation(int selected = 0);
   void materializeListWindow();

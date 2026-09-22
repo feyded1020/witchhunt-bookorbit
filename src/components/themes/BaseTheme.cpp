@@ -220,8 +220,7 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
     if (labels[i] != nullptr && labels[i][0] != '\0') {
       const int x = inverted ? pageWidth - buttonPositions[i] - buttonWidth : buttonPositions[i];
       renderer.fillRect(x, stripY, buttonWidth, buttonHeight, false);
-      // See LyraTheme::drawButtonHints: fixed box, scaling font, centred text -- a long label
-      // at a large UI font size overflows both ends and lands on its neighbours. Shrink first,
+      // See LyraTheme::drawButtonHints: fixed box, scaling font, centred text. Shrink first,
       // clip only if even the smaller face will not fit.
       const int labelFont =
           renderer.getTextWidth(UI_10_FONT_ID, labels[i]) > buttonWidth - 4 ? FIT_SMALL_FONT_ID : UI_10_FONT_ID;
@@ -890,6 +889,55 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message, cons
   const int textX = x + (w - textWidth) / 2;
   const int textY = y + margin - 2;
   renderer.drawText(UI_12_FONT_ID, textX, textY, message, true, EpdFontFamily::BOLD);
+  shipPopup(renderer, ship);
+  return Rect{x, y, w, h};
+}
+
+// Lucide's "hourglass" on its native 24x24 grid, drawn as STROKES rather than blitted from a
+// bitmap. GfxRenderer::drawImage() rotates a bitmap's position but not its bits (see the
+// "TODO: Rotate bits" there), so a bitmap icon lies on its side as soon as the UI is not in the
+// panel's native orientation. drawLine() goes through rotateCoordinates() and is upright in all
+// four.
+static void drawHourglass(const GfxRenderer& renderer, const int originX, const int originY, const int size) {
+  const float s = static_cast<float>(size) / 24.0f;
+  const int stroke = std::max(2, static_cast<int>(2.0f * s + 0.5f));  // Lucide stroke-width 2
+  const auto px = [&](const float u) { return originX + static_cast<int>(u * s + 0.5f); };
+  const auto py = [&](const float v) { return originY + static_cast<int>(v * s + 0.5f); };
+  const auto line = [&](const float x1, const float y1, const float x2, const float y2) {
+    renderer.drawLine(px(x1), py(y1), px(x2), py(y2), stroke, true);
+  };
+  line(5, 2, 19, 2);    // top bar
+  line(5, 22, 19, 22);  // bottom bar
+  // Upper funnel, then lower. The two 2-unit corner arcs are taken as their chords, which is
+  // sub-pixel at this size.
+  line(7, 2, 7, 6.172f);
+  line(7, 6.172f, 12, 12);
+  line(12, 12, 17, 6.172f);
+  line(17, 6.172f, 17, 2);
+  line(7, 22, 7, 17.828f);
+  line(7, 17.828f, 12, 12);
+  line(12, 12, 17, 17.828f);
+  line(17, 17.828f, 17, 22);
+}
+
+Rect BaseTheme::drawBusyIndicator(const GfxRenderer& renderer, const bool overlayDisplayedFrame,
+                                  const PopupShip ship) const {
+  // Same reasoning as drawPopup(): re-seed from the frame on screen so the box overlays current
+  // content rather than the stale two-refreshes-ago frame the last swap left behind.
+  if (overlayDisplayedFrame) renderer.syncWriteBufferFromDisplayed();
+  constexpr int margin = 15;
+  constexpr int icon = 32;
+  constexpr int w = icon + margin * 2;
+  constexpr int h = icon + margin * 2;
+  // Screen-centred, unlike drawPopup()'s fixed y: this one is not read alongside other chrome,
+  // and centre is where the eye already is when a screen fails to change.
+  const int x = (renderer.getScreenWidth() - w) / 2;
+  const int y = (renderer.getScreenHeight() - h) / 2;
+
+  renderer.fillRect(x - 2, y - 2, w + 4, h + 4, true);  // frame thickness 2, matching drawPopup
+  renderer.fillRect(x, y, w, h, false);
+  drawHourglass(renderer, x + margin, y + margin, icon);
+
   shipPopup(renderer, ship);
   return Rect{x, y, w, h};
 }

@@ -64,6 +64,13 @@ class HalDisplay {
   bool isRedRamSynced() const;
   // Diagnostics: effective refresh mode of the last refresh (after any downgrade).
   RefreshMode getLastRefreshMode() const;
+  // Measured duration of the last FAST refresh, 0 if none has run yet. See lastFastRefreshMs.
+  uint16_t getLastFastRefreshMs() const { return lastFastRefreshMs; }
+  // Seed the measurement from persisted storage so the first decision after a boot is as good as
+  // the last one before it, rather than being made blind.
+  void seedLastFastRefreshMs(uint16_t ms) {
+    if (lastFastRefreshMs == 0) lastFastRefreshMs = ms;
+  }
   // Diagnostics: last X4 displayMode byte (0x0C fast / 0x1C OTP-flash / 0xD4 half / 0x34 full).
   uint8_t getLastDisplayModeByte() const;
 
@@ -170,6 +177,10 @@ class HalDisplay {
   // a plain displayBuffer() on a panel that cannot, so callers need no branch of
   // their own beyond deciding whether to stage planes at all.
   void displayGrayscaleFrame(RefreshMode refreshMode, bool turnOffScreen = false);
+  // Deferred displayGrayscaleFrame(): returns while the waveform runs where the driver can, so
+  // the caller can release its lock and let other work use the window. The caller owes a
+  // completeDisplay() before the panel is touched again. Blocking fallback elsewhere.
+  void triggerGrayscaleFrame(RefreshMode refreshMode, bool turnOffScreen = false);
 
   // Grey levels this panel resolves in one refresh. 4 on every dual-plane
   // controller (X3, X4, X4 Pro, M5 Paper Mono) — two selector bits per pixel is
@@ -211,6 +222,14 @@ class HalDisplay {
   EInkDisplay einkDisplay;
   uint8_t pendingX3SettlePasses = 0;
   RefreshMode lastRefreshMode = RefreshMode::FAST_REFRESH;
+
+  // How long this panel's last FAST refresh actually took, in ms. Measured rather than derived
+  // from the board, because it is a property of the controller the runtime probe selected, not of
+  // the model name -- an X4 Pro can come up on SSD1677, UC8179 or UC8279, and they do not agree.
+  //
+  // FAST specifically: it is the mode every intermediate repaint uses, so it is what a caller
+  // deciding whether an extra repaint is affordable needs to know. 0 means "not measured yet".
+  uint16_t lastFastRefreshMs = 0;
   uint8_t lastDisplayModeByte = 0x0C;  // default to fast refresh mode byte
 };
 

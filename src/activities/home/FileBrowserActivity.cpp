@@ -184,28 +184,22 @@ bool FileBrowserActivity::handleCustomInput() {
       return true;
     }
 
-    // ...and the page-back slot makes a folder, so moving a book somewhere new does not mean
-    // backing out of the picker, creating it, and starting the move again. A folders-only list
-    // is short enough that losing page-back to it costs little, and the side keys and a swipe
-    // still scroll.
-    if (model.getMode() == Mode::PickFolder &&
-        MappedInputManager::isDirection(ev.button, MappedInputManager::Direction::Left) &&
-        ev.type == ButtonEventManager::PressType::Short) {
-      createFolderHere();
-      return true;
-    }
-
-    // Picking a destination: the page-forward slot commits instead. It is the one slot that is a
-    // real key on a board that has them and a tappable box on one that does not, so the commit is
-    // reachable everywhere without a hold. Paging stays on Left, the side keys and a swipe.
-    if (model.getMode() == Mode::PickFolder &&
-        MappedInputManager::isDirection(ev.button, MappedInputManager::Direction::Right) &&
-        ev.type == ButtonEventManager::PressType::Short) {
-      ActivityResult res{FilePathResult{model.path()}};
-      res.isCancelled = false;
-      setResult(std::move(res));
-      finish();
-      return true;
+    // Picking a destination: the page-forward slot commits and the page-back slot makes a folder.
+    // Those two are a real key on a board that has them and a tappable box on one that does not,
+    // so both are reachable everywhere without a hold. A folders-only list is short enough that
+    // losing the page buttons to them costs little, and the side keys and a swipe still scroll.
+    if (model.getMode() == Mode::PickFolder && ev.type == ButtonEventManager::PressType::Short) {
+      if (MappedInputManager::isDirection(ev.button, MappedInputManager::Direction::Right)) {
+        ActivityResult res{FilePathResult{model.path()}};
+        res.isCancelled = false;
+        setResult(std::move(res));
+        finish();
+        return true;
+      }
+      if (MappedInputManager::isDirection(ev.button, MappedInputManager::Direction::Left)) {
+        createFolderHere();
+        return true;
+      }
     }
 
     // Logical Left/Right page through the list, one screenful per press — the same thing they do in
@@ -229,7 +223,6 @@ bool FileBrowserActivity::handleCustomInput() {
     // and it rides the same logical button, so rotating the device never separates the two.
     const bool optionsPress = (ev.type == ButtonEventManager::PressType::Long) ||
                               (ev.type == ButtonEventManager::PressType::Short && !listPages());
-    // Not while picking a destination: that slot is Move here, and its hold has no second job.
     if (model.getMode() != Mode::PickFolder &&
         MappedInputManager::isDirection(ev.button, MappedInputManager::Direction::Right) && optionsPress) {
       // Open the context menu for any selection. openContextMenu() shows
@@ -427,17 +420,14 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
 void FileBrowserActivity::drawChrome() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, true);
-  const std::string here =
-      (model.path() == "/") ? std::string(tr(STR_SD_CARD)) : model.path().substr(model.path().rfind('/') + 1);
-  // While picking, the header names the DESTINATION in full, not just the folder's own name.
-  // "Move here" means the folder being browsed, never the row under the highlight, and the first
-  // reading of it is the other way round -- so the header has to settle it before the button is
-  // pressed rather than after.
   const std::string destination = (model.path() == "/") ? std::string(tr(STR_SD_CARD)) : model.path();
-  std::string folderName = (model.getMode() == Mode::PickFirmware) ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
-                           : (model.getMode() == Mode::PickFolder)
-                               ? std::string(tr(STR_MOVE_TO_FOLDER)) + ": " + destination
-                               : here;
+  std::string folderName =
+      (model.getMode() == Mode::PickFirmware) ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
+      : (model.getMode() == Mode::PickFolder)
+          // Names the DESTINATION in full: "Move here" means the folder being browsed, never the
+          // row under the highlight, and the first reading of it is the other way round.
+          ? std::string(tr(STR_MOVE_TO_FOLDER)) + ": " + destination
+          : ((model.path() == "/") ? std::string(tr(STR_SD_CARD)) : model.path().substr(model.path().rfind('/') + 1));
   GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), folderName.c_str());
 }
 
@@ -463,9 +453,6 @@ void FileBrowserActivity::drawFooter() {
   // to page, so the strip looks exactly as it always did.
   const bool pages = listPages();
   const char* prevLabel = (model.getMode() == Mode::PickFolder) ? tr(STR_NEW) : pages ? tr(STR_LIST_PAGE_PREV) : "";
-  // Upstream puts Options on the page-forward slot in a folder too small to page. Where Confirm
-  // already carries Options, that would draw the same word twice on one strip -- and the second
-  // one is on a slot this board has no key for.
   const char* nextLabel = (model.getMode() == Mode::PickFolder)         ? tr(STR_MOVE_HERE)
                           : pages                                       ? tr(STR_LIST_PAGE_NEXT)
                           : (showOptionsHint && !confirmOpensOptions()) ? tr(STR_OPTIONS)
@@ -479,118 +466,6 @@ void FileBrowserActivity::drawFooter() {
   GUI.drawSideButtonHints(renderer, hints.side.up, hints.side.down);
 }
 
-// True when Confirm should open the entry's menu rather than the entry itself.
-//
-// Only on a board with no Back or Confirm key. There, Confirm exists solely as a tap -- on the
-// capacitive Home key, or on the hint box -- and every route this screen had to its menu is a
-// HOLD: of logical Right, or of a hint box, neither of which that hardware can make. So the menu
-// had no reachable home at all, while opening a file did: a tap on the row selects it and a
-// second tap opens it, through activateIndex() and not through this button.
-//
-// A board with the keys keeps Confirm as Open. Its owners have opened files with it for as long
-// as the browser has existed, and their menu is already one hold of Right away.
-bool FileBrowserActivity::confirmOpensOptions() const {
-  return model.getMode() == Mode::Books && !HalCapabilities::hasBackAndConfirmButtons();
-}
-
-// Make a folder in the directory being browsed.
-//
-// The name goes through the same FAT sanitiser downloads use, so a name the card cannot hold is
-// corrected rather than failing at mkdir with nothing to say.
-void FileBrowserActivity::createFolderHere() {
-  startActivityForResult(
-      std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_FOLDER_NAME), "", 48, InputType::Text),
-      [this](const ActivityResult& res) {
-        if (res.isCancelled) {
-          requestUpdate();
-          return;
-        }
-        const auto* kb = std::get_if<KeyboardResult>(&res.data);
-        if (kb == nullptr || kb->text.empty()) {
-          requestUpdate();
-          return;
-        }
-        char safe[64];
-        FsHelpers::sanitizePathComponentForFat32(kb->text.c_str(), safe, sizeof(safe));
-        if (safe[0] == '\0') {
-          requestUpdate();
-          return;
-        }
-
-        std::string target = model.path();
-        if (target.back() != '/') target += "/";
-        target += safe;
-
-        const bool made = Storage.mkdir(target.c_str(), /*pFlag=*/false);
-        {
-          RenderLock lock(*this);
-          if (!made) {
-            renderer.setNextDisplayRefreshMode(HalDisplay::HALF_REFRESH);
-            GUI.drawPopup(renderer, tr(STR_NEW_FOLDER_FAILED));
-          }
-        }
-        if (made) {
-          model.load();
-          const size_t idx = model.findEntry(std::string(safe) + "/");
-          resetNavigation((idx < model.entryCount()) ? static_cast<int>(idx) : 0);
-        }
-        requestUpdate();
-      });
-}
-
-// Move a file into a folder the reader picks.
-//
-// A move on a FAT volume is a rename: the bytes never move, so this is instant whatever the size
-// of the book and cannot leave half a file behind if the battery goes. The cost is that it only
-// works within the one volume, which is all there is here.
-void FileBrowserActivity::moveToFolder(const std::string& fullPath, const std::string& entry) {
-  startActivityForResult(
-      std::make_unique<FileBrowserActivity>(renderer, mappedInput, "/", std::string{}, Mode::PickFolder),
-      [this, fullPath, entry](const ActivityResult& res) {
-        if (res.isCancelled) {
-          requestUpdate();
-          return;
-        }
-        const auto* picked = std::get_if<FilePathResult>(&res.data);
-        if (picked == nullptr) {
-          requestUpdate();
-          return;
-        }
-
-        std::string target = picked->path;
-        if (target.empty()) target = "/";
-        if (target.back() != '/') target += "/";
-        target += entry;
-
-        const char* message = nullptr;
-        if (target == fullPath) {
-          // Already there. Silently doing nothing would read as a failed move.
-          message = tr(STR_MOVE_SAME_FOLDER);
-        } else if (Storage.exists(target.c_str())) {
-          // Renaming onto an existing name is not ours to resolve silently, and FAT would not
-          // tell us which of the two survived.
-          message = tr(STR_MOVE_NAME_TAKEN);
-        } else if (!Storage.rename(fullPath.c_str(), target.c_str())) {
-          message = tr(STR_MOVE_FAILED);
-        }
-
-        {
-          RenderLock lock(*this);
-          if (message != nullptr) {
-            renderer.setNextDisplayRefreshMode(HalDisplay::HALF_REFRESH);
-            GUI.drawPopup(renderer, message);
-          }
-        }
-        if (message == nullptr) {
-          // The file is no longer in this folder, so the list and the selection both move on.
-          clearFileMetadata(fullPath);
-          model.load();
-          resetNavigation(nav.selected);
-        }
-        requestUpdate();
-      });
-}
-
 void FileBrowserActivity::openContextMenu() {
   // If no file selected or a directory selected, show browser options only
   if (model.entryCount() == 0 || nav.selected < 0 || nav.selected >= listCount()) {
@@ -600,9 +475,7 @@ void FileBrowserActivity::openContextMenu() {
 
   const std::string entry = model.entryName(static_cast<size_t>(nav.selected));
   if (entry.empty() || entry.back() == '/') {
-    // A directory has no file actions, but it does have two things worth doing: going into it,
-    // and deleting it.
-    showBrowserOptionsMenu(/*offerOpen=*/!entry.empty(), entry);
+    showBrowserOptionsMenu(entry);
     return;
   }
 
@@ -626,9 +499,96 @@ void FileBrowserActivity::openContextMenu() {
                          });
 }
 
-void FileBrowserActivity::showBrowserOptionsMenu(const bool offerOpen, const std::string& dirEntry) {
+// Make a folder in the directory being browsed.
+//
+// The name goes through the same FAT sanitiser downloads use, so a name the card cannot hold is
+// corrected rather than failing at mkdir with nothing to say.
+void FileBrowserActivity::createFolderHere() {
+  startActivityForResult(
+      std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_FOLDER_NAME), "", 48, InputType::Text),
+      [this](const ActivityResult& res) {
+        const auto* kb = res.isCancelled ? nullptr : std::get_if<KeyboardResult>(&res.data);
+        if (kb == nullptr || kb->text.empty()) {
+          requestUpdate();
+          return;
+        }
+        char safe[64];
+        FsHelpers::sanitizePathComponentForFat32(kb->text.c_str(), safe, sizeof(safe));
+        if (safe[0] == '\0') {
+          requestUpdate();
+          return;
+        }
+        std::string target = model.path();
+        if (target.back() != '/') target += "/";
+        target += safe;
+
+        const bool made = Storage.mkdir(target.c_str(), /*pFlag=*/false);
+        if (!made) {
+          RenderLock lock(*this);
+          renderer.setNextDisplayRefreshMode(HalDisplay::HALF_REFRESH);
+          GUI.drawPopup(renderer, tr(STR_NEW_FOLDER_FAILED));
+        } else {
+          model.load();
+          const size_t idx = model.findEntry(std::string(safe) + "/");
+          resetNavigation((idx < model.entryCount()) ? static_cast<int>(idx) : 0);
+        }
+        requestUpdate();
+      });
+}
+
+// Move a file into a folder the reader picks.
+//
+// A move on a FAT volume is a rename: the bytes never move, so this is instant whatever the size
+// of the book and cannot leave half a file behind if power is lost. The cost is that it works
+// within the one volume, which is all there is here.
+void FileBrowserActivity::moveToFolder(const std::string& fullPath, const std::string& entry) {
+  startActivityForResult(
+      std::make_unique<FileBrowserActivity>(renderer, mappedInput, "/", std::string{}, Mode::PickFolder),
+      [this, fullPath, entry](const ActivityResult& res) {
+        const auto* picked = res.isCancelled ? nullptr : std::get_if<FilePathResult>(&res.data);
+        if (picked == nullptr) {
+          requestUpdate();
+          return;
+        }
+        std::string target = picked->path;
+        if (target.empty()) target = "/";
+        if (target.back() != '/') target += "/";
+        target += entry;
+
+        const char* message = nullptr;
+        if (target == fullPath) {
+          message = tr(STR_MOVE_SAME_FOLDER);
+        } else if (Storage.exists(target.c_str())) {
+          // Renaming onto an existing name is not ours to resolve silently, and FAT would not
+          // report which of the two survived.
+          message = tr(STR_MOVE_NAME_TAKEN);
+        } else if (!Storage.rename(fullPath.c_str(), target.c_str())) {
+          message = tr(STR_MOVE_FAILED);
+        }
+
+        if (message != nullptr) {
+          RenderLock lock(*this);
+          renderer.setNextDisplayRefreshMode(HalDisplay::HALF_REFRESH);
+          GUI.drawPopup(renderer, message);
+        } else {
+          clearFileMetadata(fullPath);
+          model.load();
+          resetNavigation(nav.selected);
+        }
+        requestUpdate();
+      });
+}
+
+// True when Confirm should open the entry's menu rather than the entry itself. Only on a board
+// with no Back or Confirm key, where every route to that menu is a hold the hardware cannot
+// make. Pending upstream as PR #286.
+bool FileBrowserActivity::confirmOpensOptions() const {
+  return model.getMode() == Mode::Books && !HalCapabilities::hasBackAndConfirmButtons();
+}
+
+void FileBrowserActivity::showBrowserOptionsMenu(const std::string& dirEntry) {
   // Resolved now rather than in the handler: the menu cannot change the selection while it is
-  // open, but reading it back afterwards is a dependency on that staying true.
+  // open, but reading it back afterwards would be a dependency on that staying true.
   const bool isDir = !dirEntry.empty();
   std::string dirPath = model.path();
   if (isDir) {
@@ -636,7 +596,7 @@ void FileBrowserActivity::showBrowserOptionsMenu(const bool offerOpen, const std
     dirPath += dirEntry.substr(0, dirEntry.length() - 1);
   }
   startActivityForResult(std::make_unique<FileContextMenuActivity>(renderer, mappedInput, "", model.getSortMode(),
-                                                                   model.getSortDirection(), offerOpen, isDir),
+                                                                   model.getSortDirection(), isDir),
                          [this, isDir, dirPath, dirEntry](const ActivityResult& res) {
                            if (res.isCancelled) {
                              requestUpdate();
@@ -647,17 +607,12 @@ void FileBrowserActivity::showBrowserOptionsMenu(const bool offerOpen, const std
                              requestUpdate();
                              return;
                            }
-                           // Open is only ever offered here for a directory, so it means enter it. Deferred the
-                           // way every other menu answer is: the menu has to be off screen before the next one
-                           // is built.
                            const auto chosen = static_cast<FileContextMenuActivity::Action>(menuRes->action);
-                           if (chosen == FileContextMenuActivity::Action::Open) {
+                           if (chosen == FileContextMenuActivity::Action::Open && isDir) {
                              activateSelected(false);
                              return;
                            }
                            if (chosen == FileContextMenuActivity::Action::Remove && isDir) {
-                             // The recursive delete and its confirmation were already here, reachable only for
-                             // files. This is the call that was missing.
                              doRemove(dirPath, dirEntry.substr(0, dirEntry.length() - 1), /*isDirectory=*/true);
                              return;
                            }

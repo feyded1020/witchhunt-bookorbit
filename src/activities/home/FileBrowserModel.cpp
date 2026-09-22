@@ -96,7 +96,7 @@ bool FileBrowserModel::acceptForFirmware(const char* name, const bool isDir) {
 }
 
 bool FileBrowserModel::acceptForFolders(const char* name, const bool isDir) {
-  // Only somewhere a file can be put. Listing the files too would just be scenery to scroll past.
+  // Only somewhere a file can be put. Listing the files too would be scenery to scroll past.
   return isListableName(name) && isDir;
 }
 

@@ -71,10 +71,10 @@ class UITheme {
   // The top strip the header, clock and battery are drawn in.
   //
   // Full width even on a screen that reserves the side edge for button hints, because those
-  // boxes sit at mid-height (y=155 on X3, y=345 on X4) and the header is nowhere near them.
-  // Building the header from the narrowed content rect instead pulls the battery inward by the
-  // width of the side strip, which is why it used to sit further right on the home screen --
-  // the only one of these screens that reserves no side edge -- than on any other.
+  // boxes sit at mid-height and the header is one topPadding from the top. Building the header
+  // from the narrowed content rect instead pulls the clock and battery inward by the width of
+  // the side strip, which is why they sit further right on Home -- the one screen of these that
+  // reserves no side edge -- than on any other.
   static Rect getHeaderRect(const GfxRenderer& renderer);
   static std::string getCoverThumbPath(std::string coverBmpPath, int coverHeight);
   static std::string getCoverThumbPath(std::string coverBmpPath, int width, int height);

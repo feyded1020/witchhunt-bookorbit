@@ -18,6 +18,7 @@
 #include "TouchGestures.h"
 #include "TouchUi.h"
 #include "activities/settings/SettingInfo.h"
+#include "activities/settings/TimezoneOptions.h"
 
 // Shared settings list used by both the device settings UI and the web settings API.
 //
@@ -267,8 +268,8 @@ inline std::vector<SettingInfo> buildSettingsList() {
                                         StrId::STR_THEME_LYRA_CAROUSEL},
                                        "uiTheme", StrId::STR_CAT_DISPLAY)
                          .withSelectorActivity());
-  settings.push_back(SettingInfo::Toggle(StrId::STR_INPUT_FEEDBACK, &CrossPointSettings::inputFeedback, "inputFeedback",
-                                         StrId::STR_CAT_DISPLAY));
+  settings.push_back(SettingInfo::Toggle(StrId::STR_SHOW_BUSY_INDICATOR, &CrossPointSettings::showBusyIndicator,
+                                         "showBusyIndicator", StrId::STR_CAT_DISPLAY));
   settings.push_back(SettingInfo::Enum(StrId::STR_UI_FONT_SIZE, &CrossPointSettings::uiFontSize,
                                        {StrId::STR_NORMAL, StrId::STR_LARGE}, "uiFontSize", StrId::STR_CAT_DISPLAY));
 
@@ -582,14 +583,11 @@ inline std::vector<SettingInfo> buildSettingsList() {
       SettingInfo::Toggle(StrId::STR_USE_CLOCK, &CrossPointSettings::useClock, "useClock", StrId::STR_CLOCK));
   settings.push_back(SettingInfo::Enum(StrId::STR_CLOCK_FORMAT, &CrossPointSettings::clockFormat12h,
                                        {StrId::STR_24H, StrId::STR_12H}, "clockFormat12h", StrId::STR_CLOCK));
-  settings.push_back(
-      SettingInfo::Enum(StrId::STR_TIMEZONE, &CrossPointSettings::timeZone,
-                        {StrId::STR_TZ_UTC, StrId::STR_TZ_CET, StrId::STR_TZ_EET, StrId::STR_TZ_MSK,
-                         StrId::STR_TZ_UTC_PLUS4, StrId::STR_TZ_IST, StrId::STR_TZ_UTC_PLUS7, StrId::STR_TZ_UTC_PLUS8,
-                         StrId::STR_TZ_UTC_PLUS9, StrId::STR_TZ_AEST, StrId::STR_TZ_NZST, StrId::STR_TZ_UTC_MINUS3,
-                         StrId::STR_TZ_EST, StrId::STR_TZ_CST, StrId::STR_TZ_MST, StrId::STR_TZ_PST},
-                        "timeZone", StrId::STR_CLOCK)
-          .withSelectorActivity());
+  // Every zone the table defines, via the shared factory -- not a list maintained here. The
+  // hand-written copy this replaces had stopped at 16 of 19, and because JsonSettingsIO bounds
+  // a loaded ENUM on THIS row's option count, the three it omitted reset to the default on
+  // every boot after being chosen. See TimezoneOptions.h.
+  settings.push_back(TimezoneOptions::make(StrId::STR_CLOCK));
   settings.push_back(SettingInfo::String(StrId::STR_NTP_SERVER, SETTINGS.ntpServer, sizeof(SETTINGS.ntpServer),
                                          "ntpServer", StrId::STR_CLOCK));
   // Weather

@@ -23,6 +23,7 @@
 // navigation stays with the screen.
 class FileBrowserModel {
  public:
+  // Books = the file types the reader can open; PickFirmware = .bin only.
   // Books = the file types the reader can open; PickFirmware = .bin only;
   // PickFolder = directories only, for choosing a destination to move a file into.
   enum class Mode { Books, PickFirmware, PickFolder };

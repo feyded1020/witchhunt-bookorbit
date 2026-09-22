@@ -19,6 +19,10 @@ class SleepActivity final : public Activity {
   explicit SleepActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool fromTimeout = false)
       : Activity("Sleep", renderer, mappedInput), fromTimeout(fromTimeout) {}
   void onEnter() override;
+  // renderOverlaySleepScreen() and the Quick Resume path both draw over the frame already in the
+  // write buffer rather than clearing it, so anything that repaints just before the transition
+  // ends up underneath the sleep cover.
+  bool suppressesBusyIndicator() const override { return true; }
 
  private:
   void renderDefaultSleepScreen() const;

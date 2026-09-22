@@ -18,7 +18,6 @@
 #include <cstdlib>
 
 #include "HalI2cBus.h"
-#include "TimezoneBySetting.h"
 
 // ---- RTC / I2C configuration ----------------------------------------------
 // Pins for ESP32-C3 (according to https://gist.github.com/CrazyCoder/1c5f846adee18e21f91e264601a6ddce)
@@ -129,73 +128,6 @@ static float rtcDriftScale = 1.0f;
 
 static unsigned long lastPeriodicUpdateMs = 0;
 static constexpr unsigned long PERIODIC_UPDATE_INTERVAL_MS = 10UL * 60UL * 1000UL;
-
-struct TimeZoneEntry {
-  const char* tz;
-};
-
-static constexpr TimeZoneEntry TIMEZONES[] = {
-    // --- Fixed UTC Offsets (UTC-12:00 to UTC+14:00) ---
-    // Note: In POSIX, negative sign means ahead of UTC, positive sign means behind UTC.
-    {"UTC12"},      // UTC-12:00 (Baker Island)
-    {"UTC11"},      // UTC-11:00 (American Samoa, Niue)
-    {"UTC10"},      // UTC-10:00 (Hawaii)
-    {"UTC9:30"},    // UTC-09:30 (Marquesas Islands)
-    {"UTC9"},       // UTC-09:00 (Gambier Islands)
-    {"UTC8"},       // UTC-08:00 (Pitcairn Islands)
-    {"UTC7"},       // UTC-07:00 (MST no DST - Phoenix/Sonora)
-    {"UTC6"},       // UTC-06:00 (Galapagos, Saskatchewan)
-    {"UTC5"},       // UTC-05:00 (COT, PET - Colombia, Peru)
-    {"UTC4"},       // UTC-04:00 (AST - La Paz, Manaus)
-    {"UTC3:30"},    // UTC-03:30 (NST - Newfoundland standard)
-    {"UTC3"},       // UTC-03:00 (ART, BRT - Argentina, Brasilia)
-    {"UTC2"},       // UTC-02:00 (South Georgia)
-    {"UTC1"},       // UTC-01:00 (CVT - Cape Verde)
-    {"UTC0"},       // UTC+00:00 (WET, UTC)
-    {"UTC-1"},      // UTC+01:00 (CET standard, WAT)
-    {"UTC-2"},      // UTC+02:00 (EET standard, CAT, SAST)
-    {"UTC-3"},      // UTC+03:00 (MSK, EAT, AST - Moscow, Riyadh)
-    {"UTC-3:30"},   // UTC+03:30 (IRST - Iran)
-    {"UTC-4"},      // UTC+04:00 (GST, AZT - Dubai, Baku)
-    {"UTC-4:30"},   // UTC+04:30 (AFT - Afghanistan)
-    {"UTC-5"},      // UTC+05:00 (PKT, YEKT - Pakistan, Tashkent)
-    {"UTC-5:30"},   // UTC+05:30 (IST - India, Sri Lanka)
-    {"UTC-5:45"},   // UTC+05:45 (NPT - Nepal)
-    {"UTC-6"},      // UTC+06:00 (BST, OMST - Bangladesh, Almaty)
-    {"UTC-6:30"},   // UTC+06:30 (MMT - Myanmar, Cocos Islands)
-    {"UTC-7"},      // UTC+07:00 (WIB, ICT - Bangkok, Jakarta)
-    {"UTC-8"},      // UTC+08:00 (CST, SGT, AWST - Beijing, Singapore, Perth)
-    {"UTC-8:45"},   // UTC+08:45 (ACWST - Eucla)
-    {"UTC-9"},      // UTC+09:00 (JST, KST - Tokyo, Seoul)
-    {"UTC-9:30"},   // UTC+09:30 (ACST no DST - Darwin)
-    {"UTC-10"},     // UTC+10:00 (AEST no DST - Brisbane, Chamorro)
-    {"UTC-10:30"},  // UTC+10:30 (LHST no DST)
-    {"UTC-11"},     // UTC+11:00 (SBT, VUT - Solomon Islands)
-    {"UTC-12"},     // UTC+12:00 (FJT, MHT - Fiji, Marshall Islands)
-    {"UTC-12:45"},  // UTC+12:45 (CHAST - Chatham Islands standard)
-    {"UTC-13"},     // UTC+13:00 (TOT - Tonga, Samoa)
-    {"UTC-14"},     // UTC+14:00 (LINT - Line Islands)
-
-    // --- Major Regional Timezones with Daylight Saving Time (DST) ---
-    // North America
-    {"NST3:30NDT,M3.2.0/0:01,M11.1.0/0:01"},  // Newfoundland
-    {"AST4ADT,M3.2.0/2,M11.1.0/2"},           // Atlantic Time
-    {"EST5EDT,M3.2.0/2,M11.1.0/2"},           // Eastern Time
-    {"CST6CDT,M3.2.0/2,M11.1.0/2"},           // Central Time
-    {"MST7MDT,M3.2.0/2,M11.1.0/2"},           // Mountain Time
-    {"PST8PDT,M3.2.0/2,M11.1.0/2"},           // Pacific Time
-    {"AKST9AKDT,M3.2.0/2,M11.1.0/2"},         // Alaska Time
-
-    // Europe
-    {"GMT0BST,M3.5.0/1,M10.5.0/2"},    // UK / Ireland (WET DST)
-    {"CET-1CEST,M3.5.0/2,M10.5.0/3"},  // Central European Time
-    {"EET-2EEST,M3.5.0/3,M10.5.0/4"},  // Eastern European Time
-
-    // Australia & New Zealand
-    {"ACST-9:30ACDT,M10.1.0/2,M4.1.0/3"},  // Australian Central (Adelaide)
-    {"AEST-10AEDT,M10.1.0/2,M4.1.0/3"},    // Australian Eastern (Sydney, Melbourne)
-    {"NZST-12NZDT,M9.5.0/2,M4.1.0/3"},     // New Zealand
-};
 
 // ---- NVS helpers ----------------------------------------------------------
 
@@ -601,14 +533,11 @@ static void capture(bool lpContinuous) {
 
 namespace HalClock {
 
-void applyTimezone(uint8_t timeZoneSetting) {
-  // Through TimezoneBySetting, never TIMEZONES[]: the argument is a persisted setting value, and
-  // TIMEZONES[] is a data list whose order has already changed underneath it once.
-  const size_t index = timeZoneSetting < TimezoneBySetting::COUNT ? timeZoneSetting : 0;
-  setenv("TZ", TimezoneBySetting::TZ[index], 1);
+void applyTimezone(const char* posixTz) {
+  if (posixTz == nullptr || posixTz[0] == ' ') return;
+  setenv("TZ", posixTz, 1);
   tzset();
-  LOG_DBG("CLK", "Timezone applied: setting %u -> %s", static_cast<unsigned>(timeZoneSetting),
-          TimezoneBySetting::TZ[index]);
+  LOG_DBG("CLK", "Timezone applied: %s", posixTz);
 }
 
 static const char* sntpStatusName(sntp_sync_status_t status) {

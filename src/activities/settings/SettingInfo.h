@@ -93,18 +93,51 @@ struct SettingInfo {
   StrId nameId;
   SettingType type;
   uint8_t CrossPointSettings::* valuePtr = nullptr;
-  // A row's options come from ONE of these two, never both:
+  // Where a row's options come from:
   //
-  //   enumValues -- StrId references, localized through I18N.get(). The normal case.
-  //   enumLabels -- ready-made strings, for options whose text is not a translatable phrase:
-  //                 a font family read off the SD card, or a point size ("14pt").
+  //   enumValues        -- StrId references, localized through I18N.get(). The normal case.
+  //   enumLabels        -- ready-made std::strings, for options whose text is not a translatable
+  //                        phrase and is not known at compile time: a font family read off the
+  //                        SD card, or a point size ("14pt").
+  //   enumLiteralLabelFn -- the same idea for options that ARE known at compile time and live in
+  //                         flash as literals. See its own note below.
   //
-  // enumLabels wins whenever it is non-empty, so a row that sets it leaves enumValues EMPTY
-  // rather than padding it to the same length. Everything that displays or bounds options goes
-  // through getEnumOptionCount() / getEnumOptionLabel(); read either vector directly and a
-  // labels-only row renders blank and clamps to zero, which is how it used to fail.
+  // enumLabels is exclusive: it wins whenever it is non-empty, so a row that sets it leaves
+  // enumValues EMPTY rather than padding it to the same length. enumLiteralLabelFn is not -- it
+  // EXTENDS enumValues, so a row can carry translated options followed by literal ones.
+  //
+  // Everything that displays, cycles or bounds options goes through getEnumOptionCount() /
+  // getEnumOptionLabel(). Read a vector directly and a row using one of the other forms renders
+  // blank and clamps to zero, which is how this has now failed twice.
   std::vector<StrId> enumValues;
   std::vector<std::string> enumLabels;
+
+  // A third form, for options that are not translatable text: the first enumValues.size()
+  // options come from StrIds as usual, and the options at and after that index come from this
+  // callback, which returns a pointer into flash.
+  //
+  // enumLabels would seem to fit, but it is a vector<std::string> -- and getSettingsList()
+  // rebuilds every row on every settings save AND load, so the timezone row's 86 city names
+  // would mean 86 heap strings per call, for labels that are string literals and never change.
+  //
+  // A FUNCTION rather than a const char* array for the same reason this whole list is built by a
+  // function returning by value (see the note at the top of SettingsList.h): the array would
+  // want a function-local static to assemble it, and the guard variable on first use pulls
+  // __cxa_guard_acquire and a FreeRTOS mutex onto a stack that getSettingsList() is already deep
+  // into, called as it is from inside SETTINGS.loadFromFile() at boot. A captureless lambda
+  // decays to a plain function pointer, needs no storage at all, and cannot allocate.
+  //
+  // Only meaningful alongside enumValues; ignored when enumLabels is non-empty.
+  using LiteralLabelFn = const char* (*)(uint8_t literalIndex);
+  LiteralLabelFn enumLiteralLabelFn = nullptr;
+  uint8_t enumLiteralCount = 0;
+
+  // Appends flash-resident option labels after the translated ones. See enumLiteralLabelFn.
+  SettingInfo& withLiteralOptions(const LiteralLabelFn labelFn, const uint8_t count) {
+    enumLiteralLabelFn = labelFn;
+    enumLiteralCount = count;
+    return *this;
+  }
   SettingAction action = SettingAction::None;
 
   struct ValueRange {
@@ -401,14 +434,33 @@ struct SettingInfo {
   // Number of selectable options (0 for non-ENUM).
   [[nodiscard]] uint8_t getEnumOptionCount() const {
     if (type != SettingType::ENUM) return 0;
-    return static_cast<uint8_t>(enumLabels.empty() ? enumValues.size() : enumLabels.size());
+    if (!enumLabels.empty()) return static_cast<uint8_t>(enumLabels.size());
+    return static_cast<uint8_t>(enumValues.size() + enumLiteralCount);
+  }
+
+  // The option's label as a BORROWED pointer, or nullptr when this row keeps its labels as
+  // std::strings (enumLabels) and there is no such pointer to hand out.
+  //
+  // For the one caller that can use a borrowed pointer and would otherwise pay to copy: the web
+  // settings API passes these straight to ArduinoJson, which stores a const char* by reference
+  // but copies a std::string. Going through getEnumOptionLabel() there would copy every option
+  // of every enum row into the document -- around 1.7 KB for the timezone row's 86 names alone,
+  // where before it stored 86 pointers into flash. Everything else should use
+  // getEnumOptionLabel() and not think about lifetimes.
+  [[nodiscard]] const char* getEnumOptionFlashLabel(uint8_t index) const {
+    if (type != SettingType::ENUM || !enumLabels.empty()) return nullptr;
+    if (index < enumValues.size()) return I18N.get(enumValues[index]);
+    const size_t literal = index - enumValues.size();
+    if (enumLiteralLabelFn && literal < enumLiteralCount) return enumLiteralLabelFn(static_cast<uint8_t>(literal));
+    return nullptr;
   }
 
   // Localised label for option `index` (empty if out of range or non-ENUM).
   [[nodiscard]] std::string getEnumOptionLabel(uint8_t index) const {
     if (type != SettingType::ENUM) return {};
     if (!enumLabels.empty()) return index < enumLabels.size() ? enumLabels[index] : std::string{};
-    return index < enumValues.size() ? std::string(I18N.get(enumValues[index])) : std::string{};
+    const char* flash = getEnumOptionFlashLabel(index);
+    return flash ? std::string(flash) : std::string{};
   }
 
   // Currently selected option index (0 if unreadable).

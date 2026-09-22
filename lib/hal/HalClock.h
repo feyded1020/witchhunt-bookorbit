@@ -40,14 +40,21 @@ bool syncNtp(const char* preferredServer = nullptr);
 /// argument rather than reading app settings, mirroring applyTimezone().
 bool syncNtp(char* errorBuf, size_t errorBufSize, const char* preferredServer = nullptr);
 
+/// Apply timezone/DST rules from a POSIX TZ string, e.g. "CET-1CEST,M3.5.0,M10.5.0/3".
+///
+/// Takes the RULE, not a setting value. Which zone a setting names is an app-layer question and
+/// the answer lives in src/util/Timezones.cpp; the HAL resolving it here is what once let a
+/// reordered table in this file silently move every user to a different timezone. Call it
+/// through timezones::applyToClock() rather than directly.
+///
+/// A null or empty string is ignored, leaving the current zone in place.
 /// Called after every successful NTP sync with the clock reading captured just before it.
 /// Lets app-level code (BookOrbit's WallClock era corrections) observe syncs without the HAL
 /// depending on it. One listener; nullptr clears it.
 using NtpSyncedCallback = void (*)(time_t preSyncTime);
 void setNtpSyncedCallback(NtpSyncedCallback cb);
 
-/// Apply timezone/DST rules via the POSIX TZ string for the given setting.
-void applyTimezone(uint8_t timeZoneSetting);
+void applyTimezone(const char* posixTz);
 
 /// Call just before deep sleep.  Snapshots the current system time to RTC
 /// memory and NVS so it can be restored on wake / cold boot.  Pass true when

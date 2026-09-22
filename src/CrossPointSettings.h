@@ -352,8 +352,11 @@ class CrossPointSettings {
   enum IMAGE_DITHERING { IMAGE_DITHER_BAYER = 0, IMAGE_DITHERING_COUNT };
 #endif
 
-  // Timezone options (POSIX TZ rules for DST support)
-  enum TIMEZONE {
+  // RETIRED. Kept only so the value this firmware has been persisting under "timeZone" can be
+  // read back and migrated into clockTimezone, which indexes the table in util/Timezones.cpp.
+  // Nothing selects a timezone through these any more -- see LEGACY_TO_TABLE, which records
+  // where each one lands. Do not add to this enum; add to the table.
+  enum LEGACY_TIMEZONE {
     TZ_UTC = 0,
     TZ_CET = 1,
     TZ_EET = 2,
@@ -373,8 +376,7 @@ class CrossPointSettings {
     TZ_AST_ADT = 16,
     TZ_ACST_ACDT = 17,
     TZ_AKST_AKDT = 18,
-    TZ_COUNT = 19,  // keep in step with TimezoneBySetting::TZ
-    TIMEZONE_COUNT
+    TZ_LEGACY_COUNT = 19
   };
 
   // Sleep screen settings
@@ -488,9 +490,13 @@ class CrossPointSettings {
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // UI Theme
   uint8_t uiTheme = LYRA;
-  // Acknowledge a press that starts a slow screen change with a mark in the corner. See
-  // ActivityManager::showTransitionMark().
-  uint8_t inputFeedback = 1;
+  // Acknowledge a press that starts a slow screen change. See ActivityManager::showBusyIndicator().
+  uint8_t showBusyIndicator = 1;
+  // NOT a preference: the measured cost of a FAST refresh on this panel, carried across boots so
+  // the first decision after a reboot is as good as the last one before it. Written from
+  // HalDisplay's measurement, never from the UI, and absent from the JSON settings file for that
+  // reason. 0 means not yet measured.
+  uint16_t measuredFastRefreshMs = 0;
   // Menu/chrome text size (UI_FONT_SIZE)
   uint8_t uiFontSize = UI_FONT_SIZE_DEFAULT;
   // Sunlight fading compensation
@@ -696,8 +702,17 @@ class CrossPointSettings {
   uint8_t statusBarClockPosition = STATUS_BAR_CLOCK_LEFT;
   // Clock format: 0 = 24h (14:00), 1 = 12h (2:00pm)
   uint8_t clockFormat12h = 0;
-  // Timezone selection (applies POSIX TZ rules for DST)
+  // LEGACY timezone selection, a LEGACY_TIMEZONE value. Still READ from the settings file -- it
+  // is the only record of what a device chose before clockTimezone existed, and
+  // timezones::activeIndex() migrates it -- but no longer written: it left the settings list, so
+  // the key drops out of the file on the first resave after the migration. See the block in
+  // JsonSettingsIO::loadSettings that reads it.
   uint8_t timeZone = TZ_UTC;
+  // Timezone selection: an index into the table in util/Timezones.cpp. 255 means "never chosen
+  // on this firmware", which is what sends activeIndex() to the legacy value above. Deliberately
+  // NOT 0 -- index 0 is a real zone (Midway), so a zero default would silently move every
+  // unmigrated device there.
+  uint8_t clockTimezone = 255;
   // Preferred NTP server (host or IP). Empty = use built-in servers only
   // (Cloudflare anycast IP + pool.ntp.org). When set, it is polled first, with
   // the built-ins kept as fallbacks. Passed into HalClock::syncNtp() by callers.

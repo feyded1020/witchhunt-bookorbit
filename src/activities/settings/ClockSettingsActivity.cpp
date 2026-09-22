@@ -12,9 +12,11 @@
 #include "CrossPointSettings.h"
 #include "DetectTimezoneActivity.h"
 #include "SyncTimeActivity.h"
+#include "TimezoneOptions.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/Timezones.h"
 
 void ClockSettingsActivity::buildMenuItems() {
   menuItems.reserve(6);
@@ -23,16 +25,10 @@ void ClockSettingsActivity::buildMenuItems() {
       SettingInfo::Toggle(StrId::STR_USE_CLOCK, &CrossPointSettings::useClock, "useClock", StrId::STR_CAT_SYSTEM));
   menuItems.push_back(SettingInfo::Enum(StrId::STR_CLOCK_FORMAT, &CrossPointSettings::clockFormat12h,
                                         {StrId::STR_24H, StrId::STR_12H}, "clockFormat12h", StrId::STR_CAT_SYSTEM));
-  {
-    auto tzSetting = SettingInfo::Enum(
-        StrId::STR_TIMEZONE, &CrossPointSettings::timeZone,
-        {StrId::STR_TZ_UTC, StrId::STR_TZ_CET, StrId::STR_TZ_EET, StrId::STR_TZ_MSK, StrId::STR_TZ_UTC_PLUS4,
-         StrId::STR_TZ_IST, StrId::STR_TZ_UTC_PLUS7, StrId::STR_TZ_UTC_PLUS8, StrId::STR_TZ_UTC_PLUS9,
-         StrId::STR_TZ_AEST, StrId::STR_TZ_NZST, StrId::STR_TZ_UTC_MINUS3, StrId::STR_TZ_EST, StrId::STR_TZ_CST,
-         StrId::STR_TZ_MST, StrId::STR_TZ_PST, StrId::STR_TZ_AST_ADT, StrId::STR_TZ_ACST_ACDT, StrId::STR_TZ_AKST_AKDT},
-        "timeZone", StrId::STR_CAT_SYSTEM);
-    menuItems.push_back(std::move(tzSetting));
-  }
+  // Shared with the settings list the web UI and persistence read, so the two cannot list
+  // different numbers of zones again. Opens a full-screen picker rather than cycling. See
+  // TimezoneOptions.h.
+  menuItems.push_back(TimezoneOptions::make(StrId::STR_CAT_SYSTEM));
 
   // NTP server: ACTION item edited via the on-screen keyboard (STRING types have
   // no inline on-device editor). Empty value falls back to the built-in servers.
@@ -82,7 +78,7 @@ void ClockSettingsActivity::onSettingToggled(int index) {
     }
     SETTINGS.saveToFile();
   } else if (item.nameId == StrId::STR_TIMEZONE) {
-    HalClock::applyTimezone(SETTINGS.timeZone);
+    timezones::applyToClock();
     SETTINGS.saveToFile();
   } else if (item.nameId == StrId::STR_CLOCK_FORMAT) {
     SETTINGS.saveToFile();

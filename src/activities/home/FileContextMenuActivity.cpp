@@ -13,12 +13,11 @@ FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedIn
                                                  const std::string& filePath,
                                                  CrossPointSettings::FILE_SORT_MODE sortMode,
                                                  CrossPointSettings::FILE_SORT_DIRECTION sortDirection,
-                                                 const bool offerOpen, const bool offerRemove)
+                                                 const bool offerDirectoryActions)
     : MenuListActivity("FileContextMenu", renderer, mappedInput),
       filePath(filePath),
       isBrowserMode(filePath.empty()),
-      offerOpen(offerOpen),
-      offerRemove(offerRemove),
+      offerDirectoryActions(offerDirectoryActions),
       sortMode(static_cast<uint8_t>(sortMode)),
       sortDirection(static_cast<uint8_t>(sortDirection)),
       showHiddenFiles(SETTINGS.showHiddenFiles),
@@ -29,9 +28,8 @@ FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedIn
 void FileContextMenuActivity::buildMenuItems() {
   auto* self = this;
 
-  // Open leads, above the display options, because entering the folder is what someone opening
-  // this menu on a directory almost always came for.
-  if (offerOpen) {
+  // Entering the folder is what someone opening this menu on a directory almost always came for.
+  if (offerDirectoryActions) {
     menuItems.push_back(SettingInfo::Action(StrId::STR_OPEN, SettingAction::None));
   }
 
@@ -67,14 +65,15 @@ void FileContextMenuActivity::buildMenuItems() {
       },
       [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->showFileExtensions = (v != 0) ? 1 : 0; }));
 
-  // In browser mode (no file / directory / unsupported type) the only action is making a folder
-  // here, which is what gives Move somewhere to go.
+  // Browser mode stops after the display options, except for the two things that belong to the
+  // folder you are standing in rather than to any row: making one, and (for a directory)
+  // deleting the one selected.
   if (isBrowserMode) {
     menuItems.push_back(SettingInfo::Separator(StrId::STR_TOOL_UTILITIES));
     menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
-    // Deleting a folder you just made should not need a computer. Last, and below the
-    // separator, because it is the one row here that cannot be undone.
-    if (offerRemove) menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
+    if (offerDirectoryActions) {
+      menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
+    }
     return;
   }
 
@@ -117,12 +116,9 @@ void FileContextMenuActivity::buildMenuItems() {
     menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
   }
 
-  // Every file can be moved, whatever its type: on a FAT volume this is a rename, and rename
-  // does not care what the bytes are.
+  // Every file can be moved, whatever its type: this is a rename, and rename does not care what
+  // the bytes are.
   menuItems.push_back(SettingInfo::Action(StrId::STR_MOVE_TO_FOLDER, SettingAction::None));
-  // New Folder makes one in the directory being browsed, which has nothing to do with the row
-  // that happens to be highlighted. Listing it only in browser mode meant it vanished the moment
-  // a book was selected -- the one time you are most likely to want somewhere to put it.
   menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
 }
 

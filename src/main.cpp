@@ -58,6 +58,7 @@
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
+#include "util/Timezones.h"
 #include "util/WakeTrace.h"
 
 #ifdef ENABLE_BOOT_HEAP_DIAGNOSTICS
@@ -682,6 +683,10 @@ void applyUiFontScale() {
 
 void setupDisplayAndFonts(bool seamless = false, bool skipSdFontDiscovery = false) {
   display.begin(seamless);
+  // Carry the panel's measured FAST cost across the reboot. Without this the first decision that
+  // depends on it is made blind, and on a slow panel that means one avoidable slow repaint per
+  // boot before the measurement catches up. Seed-only: a live measurement always wins.
+  display.seedLastFastRefreshMs(SETTINGS.measuredFastRefreshMs);
   renderer.begin();
   activityManager.begin();
   LOG_DBG("MAIN", "Display initialized");
@@ -692,8 +697,8 @@ void setupDisplayAndFonts(bool seamless = false, bool skipSdFontDiscovery = fals
   }
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
-  // Bound once and never rebound: applyUiFontScale() deliberately leaves it alone, because its
-  // whole purpose is to be the size that does not move when the ladder does.
+  // Bound once and never rebound: applyUiFontScale() leaves these alone, because their whole
+  // purpose is to be the size that does not move when the ladder does.
   renderer.insertFont(FIT_SMALL_FONT_ID, smallFontFamily);
   renderer.insertFont(FIT_BODY_FONT_ID, ui10FontFamily);
   renderer.insertFont(FIT_TITLE_FONT_ID, ui12FontFamily);
@@ -1243,7 +1248,14 @@ void setup() {
 
   HalSystem::checkPanic();
   HalSystem::clearPanic();  // TODO: move this to an activity when we have one to display the panic info
-  HalClock::applyTimezone(SETTINGS.timeZone);
+  // Resolve the setting to a real table index once, here, rather than leaving the "never
+  // chosen" sentinel in the field for the rest of the session. activeIndex() is what performs
+  // the migration off the retired TIMEZONE enum, and it is idempotent on an index that is
+  // already valid -- so doing it on every boot costs nothing and means the picker, the row's
+  // displayed value and the next save all see a plain index instead of 255. Runs whether or not
+  // a settings file existed, which the load path alone would not cover.
+  SETTINGS.clockTimezone = timezones::activeIndex();
+  timezones::applyToClock();
   I18N.loadSettings();
   BOOKORBIT_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();

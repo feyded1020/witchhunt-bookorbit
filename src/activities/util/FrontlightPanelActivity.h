@@ -91,6 +91,10 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
  public:
   explicit FrontlightPanelActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
   void onEnter() override;
+  // The drawer paints only its own sheet band and leaves the rest of the frame standing, which is
+  // why dispatchLightPanelGesture() prepares the framebuffer for it. Nothing may repaint between
+  // that preparation and this activity's first render.
+  bool suppressesBusyIndicator() const override { return true; }
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;

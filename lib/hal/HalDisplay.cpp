@@ -180,6 +180,12 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
   const unsigned long refreshStart = millis();
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
   const unsigned long refreshMs = millis() - refreshStart;
+  // Keep the FAST figure: callers weighing an extra intermediate repaint need to know what one
+  // costs on the controller actually in front of them. Clamped so a one-off stall (a contended
+  // bus, a cold panel) cannot poison the measurement permanently.
+  if (mode == RefreshMode::FAST_REFRESH) {
+    lastFastRefreshMs = static_cast<uint16_t>(refreshMs > 60000 ? 60000 : refreshMs);
+  }
   const char* const modeName =
       mode == RefreshMode::FAST_REFRESH ? "FAST" : (mode == RefreshMode::HALF_REFRESH ? "HALF" : "FULL");
   const unsigned long seq = ++panelSeq;
@@ -438,6 +444,16 @@ bool HalDisplay::beginAbsoluteGrayPass(const RefreshMode fallback, const bool tu
   lastRefreshMode = fallback;
   lastDisplayModeByte = refreshModeToByte(fallback);
   return true;
+}
+
+void HalDisplay::triggerGrayscaleFrame(const RefreshMode refreshMode, const bool turnOffScreen) {
+  HalSpiBus::Lock spiLock;
+  lastRefreshMode = refreshMode;
+  lastDisplayModeByte = refreshModeToByte(refreshMode);
+  LOG_DBG(
+      "DISP", "#%lu triggerGrayscaleFrame mode=%s", static_cast<unsigned long>(++panelSeq),
+      refreshMode == RefreshMode::FAST_REFRESH ? "FAST" : (refreshMode == RefreshMode::HALF_REFRESH ? "HALF" : "FULL"));
+  einkDisplay.triggerGrayscaleFrame(convertRefreshMode(refreshMode), turnOffScreen);
 }
 
 void HalDisplay::displayGrayscaleFrame(const RefreshMode refreshMode, const bool turnOffScreen) {

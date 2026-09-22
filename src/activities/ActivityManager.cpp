@@ -19,6 +19,7 @@
 #include "boot_sleep/SleepActivity.h"
 #include "browser/BookOrbitCatalogActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
+#include "components/UITheme.h"
 #include "components/themes/ButtonHintStrip.h"
 #include "components/themes/ListTouchBand.h"
 #include "components/themes/TapTargets.h"
@@ -209,6 +210,8 @@ void ActivityManager::renderTaskLoop() {
 }
 
 void ActivityManager::loop() {
+  framebufferPreparedThisTick = false;
+
   if (currentActivity && currentActivity->requiresExclusiveStorageLoop()) {
     // The raw SD card belongs to a USB host right now. Run the activity and
     // flush its renders, and NOTHING else: no list/hint taps, no minute-tick
@@ -279,13 +282,8 @@ void ActivityManager::loop() {
     }
   }
 
-  // A queued transition runs on this task and can take a second or more: tearing the reader
-  // down, writing progress, building the next screen. Nothing reaches the panel while that
-  // happens, so a press looks like it was ignored and people press again. Mark the corner first
-  // -- one small partial-window refresh, well under a full redraw, and whatever the next screen
-  // paints covers it.
   if (pendingAction != PendingAction::None) {
-    showTransitionMark();
+    showBusyIndicator();
   }
 
   while (pendingAction != PendingAction::None) {
@@ -710,6 +708,9 @@ void ActivityManager::dispatchLightPanelGesture() {
     renderer.syncWriteBufferFromDisplayed();
     currentActivity->prepareFramebufferForCapture();
   }
+  // The write buffer now holds the DISPLAYED frame. Anything later in this tick that syncs
+  // again would undo prepareFramebufferForCapture() above and hand the drawer the wrong page.
+  framebufferPreparedThisTick = true;
 
   mappedInput.suppressTouchContact();
   currentActivity->startActivityForResult(std::make_unique<FrontlightPanelActivity>(renderer, mappedInput),
@@ -922,24 +923,84 @@ void ActivityManager::dispatchHintStripTap() {
 
 #endif  // CP_TOUCH_UI
 
-void ActivityManager::showTransitionMark() {
-  if (!SETTINGS.inputFeedback) return;
+// A queued transition runs on this task and can take a second or more: tearing the current
+// activity down, writing progress, building the next screen. Nothing reaches the panel while
+// that happens, so a press -- button or touch alike -- looks ignored, and people press again.
+//
+// The refresh is fired ASYNCHRONOUSLY wherever the driver supports it, which is every board we
+// ship except the T5S3 (LgfxEpdDriver is the only one of ours with supportsAsyncDisplay() ==
+// false). The waveform then runs WHILE the transition does its work instead of before it, and
+// nothing has to join it explicitly: the next screen's displayBuffer() opens with
+// syncPendingAsync(). On T5S3 this is a blocking FAST refresh and the cost is real -- which is
+// what the timing line at the end is for.
+void ActivityManager::showBusyIndicator() {
+  if (!SETTINGS.showBusyIndicator) return;
+  // The Pop branch above logs and clears pendingAction when currentActivity is null WITHOUT
+  // requesting a render, so an indicator painted for it would sit on the panel with nothing
+  // scheduled to cover it.
+  if (!currentActivity) return;
+  // Checked on BOTH ends: leaving a lightweight overlay is as uninteresting as entering one, and
+  // the compositing activities break outright if an indicator repaints before them. On a Pop
+  // there is no pendingActivity, which is exactly the drawer-exit case the source check covers.
+  if (currentActivity->suppressesBusyIndicator()) return;
+  if (pendingActivity && pendingActivity->suppressesBusyIndicator()) return;
+  // A HALF/FULL clean is armed for the screen that is about to be drawn. Shipping an indicator
+  // would CONSUME it (every ship goes through consumeRefreshOverride): the indicator pays for the
+  // clean, and the destination silently loses the one it was scheduled -- ghosting debt that does
+  // not surface for many page turns. Measured on X4 Pro: the promoted HALF cost a 112 ms push and
+  // a 1269 ms drain. Skip instead; the transition is about to repaint anyway.
+  if (renderer.hasRefreshOverridePending()) return;
+  // Only where the panel can ship it cheaply, judged by what a FAST refresh actually COSTS on
+  // the controller in front of us rather than by which board this is. An X4 Pro can come up on
+  // SSD1677, UC8179 or UC8279 and they do not agree, so the board name is not the question.
+  //
+  // An absolute threshold, not a ratio: the indicator buys the user roughly one waveform of
+  // earlier feedback and costs the destination screen roughly one waveform of delay (its
+  // displayBuffer() opens with syncPendingAsync() and drains ours). Those cancel, so what decides
+  // whether it is worth having is the magnitude of that one waveform, nothing else.
+  //
+  // Device-measured FAST durations, excluding refreshes that already carried a drain:
+  //   X3 ~435 ms, X4 Pro ~792 ms -- reported working as expected
+  //   T5S3 ~1329 ms              -- reported "more annoying than helpful"
+  // 1000 ms sits between them with real margin on both sides. Re-check it if a new panel lands
+  // near the line rather than moving it on a hunch.
+  //
+  // Zero means never measured and nothing persisted, which only happens before this panel's first
+  // FAST. Allow it: one indicator is a cheap price for learning the number.
+  constexpr uint16_t kMaxFastRefreshMs = 1000;
+  const uint16_t fastRefreshMs = renderer.getLastFastRefreshMs();
+  if (fastRefreshMs > kMaxFastRefreshMs) return;
+  // Keep the persisted copy current in memory; the next ordinary settings save carries it to NVS,
+  // so this costs no extra write.
+  if (fastRefreshMs != 0) SETTINGS.measuredFastRefreshMs = fastRefreshMs;
 
   RenderLock lock;
-  // The write buffer holds the frame from two refreshes ago (displayBuffer swaps), so patching
-  // it without syncing first would ship something stale to the panel.
-  renderer.syncWriteBufferFromDisplayed();
 
-  // Top centre, not a corner: a right hand resting on the case hides the bottom right, which is
-  // where a mark meant to be noticed must not be.
-  constexpr int size = 18;
-  constexpr int inset = 8;
-  const int x = (renderer.getScreenWidth() - size) / 2;
-  const int y = inset;
-  // White plate under a black square: legible over a page of text or an empty menu alike.
-  renderer.fillRoundedRect(x - 2, y - 2, size + 4, size + 4, 4, Color::White);
-  renderer.fillRoundedRect(x, y, size, size, 3, Color::Black);
-  renderer.displayWindow(x - 2, y - 2, size + 4, size + 4);
+  // drawBusyIndicator() overlays the frame on screen, which needs syncWriteBufferFromDisplayed()
+  // to be able to find one. Two cases where that is not true, and neither covers the other:
+  //
+  //  - Something earlier in this tick may have prepared the write buffer already
+  //    (dispatchLightPanelGesture does). Syncing again would undo its
+  //    prepareFramebufferForCapture() -- see the pitfall in docs/activity-manager.md -- so tell
+  //    the theme not to.
+  //  - While the secondary is LENT OUT the sync is gated on frameBufferActive and silently does
+  //    nothing, leaving no way to get a correct frame. Skip rather than ship a stale panel.
+  //    hasSecondaryBuffer() cannot tell a borrow from a release (a release seeds the write buffer
+  //    first and would be safe), so this is deliberately conservative.
+  const bool alreadyPrepared = framebufferPreparedThisTick;
+  if (!alreadyPrepared && !renderer.hasSecondaryBuffer()) return;
+
+  const unsigned long start = millis();
+  // Through the theme rather than drawn here: GUI owns every other piece of chrome, and
+  // drawPopup()'s frame style, sync rule and ship contract are exactly the ones this wants.
+  // Async so the waveform overlaps the transition's own work -- the next screen's displayBuffer()
+  // opens with syncPendingAsync() and joins it, so nothing here owes an explicit finish.
+  GUI.drawBusyIndicator(renderer, /*overlayDisplayedFrame=*/!alreadyPrepared, PopupShip::Async);
+
+  // The number this feature lives or dies on: what the acknowledgement ADDS to the transition it
+  // is acknowledging.
+  LOG_DBG("ACT", "busy indicator (%s) returned in %lu ms", renderer.supportsAsyncRefresh() ? "async" : "blocking",
+          static_cast<unsigned long>(millis() - start));
 }
 
 void ActivityManager::requestUpdate(bool immediate) {
