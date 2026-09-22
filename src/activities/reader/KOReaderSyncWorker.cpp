@@ -187,8 +187,8 @@ void ensureTask() {
 #else
   constexpr BaseType_t workerCore = 0;
 #endif
-  if (xTaskCreatePinnedToCore(&syncWorkerTrampoline, "KOSyncWorker", KOReaderSyncWorker::WORKER_STACK_BYTES, nullptr,
-                              1, &workerTask, workerCore) != pdPASS) {
+  if (xTaskCreatePinnedToCore(&syncWorkerTrampoline, "KOSyncWorker", KOReaderSyncWorker::WORKER_STACK_BYTES, nullptr, 1,
+                              &workerTask, workerCore) != pdPASS) {
     LOG_ERR("KOSyncWorker", "Failed to create sync worker task");
     workerTask = nullptr;
   }

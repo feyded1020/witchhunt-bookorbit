@@ -140,7 +140,8 @@ bool apply(const SettingAction action, const uint8_t value) {
       if (value < KO_CLOSE_NEVER) SETTINGS.koSyncMinSessionPages = value;
       return true;
     case SettingAction::KOSyncIntervalPicker:
-      // Lives in the KOReader store instead of settings, so this row persists itself and returns false so settings don't write.
+      // Lives in the KOReader store instead of settings, so this row persists itself and returns false so settings
+      // don't write.
       KOREADER_STORE.setPushIntervalPages(value >= KO_INTERVAL_NEVER ? 0 : value);
       KOREADER_STORE.saveToFile();
       return false;
