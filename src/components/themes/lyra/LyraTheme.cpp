@@ -697,39 +697,50 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
     const int smallLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
     const int titleBlockHeight = titleLineHeight * static_cast<int>(titleLines.size());
-    const int titleAuthorSpacing = (!authorLines.empty() || !seriesLines.empty()) ? (smallLineHeight / 2) : 0;
     const int authorHeight = static_cast<int>(authorLines.size()) * smallLineHeight;
     const int seriesHeight = static_cast<int>(seriesLines.size()) * smallLineHeight;
-    const int statusSpacing = statusLine.empty() ? 0 : (smallLineHeight / 2);
     const int statusHeight = statusLine.empty() ? 0 : smallLineHeight;
-    const int baseBlockHeight =
-        titleBlockHeight + titleAuthorSpacing + authorHeight + seriesHeight + statusSpacing + statusHeight;
+    const bool hasAuthorBlock = !authorLines.empty() || !seriesLines.empty();
 
     // What you have put into the book, under what is left of it. This column is only the part of
     // the tile the cover does not use, so the sentence usually needs two lines; it is set in the
-    // non-scaling small face so a larger UI font cannot push the block past the tile edges.
+    // non-scaling small face so a larger UI font cannot make the row itself any taller.
     const std::string history = BookProgressPresentation::historyLine(book);
     const int historyLineHeight = renderer.getLineHeight(FIT_SMALL_FONT_ID);
     auto historyLines = history.empty() ? std::vector<std::string>{}
                                         : renderer.wrappedText(FIT_SMALL_FONT_ID, history.c_str(), textWidth, 2);
-    // A three-line title over a two-line author and a two-line series can already fill the tile,
-    // and a large UI font size makes that the common case rather than the rare one. Dropping the
-    // history outright there loses the feature on exactly the setting that needs it most, so fall
-    // back to the short form instead: it says the same thing in one line where the sentence needs
-    // two. Only when even one line will not fit does the row go.
-    const auto historyFits = [&](size_t lines) {
-      return baseBlockHeight + historyLineHeight / 2 + static_cast<int>(lines) * historyLineHeight <= tileHeight;
+
+    // Spacing gives way before content does.
+    //
+    // At a large UI font the title, author and status fill this tile between them, so anything
+    // that asks whether the history "fits" gets told no every time and the row is simply never
+    // drawn. That is the wrong answer on the one setting that most wants a legible summary. The
+    // gaps between the parts are worth less than the parts, so they are what shrinks: tried in
+    // order, first one that fits wins -- the sentence with roomy gaps, the sentence with tight
+    // ones, the short form with tight ones, and only then nothing.
+    const auto blockHeight = [&](int gap, size_t historyRows) {
+      return titleBlockHeight + (hasAuthorBlock ? gap : 0) + authorHeight + seriesHeight +
+             (statusLine.empty() ? 0 : gap) + statusHeight + (historyRows == 0 ? 0 : gap) +
+             static_cast<int>(historyRows) * historyLineHeight;
     };
-    if (!historyLines.empty() && !historyFits(historyLines.size())) {
-      const std::string compact = BookProgressPresentation::historyLineCompact(book);
-      historyLines.clear();
-      if (!compact.empty() && historyFits(1)) {
-        historyLines.push_back(renderer.truncatedText(FIT_SMALL_FONT_ID, compact.c_str(), textWidth));
+    constexpr int tightGap = 4;
+    int gap = smallLineHeight / 2;
+    if (!historyLines.empty() && blockHeight(gap, historyLines.size()) > tileHeight) {
+      if (blockHeight(tightGap, historyLines.size()) <= tileHeight) {
+        gap = tightGap;
+      } else {
+        const std::string compact = BookProgressPresentation::historyLineCompact(book);
+        historyLines.clear();
+        if (!compact.empty() && blockHeight(tightGap, 1) <= tileHeight) {
+          gap = tightGap;
+          historyLines.push_back(renderer.truncatedText(FIT_SMALL_FONT_ID, compact.c_str(), textWidth));
+        }
       }
     }
-    const int historySpacing = historyLines.empty() ? 0 : (historyLineHeight / 2);
-    const int historyHeight = static_cast<int>(historyLines.size()) * historyLineHeight;
-    const int totalBlockHeight = baseBlockHeight + historySpacing + historyHeight;
+    const int titleAuthorSpacing = hasAuthorBlock ? gap : 0;
+    const int statusSpacing = statusLine.empty() ? 0 : gap;
+    const int historySpacing = historyLines.empty() ? 0 : gap;
+    const int totalBlockHeight = blockHeight(gap, historyLines.size());
     int titleY = tileY + tileHeight / 2 - totalBlockHeight / 2;
     const int textX = tileX + hPaddingInSelection + coverWidth + LyraMetrics::values.verticalSpacing;
     for (const auto& line : titleLines) {

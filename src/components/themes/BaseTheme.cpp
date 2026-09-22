@@ -557,7 +557,14 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
   // --- Top "book" card for the current title (selectorIndex == 0) ---
   // When there's no cover image, use fixed size (half screen)
   // When there's cover image, adapt width to image aspect ratio, keep height fixed at 400px
-  const int baseHeight = rect.height;  // Fixed height (400px)
+  const int baseHeight = rect.height;  // The tile height the layout settled on, not the metric
+
+  // The cover thumbnail's height is part of its filename, and HomeActivity generates it from
+  // this same rect. Asking for the metric constant instead looked equivalent only while the tile
+  // was never shrunk -- once the menu grew by a row the layout started trimming the tile, and
+  // this side kept asking for a file the other side had stopped writing, so the cover sat on
+  // "Loading..." for ever. Mirror getHomeCoverRenderHeight()'s non-Lyra branch exactly.
+  const int coverThumbHeight = std::max(120, rect.height);
 
   int bookWidth, bookX;
   bool hasCoverImage = false;
@@ -565,7 +572,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
   if (hasContinueReading && !recentBooks[0].coverBmpPath.empty()) {
     // Try to get actual image dimensions from BMP header
     const std::string coverBmpPath =
-        UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, BaseMetrics::values.homeCoverHeight);
+        UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, coverThumbHeight);
 
     FsFile file;
     if (Storage.openFileForRead("HOME", coverBmpPath, file)) {
@@ -628,7 +635,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     if (hasContinueReading && !recentBooks[0].coverBmpPath.empty() && !coverRendered) {
       const std::string coverBmpPath =
-          UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, BaseMetrics::values.homeCoverHeight);
+          UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, coverThumbHeight);
 
       // First time: load cover from SD and render
       FsFile file;

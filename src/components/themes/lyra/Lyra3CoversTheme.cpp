@@ -40,22 +40,23 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
                                                       Lyra3CoversMetrics::values.homeRecentBooksCount)
                                            : 0;
 
-  // Wrap every visible title up front and size the covers from the tallest of them, so the block
-  // under the covers is always exactly as tall as it needs to be. This replaces a fixed 58px
-  // offset that assumed two title lines at the default UI font: at a larger one a three line
-  // title ran off the bottom of the tile and printed over the menu underneath it.
+  // Both the cover height and the block under it come from Lyra3CoversMetrics, because
+  // HomeActivity has to arrive at the same cover height to name the thumbnail file it writes.
+  const int coverHeight = Lyra3CoversMetrics::coverRenderHeight(rect.height);
+  const int textBoxHeight = rect.height - hPaddingInSelection - coverHeight;
+
+  // Wrap each title to the number of lines the block can actually hold rather than to three
+  // regardless. Three lines of a large UI font do not fit under a cover sized for them plus the
+  // history row, and the lines that did not fit were printing over the menu below.
+  const int titleAreaHeight = textBoxHeight - historyLineHeight - 5;
+  const int titleLineBudget = std::max(1, std::min(Lyra3CoversMetrics::titleLineBudget,
+                                                   titleLineHeight > 0 ? titleAreaHeight / titleLineHeight : 1));
   std::vector<std::vector<std::string>> titleLinesPerTile;
   titleLinesPerTile.reserve(static_cast<size_t>(tileCount));
-  size_t maxTitleLines = 1;
   for (int i = 0; i < tileCount; i++) {
-    titleLinesPerTile.push_back(renderer.wrappedText(SMALL_FONT_ID, recentBooks[i].title.c_str(), maxLineWidth, 3));
-    maxTitleLines = std::max(maxTitleLines, titleLinesPerTile.back().size());
+    titleLinesPerTile.push_back(
+        renderer.wrappedText(SMALL_FONT_ID, recentBooks[i].title.c_str(), maxLineWidth, titleLineBudget));
   }
-  // The tile is the top strip, the cover, then the text box; the box is the title block plus the
-  // history row plus its own padding. Whatever is left over is the cover.
-  const int textBoxHeight = static_cast<int>(maxTitleLines) * titleLineHeight + historyLineHeight +
-                            hPaddingInSelection + 5;
-  const int coverHeight = std::max(120, rect.height - hPaddingInSelection - textBoxHeight);
 
   // The three tiles published for touch. Recorded ahead of the draw loop, which is skipped on a
   // cached repaint (coverRendered) while the geometry above is recomputed every call. Values are
