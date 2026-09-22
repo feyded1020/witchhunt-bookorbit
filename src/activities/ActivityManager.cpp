@@ -31,9 +31,10 @@
 #include "network/UsbDriveActivity.h"
 #include "reader/BookOrbitSyncActivity.h"
 #include "reader/ReaderActivity.h"
-#include "settings/ClockSettingsActivity.h"
 #include "settings/BookOrbitSettingsActivity.h"
+#include "settings/ClockSettingsActivity.h"
 #include "settings/OpdsServerListActivity.h"
+#include "settings/ReadingStatsActivity.h"
 #include "settings/SettingsActivity.h"
 #include "settings/SettingsSubmenuActivity.h"
 #include "util/FrontlightPanelActivity.h"
@@ -529,8 +530,8 @@ void ActivityManager::goToKOReaderSync() {
   }
 
   replaceActivity(std::make_unique<BookOrbitSyncActivity>(renderer, mappedInput, sync.epubPath, sync.spineIndex,
-                                                         sync.page, sync.totalPagesInSpine, sync.paragraphIndex,
-                                                         sync.hasParagraphIndex, sync.xhtmlSeekHint, sync.intent));
+                                                          sync.page, sync.totalPagesInSpine, sync.paragraphIndex,
+                                                          sync.hasParagraphIndex, sync.xhtmlSeekHint, sync.intent));
 }
 
 void ActivityManager::replaceWithReader(std::string path, ReturnHint hint) {
@@ -593,6 +594,10 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
 }
 
 void ActivityManager::goToWeather() { replaceActivity(std::make_unique<WeatherActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToReadingStats() {
+  replaceActivity(std::make_unique<ReadingStatsActivity>(renderer, mappedInput));
+}
 
 void ActivityManager::goHome(std::string focusBookPath, int focusSelectorIndex) {
   hasReturnHint = false;

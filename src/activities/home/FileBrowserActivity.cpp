@@ -3,6 +3,7 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalCapabilities.h>
 #include <HalDisplay.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -21,14 +22,12 @@
 #include "../settings/SdFirmwareUpdateActivity.h"
 #include "../util/BmpViewerActivity.h"
 #include "../util/ConfirmationActivity.h"
+#include "../util/KeyboardEntryActivity.h"
 #include "BookInfoActivity.h"
+#include "BookOrbitCredentialStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include <HalCapabilities.h>
-
 #include "FileContextMenuActivity.h"
-#include "../util/KeyboardEntryActivity.h"
-#include "BookOrbitCredentialStore.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -439,8 +438,7 @@ void FileBrowserActivity::drawChrome() {
                            : (model.getMode() == Mode::PickFolder)
                                ? std::string(tr(STR_MOVE_TO_FOLDER)) + ": " + destination
                                : here;
-  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer),
-                 folderName.c_str());
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), folderName.c_str());
 }
 
 void FileBrowserActivity::drawFooter() {
@@ -452,7 +450,7 @@ void FileBrowserActivity::drawFooter() {
     const std::string selectedEntry = model.entryName(static_cast<size_t>(nav.selected));
     selectingFirmwareFile = !selectedEntry.empty() && selectedEntry.back() != '/';
   }
-  const char* confirmLabel = !hasEntries      ? ""
+  const char* confirmLabel = !hasEntries             ? ""
                              : selectingFirmwareFile ? tr(STR_SELECT)
                              : confirmOpensOptions() ? tr(STR_OPTIONS)
                                                      : tr(STR_OPEN);
@@ -464,16 +462,14 @@ void FileBrowserActivity::drawFooter() {
   // Options is then the long press on Right. In a folder that fits on one screen there is nothing
   // to page, so the strip looks exactly as it always did.
   const bool pages = listPages();
-  const char* prevLabel = (model.getMode() == Mode::PickFolder) ? tr(STR_NEW)
-                          : pages                                ? tr(STR_LIST_PAGE_PREV)
-                                                                 : "";
+  const char* prevLabel = (model.getMode() == Mode::PickFolder) ? tr(STR_NEW) : pages ? tr(STR_LIST_PAGE_PREV) : "";
   // Upstream puts Options on the page-forward slot in a folder too small to page. Where Confirm
   // already carries Options, that would draw the same word twice on one strip -- and the second
   // one is on a slot this board has no key for.
-  const char* nextLabel = (model.getMode() == Mode::PickFolder) ? tr(STR_MOVE_HERE)
-                          : pages                                ? tr(STR_LIST_PAGE_NEXT)
+  const char* nextLabel = (model.getMode() == Mode::PickFolder)         ? tr(STR_MOVE_HERE)
+                          : pages                                       ? tr(STR_LIST_PAGE_NEXT)
                           : (showOptionsHint && !confirmOpensOptions()) ? tr(STR_OPTIONS)
-                                                                       : "";
+                                                                        : "";
   // Paging is bound to logical Left/Right and stepping to logical Up/Down, so which physical pair
   // carries which — and therefore which hint strip each label belongs on — is the orientation's
   // business, not this screen's.
@@ -639,35 +635,34 @@ void FileBrowserActivity::showBrowserOptionsMenu(const bool offerOpen, const std
     if (dirPath.back() != '/') dirPath += "/";
     dirPath += dirEntry.substr(0, dirEntry.length() - 1);
   }
-  startActivityForResult(
-      std::make_unique<FileContextMenuActivity>(renderer, mappedInput, "", model.getSortMode(),
-                                                model.getSortDirection(), offerOpen, isDir),
-      [this, isDir, dirPath, dirEntry](const ActivityResult& res) {
-        if (res.isCancelled) {
-          requestUpdate();
-          return;
-        }
-        const auto* menuRes = std::get_if<MenuResult>(&res.data);
-        if (!menuRes) {
-          requestUpdate();
-          return;
-        }
-        // Open is only ever offered here for a directory, so it means enter it. Deferred the
-        // way every other menu answer is: the menu has to be off screen before the next one
-        // is built.
-        const auto chosen = static_cast<FileContextMenuActivity::Action>(menuRes->action);
-        if (chosen == FileContextMenuActivity::Action::Open) {
-          activateSelected(false);
-          return;
-        }
-        if (chosen == FileContextMenuActivity::Action::Remove && isDir) {
-          // The recursive delete and its confirmation were already here, reachable only for
-          // files. This is the call that was missing.
-          doRemove(dirPath, dirEntry.substr(0, dirEntry.length() - 1), /*isDirectory=*/true);
-          return;
-        }
-        handleContextMenuAction(menuRes->action, "", "", menuRes);
-      });
+  startActivityForResult(std::make_unique<FileContextMenuActivity>(renderer, mappedInput, "", model.getSortMode(),
+                                                                   model.getSortDirection(), offerOpen, isDir),
+                         [this, isDir, dirPath, dirEntry](const ActivityResult& res) {
+                           if (res.isCancelled) {
+                             requestUpdate();
+                             return;
+                           }
+                           const auto* menuRes = std::get_if<MenuResult>(&res.data);
+                           if (!menuRes) {
+                             requestUpdate();
+                             return;
+                           }
+                           // Open is only ever offered here for a directory, so it means enter it. Deferred the
+                           // way every other menu answer is: the menu has to be off screen before the next one
+                           // is built.
+                           const auto chosen = static_cast<FileContextMenuActivity::Action>(menuRes->action);
+                           if (chosen == FileContextMenuActivity::Action::Open) {
+                             activateSelected(false);
+                             return;
+                           }
+                           if (chosen == FileContextMenuActivity::Action::Remove && isDir) {
+                             // The recursive delete and its confirmation were already here, reachable only for
+                             // files. This is the call that was missing.
+                             doRemove(dirPath, dirEntry.substr(0, dirEntry.length() - 1), /*isDirectory=*/true);
+                             return;
+                           }
+                           handleContextMenuAction(menuRes->action, "", "", menuRes);
+                         });
 }
 
 void FileBrowserActivity::handleContextMenuAction(int action, const std::string& fullPath, const std::string& entry,

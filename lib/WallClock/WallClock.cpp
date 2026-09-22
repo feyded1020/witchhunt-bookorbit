@@ -2,11 +2,10 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <sys/time.h>
 
 #include <cstring>
 #include <ctime>
-
-#include <sys/time.h>
 
 namespace {
 constexpr char STATE_PATH[] = "/.crosspoint/wallclock.bin";

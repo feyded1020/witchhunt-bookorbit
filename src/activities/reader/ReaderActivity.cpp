@@ -13,11 +13,11 @@
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 
+#include "BookOrbitCredentialStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "Epub.h"
 #include "EpubReaderActivity.h"
-#include "BookOrbitCredentialStore.h"
 #include "MdReaderActivity.h"
 #include "Txt.h"
 #include "TxtReaderActivity.h"

@@ -2,7 +2,6 @@
 #include <optional>
 #include <string>
 
-
 /**
  * Calculate KOReader document ID (partial MD5 hash).
  *
@@ -34,7 +33,6 @@ class KOReaderDocumentId {
    * @return 32-character lowercase hex MD5 of the filename
    */
   static std::string calculateFromFilename(const std::string& filePath);
-
 
   // Size of each chunk to read at each offset
   static constexpr size_t CHUNK_SIZE = 1024;

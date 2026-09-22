@@ -22,7 +22,6 @@
 #include "GlobalBookmarkIndex.h"
 #include "HighlightStore.h"
 
-
 namespace BookOrbitExtras {
 
 namespace {
@@ -162,8 +161,7 @@ std::string chapterTitleFor(Epub& epub, int spineIndex) {
 // bookmark steps (MIT) to Witch Hunt's page-based BookmarkStore. Identity is md5(datetime|pos)
 // where datetime is the bookmark's creation timestamp and pos an xpointer minted once, from the
 // bookmark's layout-independent chapter position, and never recomputed.
-void syncBookmarks(const std::string& stateDir, const std::string& documentHash, LazyEpub& lazyEpub,
-                   Summary& summary) {
+void syncBookmarks(const std::string& stateDir, const std::string& documentHash, LazyEpub& lazyEpub, Summary& summary) {
   if (s_bookmarkRouteUnsupported) return;
   const std::shared_ptr<Epub>& epub = lazyEpub.get();
   if (!epub) return;
@@ -188,9 +186,8 @@ void syncBookmarks(const std::string& stateDir, const std::string& documentHash,
     if (bm.timestamp == 0 || bm.progressQ == Bookmark::PROGRESS_UNKNOWN) continue;
     syncableCount++;
     liveTimestamps.push_back(bm.timestamp);
-    const bool known = std::any_of(records.begin(), records.end(), [&](const BookOrbitBookmarkRecord& r) {
-      return r.timestamp == bm.timestamp;
-    });
+    const bool known = std::any_of(records.begin(), records.end(),
+                                   [&](const BookOrbitBookmarkRecord& r) { return r.timestamp == bm.timestamp; });
     if (known) continue;
     BookOrbitBookmarkRecord record;
     record.timestamp = bm.timestamp;
@@ -269,8 +266,7 @@ void syncBookmarks(const std::string& stateDir, const std::string& documentHash,
   // A web bookmark converted during this request only ships on the next one, so the first
   // extra round is unconditional.
   const BookOrbitAnnotationKeys noKeys{nullptr, 0, false};
-  for (int round = 0; round < 2 && incoming.size() < BOOKORBIT_BOOKMARK_BATCH && (round == 0 || morePending);
-       round++) {
+  for (int round = 0; round < 2 && incoming.size() < BOOKORBIT_BOOKMARK_BATCH && (round == 0 || morePending); round++) {
     morePending = false;
     bool roundUnmatched = false;
     if (BookOrbitSyncClient::exchangeBookmarks(documentHash, BookOrbitSyncClient::DEVICE_MODEL, noKeys, nullptr, 0,
@@ -375,8 +371,7 @@ void syncBookmarks(const std::string& stateDir, const std::string& documentHash,
   if (newestMinted > 0) {
     const uint32_t mark = BookOrbitBookmarkStore::readWatermark(stateDir);
     const bool localStillPending = std::any_of(records.begin(), records.end(), [&](const BookOrbitBookmarkRecord& r) {
-      return r.identityEpoch > mark &&
-             std::find(mintedHere.begin(), mintedHere.end(), r.timestamp) == mintedHere.end();
+      return r.identityEpoch > mark && std::find(mintedHere.begin(), mintedHere.end(), r.timestamp) == mintedHere.end();
     });
     if (!localStillPending) BookOrbitBookmarkStore::advanceWatermark(stateDir, newestMinted);
   }
@@ -502,8 +497,8 @@ void syncHighlights(const std::string& stateDir, const std::string& documentHash
   bool morePending = false;
   const BookOrbitAnnotationKeys keySet{keys.empty() ? nullptr : keys.data(), keys.size(), keysComplete};
   const auto result =
-      BookOrbitSyncClient::exchangeAnnotations(documentHash, BookOrbitSyncClient::DEVICE_MODEL, keySet,
-                                               outgoing.data(), outgoing.size(), unmatched, &incoming, &morePending);
+      BookOrbitSyncClient::exchangeAnnotations(documentHash, BookOrbitSyncClient::DEVICE_MODEL, keySet, outgoing.data(),
+                                               outgoing.size(), unmatched, &incoming, &morePending);
   LOG_INF("BookOrbit", "Highlight exchange result=%d (http=%d, unmatched=%d)", static_cast<int>(result),
           BookOrbitSyncClient::lastHttpCode, unmatched ? 1 : 0);
   if (unmatched) summary.documentUnmatched = true;
@@ -613,11 +608,10 @@ void syncHighlights(const std::string& stateDir, const std::string& documentHash
   // older local records still wait to upload.
   if (newestReceived > 0) {
     const uint32_t mark = BookOrbitAnnotationStore::readWatermark(stateDir);
-    const bool localStillPending =
-        std::any_of(records.begin(), records.end(), [&](const BookOrbitAnnotationRecord& r) {
-          return r.identityEpoch > mark &&
-                 std::find(receivedHere.begin(), receivedHere.end(), r.timestamp) == receivedHere.end();
-        });
+    const bool localStillPending = std::any_of(records.begin(), records.end(), [&](const BookOrbitAnnotationRecord& r) {
+      return r.identityEpoch > mark &&
+             std::find(receivedHere.begin(), receivedHere.end(), r.timestamp) == receivedHere.end();
+    });
     if (!localStillPending) BookOrbitAnnotationStore::advanceWatermark(stateDir, newestReceived);
   }
 

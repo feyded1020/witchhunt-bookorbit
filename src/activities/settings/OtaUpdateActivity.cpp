@@ -9,10 +9,10 @@
 #include "activities/NetworkMemoryTrim.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/ConfirmDialog.h"
-#include "network/ReleaseNotesScanner.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
+#include "network/ReleaseNotesScanner.h"
 
 namespace fui = freeink::ui;
 

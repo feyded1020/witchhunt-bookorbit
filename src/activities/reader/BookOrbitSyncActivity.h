@@ -3,9 +3,9 @@
 
 #include <memory>
 
+#include "BookOrbitSyncClient.h"
 #include "ChapterXPathIndexer.h"
 #include "CrossPointState.h"
-#include "BookOrbitSyncClient.h"
 #include "ProgressMapper.h"
 #include "activities/Activity.h"
 
@@ -35,9 +35,10 @@
 class BookOrbitSyncActivity final : public Activity {
  public:
   explicit BookOrbitSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
-                                int currentSpineIndex, int currentPage, int totalPagesInSpine,
-                                uint16_t paragraphIndex = 0, bool hasParagraphIndex = false, uint32_t xhtmlSeekHint = 0,
-                                KOReaderSyncIntentState syncIntent = KOReaderSyncIntentState::COMPARE)
+                                 int currentSpineIndex, int currentPage, int totalPagesInSpine,
+                                 uint16_t paragraphIndex = 0, bool hasParagraphIndex = false,
+                                 uint32_t xhtmlSeekHint = 0,
+                                 KOReaderSyncIntentState syncIntent = KOReaderSyncIntentState::COMPARE)
       : Activity("BookOrbitSync", renderer, mappedInput),
         epubPath(epubPath),
         currentSpineIndex(currentSpineIndex),

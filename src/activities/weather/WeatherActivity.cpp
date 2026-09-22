@@ -15,12 +15,12 @@
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
+#include "UiFontScale.h"
 #include "WeatherSettingsActivity.h"
 #include "activities/NetworkMemoryTrim.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "UiFontScale.h"
 
 namespace {
 inline bool getBitmapBit(const uint8_t* bitmap, const int size, const int x, const int y) {
@@ -630,7 +630,8 @@ void WeatherActivity::renderDailyForecast(int x, int y, int w, int h) {
     const char* dayName = I18N.get(dayNameIds[weekdayIndex]);
 
     int dayNameWidth = renderer.getTextWidth(FIT_BODY_FONT_ID, dayName, EpdFontFamily::BOLD);
-    renderer.drawText(FIT_BODY_FONT_ID, cardX + (cardWidth - dayNameWidth) / 2, textY, dayName, true, EpdFontFamily::BOLD);
+    renderer.drawText(FIT_BODY_FONT_ID, cardX + (cardWidth - dayNameWidth) / 2, textY, dayName, true,
+                      EpdFontFamily::BOLD);
     textY += 20;
 
     // Date (e.g. "Apr 3") - for all days
@@ -659,7 +660,8 @@ void WeatherActivity::renderDailyForecast(int x, int y, int w, int h) {
     char tempBuf[32];
     snprintf(tempBuf, sizeof(tempBuf), "%.0f / %.0f %s", day.tempMax, day.tempMin, unitSuffix);
     int tempWidth = renderer.getTextWidth(FIT_SMALL_FONT_ID, tempBuf, EpdFontFamily::BOLD);
-    renderer.drawText(FIT_SMALL_FONT_ID, cardX + (cardWidth - tempWidth) / 2, textY, tempBuf, true, EpdFontFamily::BOLD);
+    renderer.drawText(FIT_SMALL_FONT_ID, cardX + (cardWidth - tempWidth) / 2, textY, tempBuf, true,
+                      EpdFontFamily::BOLD);
     textY += 16;
 
     // Precipitation

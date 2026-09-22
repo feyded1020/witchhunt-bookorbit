@@ -2,8 +2,8 @@
 
 #include <Logging.h>
 #include <Print.h>
-#include <Utf8.h>
 #include <SaxParser/SaxParser.h>
+#include <Utf8.h>
 
 #include <algorithm>
 #include <cstdlib>

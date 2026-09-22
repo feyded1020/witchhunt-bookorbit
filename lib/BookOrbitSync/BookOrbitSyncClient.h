@@ -1,13 +1,12 @@
 #pragma once
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "BookOrbitAnnotations.h"
 #include "BookOrbitBookmarks.h"
 #include "BookOrbitStatsQueue.h"
-
-#include <cstdint>
-#include <optional>
 
 /** Optional document metadata sent alongside progress uploads (kosync wire format). */
 struct KOReaderMetadata {

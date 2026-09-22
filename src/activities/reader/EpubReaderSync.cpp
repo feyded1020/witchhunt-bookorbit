@@ -8,9 +8,9 @@
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 
+#include "BookOrbitCredentialStore.h"
 #include "CrossPointState.h"
 #include "EpubReaderActivity.h"
-#include "BookOrbitCredentialStore.h"
 
 #ifndef DEBUG_MEMORY_CONSUMPTION
 #define DEBUG_MEMORY_CONSUMPTION 0

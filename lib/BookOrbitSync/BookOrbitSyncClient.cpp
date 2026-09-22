@@ -39,8 +39,8 @@ const char* BookOrbitSyncClient::deviceId() {
       snprintf(value.data(), value.size(), "witchreader-device");
       return value;
     }
-    snprintf(value.data(), value.size(), "witchreader-%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3],
-             mac[4], mac[5]);
+    snprintf(value.data(), value.size(), "witchreader-%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
+             mac[5]);
     return value;
   }();
   return id.data();
@@ -228,7 +228,8 @@ int sendBookOrbitRequest(const char* method, const std::string& url, const JsonB
   if (payload != nullptr) {
     http.addHeader("Content-Type", "application/json");
   }
-  const int code = http.request(method, url, payload != nullptr ? std::string(payload->c_str(), payload->length()) : "");
+  const int code =
+      http.request(method, url, payload != nullptr ? std::string(payload->c_str(), payload->length()) : "");
   if (code >= 100) {
     outBody = http.getBody();
   } else {

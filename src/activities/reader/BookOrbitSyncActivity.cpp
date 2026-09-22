@@ -12,14 +12,14 @@
 
 #include <cmath>
 
-#include "CrossPointSettings.h"
 #include "BookOrbitCredentialStore.h"
-#include "bookorbit/BookOrbitSyncExtras.h"
+#include "CrossPointSettings.h"
 #include "KOReaderDocumentId.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/NetworkMemoryTrim.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "bookorbit/BookOrbitSyncExtras.h"
 #include "components/UITheme.h"
 #include "components/themes/ListTouchBand.h"
 #include "fontIds.h"
@@ -577,8 +577,8 @@ void BookOrbitSyncActivity::performUpload() {
 void BookOrbitSyncActivity::onEnter() {
   Activity::onEnter();
   logSyncMemSnapshot("onEnter_begin");
-  LOG_DBG("BookOrbit", "Standalone sync start: path=%s spine=%d page=%d/%d intent=%d", epubPath.c_str(), currentSpineIndex,
-          currentPage, totalPagesInSpine, static_cast<int>(syncIntent));
+  LOG_DBG("BookOrbit", "Standalone sync start: path=%s spine=%d page=%d/%d intent=%d", epubPath.c_str(),
+          currentSpineIndex, currentPage, totalPagesInSpine, static_cast<int>(syncIntent));
 
   // Check for credentials first
   if (!BOOKORBIT_STORE.hasCredentials()) {
@@ -1065,7 +1065,8 @@ void BookOrbitSyncActivity::loop() {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       if (selectedOption == OPTION_SYNC_BEHAVIOR) {
         const bool nowSmart = !smartSyncEnabled();
-        BOOKORBIT_STORE.setSyncBehavior(nowSmart ? BookOrbitSyncBehavior::SMART : BookOrbitSyncBehavior::ASK_EVERY_TIME);
+        BOOKORBIT_STORE.setSyncBehavior(nowSmart ? BookOrbitSyncBehavior::SMART
+                                                 : BookOrbitSyncBehavior::ASK_EVERY_TIME);
         BOOKORBIT_STORE.saveToFile();
         // Leave the cursor on an actionable row rather than the toggle, and put it on the row
         // the new policy would have chosen — which both avoids a second Confirm toggling straight

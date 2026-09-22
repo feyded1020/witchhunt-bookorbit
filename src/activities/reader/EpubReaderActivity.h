@@ -16,11 +16,11 @@
 #include <atomic>
 
 #include "BookmarkStore.h"
-#include "bookorbit/HighlightStore.h"
 #include "CrossPointState.h"
 #include "EpubReaderMenuActivity.h"
 #include "ReaderUtils.h"
 #include "activities/Activity.h"
+#include "bookorbit/HighlightStore.h"
 #include "components/themes/TapTargets.h"
 
 class EpubReaderActivity final : public Activity {

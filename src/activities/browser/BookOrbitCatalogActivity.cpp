@@ -1,6 +1,7 @@
 #include "BookOrbitCatalogActivity.h"
 
 #include <BookOrbitCredentialStore.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalStorage.h>
@@ -8,20 +9,18 @@
 #include <Logging.h>
 #include <WiFi.h>
 
-#include <FsHelpers.h>
-
 #include <algorithm>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "RecentBooksStore.h"
-#include "components/BookProgressPresentation.h"
 #include "MappedInputManager.h"
+#include "RecentBooksStore.h"
 #include "SilentRestart.h"
 #include "activities/ActivityManager.h"
 #include "activities/NetworkMemoryTrim.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "components/BookProgressPresentation.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -667,8 +666,8 @@ void BookOrbitCatalogActivity::render(RenderLock&&) {
       const int barY = y + 10;
       renderer.drawRect(barX, barY, barWidth, 14, true);
       if (downloadTotal > 0) {
-        const int filled = static_cast<int>(static_cast<uint64_t>(barWidth - 4) * std::min(downloadDone, downloadTotal) /
-                                            downloadTotal);
+        const int filled = static_cast<int>(static_cast<uint64_t>(barWidth - 4) *
+                                            std::min(downloadDone, downloadTotal) / downloadTotal);
         renderer.fillRect(barX + 2, barY + 2, filled, 10, true);
       }
       back = "";
@@ -718,8 +717,7 @@ void BookOrbitCatalogActivity::render(RenderLock&&) {
   renderer.displayBuffer();
 }
 
-void BookOrbitCatalogActivity::renderDetail(const Rect& contentRect, const int contentTop,
-                                            const int contentHeight) {
+void BookOrbitCatalogActivity::renderDetail(const Rect& contentRect, const int contentTop, const int contentHeight) {
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const int x = contentRect.x + UITheme::getInstance().getMetrics().contentSidePadding;
   const int width = contentRect.width - (x - contentRect.x) * 2;
@@ -772,8 +770,7 @@ void BookOrbitCatalogActivity::renderDetail(const Rect& contentRect, const int c
     y += lineHeight;
   }
   if (!detail.genres.empty()) {
-    renderer.drawText(UI_10_FONT_ID, x, y,
-                      renderer.truncatedText(UI_10_FONT_ID, detail.genres.c_str(), width).c_str());
+    renderer.drawText(UI_10_FONT_ID, x, y, renderer.truncatedText(UI_10_FONT_ID, detail.genres.c_str(), width).c_str());
     y += lineHeight;
   }
   y += lineHeight / 2;

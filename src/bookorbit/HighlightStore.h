@@ -39,8 +39,7 @@ class HighlightStore {
 
   // Adds a highlight stamped with the current time. Returns its timestamp, or 0 when the store
   // is full or no plausible clock exists to mint an identity.
-  uint32_t add(uint16_t spineIndex, uint16_t paragraphHint, uint16_t progressQ, std::string chapter,
-               std::string text);
+  uint32_t add(uint16_t spineIndex, uint16_t paragraphHint, uint16_t progressQ, std::string chapter, std::string text);
   bool removeByTimestamp(uint32_t timestamp);
   // Replaces a highlight's text (e.g. with the exact source text once sync has resolved it).
   bool setText(uint32_t timestamp, std::string text);

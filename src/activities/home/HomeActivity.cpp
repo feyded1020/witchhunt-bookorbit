@@ -1,9 +1,7 @@
 #include "HomeActivity.h"
 
-
-#include <BookOrbitCredentialStore.h>
-
 #include <Bitmap.h>
+#include <BookOrbitCredentialStore.h>
 #include <CooperativeAbort.h>
 #include <Epub.h>
 #include <FsHelpers.h>
@@ -30,6 +28,7 @@
 #include "GlobalBookmarkIndex.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
+#include "ReadingStats.h"
 #include "RecentBooksStore.h"
 #include "TouchUi.h"
 #include "activities/reader/ReaderActivity.h"
@@ -120,10 +119,16 @@ int getHomeCoverRenderHeight(const HomeScreenLayout& layout) {
 // dispatches Confirm based on action) and render() (which draws labels/icons).
 void HomeActivity::rebuildMenuEntries() {
   menuEntries.clear();
-  menuEntries.reserve(8);
+  menuEntries.reserve(9);  // BookOrbit and Reading Stats are both conditional
 
   menuEntries.push_back({MenuAction::FileBrowser, StrId::STR_BROWSE_FILES, Folder});
   menuEntries.push_back({MenuAction::Recents, StrId::STR_MENU_RECENT_BOOKS, Recent});
+  // Beside Recent Books rather than down in Settings: both answer "what have I been reading",
+  // and a screen nobody can find is a screen nobody reads. Hidden until there is something to
+  // show, so a device that has never been read on does not offer an empty one.
+  if (READING_STATS.getGlobalTotalSeconds() > 0) {
+    menuEntries.push_back({MenuAction::ReadingStats, StrId::STR_READING_STATS, Recent});
+  }
   if (!GLOBAL_BOOKMARKS.isEmpty()) {
     menuEntries.push_back({MenuAction::GlobalBookmarks, StrId::STR_GLOBAL_BOOKMARKS, Book});
   }
@@ -1108,6 +1113,9 @@ void HomeActivity::dispatchMenuAction(MenuAction action) {
       break;
     case MenuAction::FileTransfer:
       activityManager.goToFileTransfer();
+      break;
+    case MenuAction::ReadingStats:
+      activityManager.goToReadingStats();
       break;
     case MenuAction::Weather:
       activityManager.goToWeather();

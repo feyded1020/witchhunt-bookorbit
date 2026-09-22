@@ -1,7 +1,5 @@
 #include "OtaUpdater.h"
 
-#include "network/ReleaseNotesScanner.h"
-
 #include <Arduino.h>
 #include <Logging.h>
 #include <ReleaseJsonParser.h>
@@ -9,6 +7,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+
+#include "network/ReleaseNotesScanner.h"
 
 // clang-format off
 // HttpDownloader.h pulls Arduino/SdFat, whose macros collide with lwip's

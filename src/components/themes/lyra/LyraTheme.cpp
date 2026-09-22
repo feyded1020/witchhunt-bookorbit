@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "RecentBooksStore.h"
+#include "UiFontScale.h"
 #include "components/BookProgressPresentation.h"
 #include "components/UITheme.h"
 #include "components/icons/book.h"
@@ -38,7 +39,6 @@
 #include "components/themes/ListTouchBand.h"
 #include "components/themes/TapTargets.h"
 #include "fontIds.h"
-#include "UiFontScale.h"
 
 // Internal constants
 namespace {
@@ -463,9 +463,8 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       // Shrink before clipping: a whole word a size smaller is still the word, where "Down..."
       // is a guess at which of Down and Download the button means. Clipping stays as the last
       // resort for a label too long even at the smaller face.
-      const int labelFont = renderer.getTextWidth(SMALL_FONT_ID, labels[i]) > buttonWidth - 4
-                                ? FIT_SMALL_FONT_ID
-                                : SMALL_FONT_ID;
+      const int labelFont =
+          renderer.getTextWidth(SMALL_FONT_ID, labels[i]) > buttonWidth - 4 ? FIT_SMALL_FONT_ID : SMALL_FONT_ID;
       const std::string label = renderer.truncatedText(labelFont, labels[i], buttonWidth - 4);
       const int textWidth = renderer.getTextWidth(labelFont, label.c_str());
       const int textX = x + (buttonWidth - 1 - textWidth) / 2;

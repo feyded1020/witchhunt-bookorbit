@@ -46,12 +46,10 @@ void RecentBookOptionsActivity::render(RenderLock&&) {
 
   // Which book this is about: the actions below are meaningless without it.
   const int titleX = contentRect.x + metrics.contentSidePadding;
-  renderer.drawText(UI_10_FONT_ID, titleX, contentTop,
-                    renderer
-                        .truncatedText(UI_10_FONT_ID, title.c_str(),
-                                       contentRect.width - metrics.contentSidePadding * 2)
-                        .c_str(),
-                    true, EpdFontFamily::BOLD);
+  renderer.drawText(
+      UI_10_FONT_ID, titleX, contentTop,
+      renderer.truncatedText(UI_10_FONT_ID, title.c_str(), contentRect.width - metrics.contentSidePadding * 2).c_str(),
+      true, EpdFontFamily::BOLD);
 
   const int listTop = contentTop + lineHeight + metrics.verticalSpacing;
   const int listHeight = contentRect.height - listTop - metrics.verticalSpacing;

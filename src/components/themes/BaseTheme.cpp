@@ -14,12 +14,12 @@
 
 #include "I18n.h"
 #include "RecentBooksStore.h"
+#include "UiFontScale.h"
 #include "components/UITheme.h"
 #include "components/themes/ButtonHintLayout.h"
 #include "components/themes/ListTouchBand.h"
 #include "components/themes/TapTargets.h"
 #include "fontIds.h"
-#include "UiFontScale.h"
 
 // Internal constants
 namespace {
@@ -223,9 +223,8 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       // See LyraTheme::drawButtonHints: fixed box, scaling font, centred text -- a long label
       // at a large UI font size overflows both ends and lands on its neighbours. Shrink first,
       // clip only if even the smaller face will not fit.
-      const int labelFont = renderer.getTextWidth(UI_10_FONT_ID, labels[i]) > buttonWidth - 4
-                                ? FIT_SMALL_FONT_ID
-                                : UI_10_FONT_ID;
+      const int labelFont =
+          renderer.getTextWidth(UI_10_FONT_ID, labels[i]) > buttonWidth - 4 ? FIT_SMALL_FONT_ID : UI_10_FONT_ID;
       const std::string label = renderer.truncatedText(labelFont, labels[i], buttonWidth - 4);
       const int textWidth = renderer.getTextWidth(labelFont, label.c_str());
       const int textX = x + (buttonWidth - 1 - textWidth) / 2;

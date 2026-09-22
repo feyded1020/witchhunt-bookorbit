@@ -1,13 +1,9 @@
 #include "RecentBooksActivity.h"
 
-#include "RecentBookOptionsActivity.h"
-
 #include <Bitmap.h>
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
-
-#include <cstdio>
 #include <HalCapabilities.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
@@ -17,21 +13,23 @@
 #include <Xtc.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <string>
 
 #include "../ActivityManager.h"
 #include "../util/ConfirmationActivity.h"
 #include "BookInfoActivity.h"
-#include "CrossPointState.h"
 #include "BookOrbitCredentialStore.h"
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
+#include "RecentBookOptionsActivity.h"
 #include "RecentBooksStore.h"
 #include "activities/ListRowTap.h"
 #include "activities/reader/ReaderActivity.h"
 #include "components/BookProgressPresentation.h"
-#include "components/themes/ListTouchBand.h"
 #include "components/CoverGridLayout.h"
 #include "components/UITheme.h"
+#include "components/themes/ListTouchBand.h"
 #include "fontIds.h"
 #include "util/ButtonNavigator.h"
 
@@ -684,8 +682,7 @@ void RecentBooksActivity::renderListView(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, true);
 
-  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer),
-                 tr(STR_MENU_RECENT_BOOKS));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_MENU_RECENT_BOOKS));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = contentRect.height - contentTop - metrics.verticalSpacing;
@@ -714,9 +711,9 @@ void RecentBooksActivity::renderListView(RenderLock&&) {
     // before named a button whose hold means Back on the boards this line exists for.
     const std::string hint = mappedInput.hasTouch()
                                  ? std::string(tr(STR_HOLD_BOOK_FOR_OPTIONS))
-                                 : std::string(tr(STR_DIR_UP)) + "+L: " + tr(STR_VIEW_GRID) + "/" +
-                                       tr(STR_VIEW_LIST) + "   " + tr(STR_DIR_LEFT) + "+L: " + tr(STR_REMOVE) +
-                                       "   " + tr(STR_DIR_RIGHT) + "+L: " + tr(STR_INFO);
+                                 : std::string(tr(STR_DIR_UP)) + "+L: " + tr(STR_VIEW_GRID) + "/" + tr(STR_VIEW_LIST) +
+                                       "   " + tr(STR_DIR_LEFT) + "+L: " + tr(STR_REMOVE) + "   " + tr(STR_DIR_RIGHT) +
+                                       "+L: " + tr(STR_INFO);
     renderer.drawText(SMALL_FONT_ID, contentRect.x + metrics.contentSidePadding, hintY, hint.c_str());
   }
 
@@ -860,8 +857,7 @@ void RecentBooksActivity::renderGridView(RenderLock&&) {
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer),
-                 tr(STR_MENU_RECENT_BOOKS));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_MENU_RECENT_BOOKS));
 
   if (recentBooks.empty()) {
     renderer.drawText(UI_10_FONT_ID, contentRect.x + metrics.contentSidePadding, contentTop + 20,

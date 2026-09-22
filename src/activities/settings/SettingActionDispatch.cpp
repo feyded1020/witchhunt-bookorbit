@@ -1,5 +1,6 @@
 #include "SettingActionDispatch.h"
 
+#include "BookOrbitSettingsActivity.h"
 #include "BootDiagnosticsActivity.h"
 #include "ButtonActionsOverviewActivity.h"
 #include "ButtonRemapActivity.h"
@@ -12,7 +13,6 @@
 #include "FontScalingTestActivity.h"
 #include "FontSelectionActivity.h"
 #include "GestureActionsOverviewActivity.h"
-#include "BookOrbitSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"

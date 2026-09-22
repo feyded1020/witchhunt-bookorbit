@@ -5,8 +5,8 @@
 
 #include "../ActivityResult.h"
 #include "../settings/SettingInfo.h"
-#include "CrossPointSettings.h"
 #include "BookOrbitCredentialStore.h"
+#include "CrossPointSettings.h"
 #include "components/UITheme.h"
 
 FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

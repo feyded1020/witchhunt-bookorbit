@@ -97,7 +97,6 @@ class Activity {
   bool consumeListRowLongPress(int& index);
 
  public:
-
   // Return true while this activity owns the raw serial input stream (e.g. the
   // USB serial file-transfer activity reading a binary protocol). When true,
   // main.cpp's line-based `CMD:` handler skips reading logSerial so it can't

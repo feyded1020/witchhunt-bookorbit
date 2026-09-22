@@ -27,7 +27,6 @@ std::string KOReaderDocumentId::getCacheFilePath(const std::string& filePath) {
   return bookCacheDir(filePath) + "/koreader_docid.txt";
 }
 
-
 std::string KOReaderDocumentId::loadCachedHash(const std::string& cacheFilePath, const size_t fileSize,
                                                const std::string& currentFingerprint) {
   if (!Storage.exists(cacheFilePath.c_str())) {

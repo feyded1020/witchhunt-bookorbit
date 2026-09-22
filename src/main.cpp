@@ -32,14 +32,13 @@
 #include <cstring>
 #include <vector>
 
+#include "BookOrbitCredentialStore.h"
 #include "BootDiagnostics.h"
 #include "ButtonEventManager.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GestureEventManager.h"
 #include "GlobalBookmarkIndex.h"
-#include "BookOrbitCredentialStore.h"
-#include "WallClock.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "ReadingSessionTracker.h"
@@ -48,6 +47,7 @@
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
 #include "UiFontScale.h"
+#include "WallClock.h"
 #include "WeatherSettingsStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"

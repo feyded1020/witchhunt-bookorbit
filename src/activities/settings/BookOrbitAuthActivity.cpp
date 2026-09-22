@@ -6,8 +6,8 @@
 #include <Logging.h>
 #include <WiFi.h>
 
-#include "CrossPointSettings.h"
 #include "BookOrbitSyncClient.h"
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/NetworkMemoryTrim.h"

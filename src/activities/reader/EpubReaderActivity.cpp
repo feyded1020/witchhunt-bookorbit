@@ -41,6 +41,7 @@
 #include <memory>
 #include <optional>
 
+#include "BookOrbitCredentialStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "DictionaryWordSelectActivity.h"
@@ -50,10 +51,7 @@
 #include "EpubReaderPrintedPageInputActivity.h"
 #include "FinishedBookActivity.h"
 #include "GlobalBookmarkIndex.h"
-#include "BookOrbitCredentialStore.h"
-#include "bookorbit/BookOrbitBookState.h"
 #include "HighlightsActivity.h"
-#include "bookorbit/HighlightRenderer.h"
 #include "KOReaderDocumentId.h"
 #include "MappedInputManager.h"
 #include "QrDisplayActivity.h"
@@ -68,6 +66,8 @@
 #include "activities/home/BookInfoActivity.h"
 #include "activities/settings/DictionarySelectionActivity.h"
 #include "activities/settings/ReadingStatsBookDetailActivity.h"
+#include "bookorbit/BookOrbitBookState.h"
+#include "bookorbit/HighlightRenderer.h"
 #include "components/LinkMarkerMatch.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -2028,40 +2028,41 @@ void EpubReaderActivity::openHighlightSelect() {
   const RenderLayout layout = computeRenderLayout();
   const int effectiveFontId = getEffectiveReaderFontId();
   suspendBackgroundWork();
-  startActivityForResult(
-      std::make_unique<DictionaryWordSelectActivity>(renderer, mappedInput, std::move(page), effectiveFontId,
-                                                     layout.marginLeft, layout.marginTop,
-                                                     DictionaryWordSelectActivity::Mode::Highlight),
-      [this, spine, pageIndex, pageCount, paragraphHint](const ActivityResult& result) {
-        resumeBackgroundWork();
-        if (!result.isCancelled) {
-          if (const auto* selection = std::get_if<HighlightResult>(&result.data)) {
-            // Middle of the start page, so jumping back lands on it (see NavigationTarget::Percent).
-            const uint16_t progressQ =
-                pageCount > 0
-                    ? static_cast<uint16_t>(std::min(10000.0f, (pageIndex + 0.5f) * 10000.0f / static_cast<float>(pageCount)))
-                    : Highlight::PROGRESS_UNKNOWN;
-            const int tocIndex = epub->getTocIndexForSpineIndex(spine);
-            std::string chapter = tocIndex >= 0 ? epub->getTocItem(tocIndex).title : std::string();
-            // No popup from here: this handler runs while the overlay is being popped, and the
-            // reader only paints from its own render pass. The underline on the page, drawn on
-            // the next render, is the confirmation.
-            bool saved = false;
-            {
-              RenderLock lock(*this);  // the render task reads the store to draw underlines
-              // First highlight for this book: the state directory does not exist yet.
-              if (!highlightStore.isLoaded()) {
-                highlightStore.load(BookOrbitBookState::dirFor(epub->getPath()));
-              }
-              saved = highlightStore.add(static_cast<uint16_t>(spine), paragraphHint, progressQ, std::move(chapter),
-                                         selection->text) != 0;
-            }
-            saved = saved && highlightStore.save();
-            if (!saved) LOG_ERR("ERS", "Highlight could not be saved (store full, no clock, or SD error)");
-          }
-        }
-        requestUpdate();
-      });
+  startActivityForResult(std::make_unique<DictionaryWordSelectActivity>(
+                             renderer, mappedInput, std::move(page), effectiveFontId, layout.marginLeft,
+                             layout.marginTop, DictionaryWordSelectActivity::Mode::Highlight),
+                         [this, spine, pageIndex, pageCount, paragraphHint](const ActivityResult& result) {
+                           resumeBackgroundWork();
+                           if (!result.isCancelled) {
+                             if (const auto* selection = std::get_if<HighlightResult>(&result.data)) {
+                               // Middle of the start page, so jumping back lands on it (see NavigationTarget::Percent).
+                               const uint16_t progressQ =
+                                   pageCount > 0
+                                       ? static_cast<uint16_t>(std::min(
+                                             10000.0f, (pageIndex + 0.5f) * 10000.0f / static_cast<float>(pageCount)))
+                                       : Highlight::PROGRESS_UNKNOWN;
+                               const int tocIndex = epub->getTocIndexForSpineIndex(spine);
+                               std::string chapter = tocIndex >= 0 ? epub->getTocItem(tocIndex).title : std::string();
+                               // No popup from here: this handler runs while the overlay is being popped, and the
+                               // reader only paints from its own render pass. The underline on the page, drawn on
+                               // the next render, is the confirmation.
+                               bool saved = false;
+                               {
+                                 RenderLock lock(*this);  // the render task reads the store to draw underlines
+                                 // First highlight for this book: the state directory does not exist yet.
+                                 if (!highlightStore.isLoaded()) {
+                                   highlightStore.load(BookOrbitBookState::dirFor(epub->getPath()));
+                                 }
+                                 saved = highlightStore.add(static_cast<uint16_t>(spine), paragraphHint, progressQ,
+                                                            std::move(chapter), selection->text) != 0;
+                               }
+                               saved = saved && highlightStore.save();
+                               if (!saved)
+                                 LOG_ERR("ERS", "Highlight could not be saved (store full, no clock, or SD error)");
+                             }
+                           }
+                           requestUpdate();
+                         });
 }
 
 void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action) {
