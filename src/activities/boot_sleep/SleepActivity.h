@@ -25,6 +25,7 @@ class SleepActivity final : public Activity {
   bool suppressesBusyIndicator() const override { return true; }
 
  private:
+  void renderSleepScreen();
   void renderDefaultSleepScreen() const;
   void renderCustomSleepScreen() const;
   void renderCoverSleepScreen() const;
