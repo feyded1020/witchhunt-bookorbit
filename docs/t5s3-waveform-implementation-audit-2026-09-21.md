@@ -106,17 +106,33 @@ physically sensible (warm ink moves faster, so less net drive but more settling)
 GC16 turns back up while the net keeps falling. `3 x L[15]` ties scrub length to net displacement
 and therefore cannot express it: too long when cold, too short when warm.
 
-**One change fixes both directions.** Derive the clean bank's length from the vendor's GC16 phase
-count per range rather than from `3 x L[15]`: ranges 5-8 go 72 -> 46 frames (~0.9 s faster per
-clean), ranges 10-11 go 42 -> 57 (fixing the under-drive, a candidate for the residual ghosting
-left open in the 2026-09-15 audit).
+**Correction, measured 2026-09-22.** An earlier revision of this section claimed a vendor-derived
+clean bank would save ~0.9 s at cold ranges. **That was wrong, and the measurement is below.**
 
-This needs no runtime source-awareness. The lookup constraint applies at runtime only; the source
-data is available at generation time and `impulse_vector()` simply discards it. Force the source
-with a rail excursion, then emit the vendor's actual `phase[to][src=white]` column for the
-remainder -- source-aware by construction, destination-only at lookup. That is epdiy's
-`static_from`, applied in the generator. Estimated result is `L[15]` + vendor from-white descent
-~= `2 x L[15]` = 48 frames at range 5, against the vendor's 46.
+The construction under test: force the source with an excursion to white (`L[15]` frames), then
+emit the vendor GC16 table sliced at `src=white`, which is destination-only and therefore usable
+by LovyanGFX -- epdiy's `static_from`, applied in the generator.
+
+| blob range | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+|---|---|---|---|---|---|---|---|
+| ours (`3 x L[15]`) | 72 | 63 | 63 | 63 | 51 | 48 | 42 |
+| vendor GC16 (source-aware) | 46 | 43 | 40 | 38 | 38 | 44 | 57 |
+| forced-source, idle phases dropped | 69 | 62 | 59 | 58 | **54** | **59** | 70 |
+
+The saving is 3-8% at cold ranges and **negative** at ranges 9-10. Forcing the source costs
+`L[15]` frames, and that excursion consumes the entire benefit. The vendor's 46 phases are cheap
+*because* they are source-aware -- a pixel already near white never pays a full excursion -- which
+is precisely what cannot be done at runtime with a destination-only LUT. Recreating the source
+knowledge by forcing it recreates the cost.
+
+**So there is no cheap acceleration.** Real speed requires genuine runtime source-awareness, i.e.
+option 2, with all the obstacles in section 5.
+
+**What does survive is the correctness fix.** The slice was verified to land every level exactly
+at `L[to] - L[15]` for all seven ranges, and at range 11 it runs 70 frames against our 42 --
+addressing the under-drive. A fixed multiple of `L[15]` cannot track vendor GC16 in both
+directions (too short when warm, slightly too long when cold), because it ties scrub length to net
+displacement and the vendor does not.
 
 ## 5. Why teaching LovyanGFX source-awareness is expensive
 
@@ -140,10 +156,12 @@ holds only the target. LovyanGFX has no previous-frame plane; epdiy does.
 
 ## 6. Options
 
-1. **Derive the clean bank from the vendor GC16 phase count per range** (see section 4), using a
-   forced-source rail excursion plus the vendor's from-white column. Fixes the warm-range
-   under-drive AND saves ~0.9 s per clean at cold ranges, in one change. Needs no runtime
-   source-awareness, no LUT restructuring, no epdiy. **This is the recommended first move.**
+1. **Derive the clean bank from the vendor GC16 table** (section 4), via a forced-source rail
+   excursion plus the vendor's from-white column. This is a **correctness fix, not an
+   acceleration** -- measured at 3-8% faster when cold and slightly slower at ranges 9-10. Its
+   value is fixing the warm-range under-drive with vendor-sanctioned data instead of a synthesised
+   multiple of `L[15]`. Needs no runtime source-awareness, no LUT restructuring, no epdiy.
+   **Still the recommended first move, on correctness grounds.**
 2. **Port source-awareness into `Panel_EPD`.** Option 1 already captures the clean-path saving, so
    what this adds is the *general* case: shortening the rail excursion itself (a pixel already
    near a rail need not be driven the full `L[15]` to reach it) and source-aware transitions
