@@ -57,6 +57,7 @@
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
+#include "util/Timezones.h"
 #include "util/WakeTrace.h"
 
 #ifdef ENABLE_BOOT_HEAP_DIAGNOSTICS
@@ -1246,7 +1247,14 @@ void setup() {
 
   HalSystem::checkPanic();
   HalSystem::clearPanic();  // TODO: move this to an activity when we have one to display the panic info
-  HalClock::applyTimezone(SETTINGS.timeZone);
+  // Resolve the setting to a real table index once, here, rather than leaving the "never
+  // chosen" sentinel in the field for the rest of the session. activeIndex() is what performs
+  // the migration off the retired TIMEZONE enum, and it is idempotent on an index that is
+  // already valid -- so doing it on every boot costs nothing and means the picker, the row's
+  // displayed value and the next save all see a plain index instead of 255. Runs whether or not
+  // a settings file existed, which the load path alone would not cover.
+  SETTINGS.clockTimezone = timezones::activeIndex();
+  timezones::applyToClock();
   I18N.loadSettings();
   KOREADER_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();

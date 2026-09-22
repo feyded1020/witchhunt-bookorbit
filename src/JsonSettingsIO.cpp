@@ -355,6 +355,19 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     }
   }
 
+  // The retired TIMEZONE enum, read straight out of the document because it is no longer a row
+  // in the settings list -- it is migration input, not a setting anyone can still choose. It
+  // feeds timezones::activeIndex(), which turns it into a clockTimezone index the first time
+  // this firmware boots on a device that predates that field. Reading it through a list row
+  // instead would mean carrying a dead, web-visible "Timezone" number alongside the real one.
+  //
+  // Dropping out of the list also means saveToFile() stops writing it, so the key disappears
+  // from the file once the migration has been resaved. That is the intent: it has one job.
+  {
+    const auto legacy = static_cast<uint8_t>(doc["timeZone"] | (uint8_t)CrossPointSettings::TZ_UTC);
+    s.timeZone = legacy < CrossPointSettings::TZ_LEGACY_COUNT ? legacy : (uint8_t)CrossPointSettings::TZ_UTC;
+  }
+
   if (s.quickResumeSleepScreen != quickResumeBeforeNormalize && needsResave) *needsResave = true;
 
   LOG_DBG("CPS", "Settings loaded from file");
