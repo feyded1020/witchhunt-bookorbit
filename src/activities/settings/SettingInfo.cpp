@@ -38,12 +38,11 @@ std::string SettingInfo::getDisplayValue() const {
         value = callValueGetter();
       else
         return {};
-      if (!enumLabels.empty()) {
-        if (value < enumLabels.size()) return enumLabels[value];
-        return {};
-      }
-      if (value < enumValues.size()) return std::string(I18N.get(enumValues[value]));
-      return {};
+      // Through the shared accessor, so the row a picker shows and the value a row DISPLAYS
+      // cannot disagree about what option `value` is. They used to be two copies of the same
+      // two-way choice between enumValues and enumLabels, and a row carrying a third form
+      // (enumLiteralLabelFn) rendered blank here while listing perfectly well in the picker.
+      return getEnumOptionLabel(value);
     }
     case SettingType::VALUE: {
       if (valuePtr) return std::to_string(SETTINGS.*(valuePtr));
@@ -72,7 +71,10 @@ void SettingInfo::toggleValue() const {
       break;
 
     case SettingType::ENUM: {
-      const auto count = static_cast<uint8_t>(enumLabels.empty() ? enumValues.size() : enumLabels.size());
+      // Same reason as getDisplayValue() above: one definition of how many options a row has.
+      // A row whose options come from enumLiteralLabelFn counted as zero here, so cycling it was
+      // a no-op -- invisible while the row opens a picker, wrong the moment one does not.
+      const uint8_t count = getEnumOptionCount();
       if (count == 0) break;
       if (valuePtr) {
         SETTINGS.*(valuePtr) = (SETTINGS.*(valuePtr) + 1) % count;

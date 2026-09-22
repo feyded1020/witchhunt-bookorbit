@@ -1633,13 +1633,20 @@ void CrossPointWebServer::handleGetSettings() const {
           doc["value"] = static_cast<int>(s.callValueGetter());
         }
         JsonArray options = doc["options"].to<JsonArray>();
-        if (!s.enumLabels.empty()) {
-          for (const auto& opt : s.enumLabels) {
-            options.add(opt);
-          }
-        } else {
-          for (const auto& opt : s.enumValues) {
-            options.add(I18N.get(opt));
+        // Through the shared accessors, not the vectors. A row may draw its options from
+        // enumValues, from enumLabels, or from a flash-resident literal callback that extends
+        // enumValues (the timezone row's 86 city names), and reading a vector directly renders
+        // an empty dropdown for any form it does not happen to know about.
+        //
+        // Flash pointer first: ArduinoJson stores a const char* by reference and copies a
+        // std::string, so this keeps the document holding pointers rather than 1.7 KB of copied
+        // city names. Rows whose labels only exist as std::strings fall back to the copy.
+        const uint8_t optionCount = s.getEnumOptionCount();
+        for (uint8_t i = 0; i < optionCount; i++) {
+          if (const char* flash = s.getEnumOptionFlashLabel(i)) {
+            options.add(flash);
+          } else {
+            options.add(s.getEnumOptionLabel(i));
           }
         }
         break;
@@ -1753,9 +1760,10 @@ void CrossPointWebServer::handlePostSettings() {
         // (built lazily by handleGetSettings); use the dynamic option count instead.
         const bool isFontFamilyKey =
             s.key && (std::strcmp(s.key, "fontFamily") == 0 || std::strcmp(s.key, "txtFontFamily") == 0);
-        const int count = isFontFamilyKey
-                              ? static_cast<int>(fontFamilyOptionCount())
-                              : static_cast<int>(s.enumLabels.empty() ? s.enumValues.size() : s.enumLabels.size());
+        // Otherwise getEnumOptionCount(), for the same reason as the options array above: it is
+        // the one definition of how many options a row has, whichever form they come in.
+        const int count =
+            isFontFamilyKey ? static_cast<int>(fontFamilyOptionCount()) : static_cast<int>(s.getEnumOptionCount());
         if (val >= 0 && val < count) {
           if (s.valuePtr) {
             SETTINGS.*(s.valuePtr) = static_cast<uint8_t>(val);
