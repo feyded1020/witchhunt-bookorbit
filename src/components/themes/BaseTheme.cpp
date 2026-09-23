@@ -595,8 +595,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
   if (hasContinueReading && !recentBooks[0].coverBmpPath.empty()) {
     // Try to get actual image dimensions from BMP header
-    const std::string coverBmpPath =
-        UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, coverThumbHeight);
+    const std::string coverBmpPath = UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, coverThumbHeight);
 
     FsFile file;
     if (Storage.openFileForRead("HOME", coverBmpPath, file)) {
@@ -658,8 +657,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     // Only load from SD on first render, then use stored buffer
 
     if (hasContinueReading && !recentBooks[0].coverBmpPath.empty() && !coverRendered) {
-      const std::string coverBmpPath =
-          UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, coverThumbHeight);
+      const std::string coverBmpPath = UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, coverThumbHeight);
 
       // First time: load cover from SD and render
       FsFile file;
