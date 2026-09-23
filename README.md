@@ -94,6 +94,31 @@ Time per book, sessions, pages, streaks, first and last read, and a day-by-day r
 </tr>
 </table>
 
+## Highlights
+
+Pick a word, press **Start**, move to the end of the passage, press **Save**. The range can run to a whole paragraph and across line breaks, and a saved highlight is underlined in the text where you left it.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/highlights-start.jpg" width="250"><br><sub>Pick a word, press Start</sub></td>
+<td align="center"><img src="docs/images/highlights-range.jpg" width="250"><br><sub>Extend the range, press Save</sub></td>
+<td align="center"><img src="docs/images/highlights-underline.jpg" width="250"><br><sub>Underlined where you left it</sub></td>
+</tr>
+</table>
+
+Every highlight in the book is one screen away. **Select** jumps straight back to the passage; **Preview** shows the whole thing, with its chapter, for when the snippet is not enough to be sure which one you meant.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/highlights-list.jpg" width="250"><br><sub>The list</sub></td>
+<td align="center"><img src="docs/images/highlights-preview.jpg" width="250"><br><sub>Preview in full</sub></td>
+</tr>
+</table>
+
+With BookOrbit configured they sync both ways, so a passage marked here is waiting on your phone. It all lives under **Highlight Text** and **Highlights** in the reader menu:
+
+<p align="center"><img src="docs/images/highlights-menu.jpg" width="300"></p>
+
 # Installation
 
 Flashing is done from the browser — no toolchain or driver install needed. Use a Chromium-based browser (Chrome, Edge, Opera) or a recent Firefox version (>151); older versions of Firefox and Safari do not support WebSerial.
