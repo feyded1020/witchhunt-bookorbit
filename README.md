@@ -60,6 +60,40 @@ plugin](https://bookorbit.app/koreader-plugin/), so your phone, your laptop and 
 share the same library.
 
 
+# What it looks like
+
+Photographed on an Xteink X4 Pro. No mock-ups.
+
+## Your reading history, under the book
+
+The badge on a cover tells you what is **left** of a book. The line under it tells you what you have already **put in** — time in the book, how many days you have been living with it, and when you last picked it up.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/home-lyra-carousel.jpg" width="230"><br><sub><b>Lyra Carousel</b></sub></td>
+<td align="center"><img src="docs/images/home-classic.jpg" width="230"><br><sub><b>Classic</b></sub></td>
+<td align="center"><img src="docs/images/home-lyra.jpg" width="230"><br><sub><b>Lyra</b></sub></td>
+<td align="center"><img src="docs/images/home-lyra-extended.jpg" width="230"><br><sub><b>Lyra Extended</b></sub></td>
+</tr>
+</table>
+
+Every theme carries it, and each says as much as it has room for. Lyra Extended puts three covers across a third of a screen each, which is no place for a sentence, so it gets the short form: `3h 18m · 5d`.
+
+It counts days you actually opened the book rather than the number of times you opened it, because a ten second glance is not a reading session.
+
+## Reading Stats
+
+Time per book, sessions, pages, streaks, first and last read, and a day-by-day record. One row on the home menu rather than three levels down in Settings — and a switch in **Settings > Display** for anyone who would rather not have the row at all.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/reading-stats-all-time.jpg" width="250"><br><sub>All time</sub></td>
+<td align="center"><img src="docs/images/reading-stats-book.jpg" width="250"><br><sub>Per book</sub></td>
+<td align="center"><img src="docs/images/reading-stats-all-books.jpg" width="250"><br><sub>Every book</sub></td>
+<td align="center"><img src="docs/images/stats-row-setting.jpg" width="250"><br><sub>Or turn it off</sub></td>
+</tr>
+</table>
+
 # Installation
 
 Flashing is done from the browser — no toolchain or driver install needed. Use a Chromium-based browser (Chrome, Edge, Opera) or a recent Firefox version (>151); older versions of Firefox and Safari do not support WebSerial.
