@@ -40,6 +40,7 @@ class FileBrowserModel {
     basepath = newPath.empty() ? "/" : std::move(newPath);
     filterQuery.clear();
     matches.clear();
+    clearDeepSearch();
   }
 
   // Re-read the directory: filter, then either build the SD index or sort in RAM.
@@ -73,6 +74,22 @@ class FileBrowserModel {
   // nothing in a folder that is not itself empty.
   [[nodiscard]] size_t unfilteredEntryCount() const;
 
+  // Search every folder under the current path, not just this one.
+  //
+  // Walks the tree once, on demand, and keeps the paths that match. No index: FAT gives no
+  // change notification, so an index would have to re-walk the tree to know whether it was
+  // still true -- which is the walk it was meant to save. Walking when asked is always correct
+  // and costs nothing when nobody asks.
+  //
+  // Results are paths relative to the search root, so two books of the same name in different
+  // folders can be told apart. Capped: a reader wants to find one book, not enumerate the card.
+  void searchEverywhere(const std::string& query);
+  [[nodiscard]] bool isDeepSearch() const { return deepSearch; }
+  // True when the walk stopped at MAX_DEEP_RESULTS with more still out there.
+  [[nodiscard]] bool deepResultsTruncated() const { return deepTruncated; }
+  // Absolute path for a row, whichever mode is live. The caller no longer composes it.
+  [[nodiscard]] std::string entryFullPath(size_t displayIndex);
+
   [[nodiscard]] CrossPointSettings::FILE_SORT_MODE getSortMode() const { return sortMode; }
   [[nodiscard]] CrossPointSettings::FILE_SORT_DIRECTION getSortDirection() const { return sortDirection; }
   void setSort(const CrossPointSettings::FILE_SORT_MODE mode, const CrossPointSettings::FILE_SORT_DIRECTION direction) {
@@ -96,7 +113,22 @@ class FileBrowserModel {
   // filter is set, so an unfiltered browser costs nothing.
   std::string filterQuery;
   std::vector<uint32_t> matches;
+
+  // Card-wide search results: paths relative to the search root. Held only while one is on
+  // screen; cleared with everything else in clear() and on any directory change.
+  static constexpr size_t MAX_DEEP_RESULTS = 64;
+  bool deepSearch = false;
+  bool deepTruncated = false;
+  std::string deepRoot;
+  std::vector<std::string> deepResults;
   void rebuildMatches();
+  void clearDeepSearch() {
+    deepSearch = false;
+    deepTruncated = false;
+    deepResults.clear();
+    deepResults.shrink_to_fit();
+    deepRoot.clear();
+  }
   // entryName() without the filter indirection: what the live backend holds at that row.
   std::string backendEntryName(size_t backendIndex);
 

@@ -30,6 +30,7 @@ class FileContextMenuActivity final : public MenuListActivity {
     MoveTo,
     NewFolder,
     Search,
+    SearchAll,
     ClearSearch,
   };
 

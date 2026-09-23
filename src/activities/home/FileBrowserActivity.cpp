@@ -286,9 +286,7 @@ void FileBrowserActivity::activateSelected(const bool longPress) {
     return;
   }
 
-  std::string fullPath = model.path();
-  if (fullPath.back() != '/') fullPath += "/";
-  fullPath += entry;
+  std::string fullPath = model.entryFullPath(static_cast<size_t>(nav.selected));
   if (longPress && BOOKORBIT_STORE.hasCredentials() && FsHelpers::hasEpubExtension(fullPath)) {
     auto& sync = APP_STATE.koReaderSyncSession;
     sync.autoPullEpubPath = fullPath;
@@ -600,22 +598,36 @@ bool FileBrowserActivity::confirmOpensOptions() const {
   return model.getMode() == Mode::Books && !HalCapabilities::hasBackAndConfirmButtons();
 }
 
-// Asks for a query, then narrows the folder to the names containing it.
+// Asks for a query, then either narrows this folder or walks the whole card for it.
 //
 // One prompt rather than a live filter: on a folder large enough to be worth searching the model
 // is reading names off the card to match them, which is the right price for pressing Search and
 // the wrong one for every letter typed.
-void FileBrowserActivity::startSearch() {
-  startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SEARCH), model.filter(),
-                                                                 64, InputType::Text),
-                         [this](const ActivityResult& result) {
-                           if (result.isCancelled) {
-                             requestUpdate();
-                             return;
-                           }
-                           const auto& kb = std::get<KeyboardResult>(result.data);
-                           applyFilter(kb.text);
-                         });
+void FileBrowserActivity::startSearch(const bool everywhere) {
+  startActivityForResult(
+      std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, everywhere ? tr(STR_SEARCH_ALL) : tr(STR_SEARCH),
+                                              model.filter(), 64, InputType::Text),
+      [this, everywhere](const ActivityResult& result) {
+        if (result.isCancelled) {
+          requestUpdate();
+          return;
+        }
+        const auto& kb = std::get<KeyboardResult>(result.data);
+        if (!everywhere) {
+          applyFilter(kb.text);
+          return;
+        }
+        // The walk reads the card and takes a moment on a full one, so say so
+        // rather than looking frozen.
+        {
+          RenderLock lock(*this);
+          GUI.drawPopup(renderer, tr(STR_SEARCHING));
+          renderer.displayBuffer(HalDisplay::RefreshMode::FAST_REFRESH);
+          model.searchEverywhere(kb.text);
+          resetNavigation(0);
+        }
+        requestUpdate();
+      });
 }
 
 // Applies a query (or "" to clear) and puts the selection somewhere sensible: a search that
@@ -669,7 +681,11 @@ void FileBrowserActivity::handleContextMenuAction(int action, const std::string&
   const Action actionEnum = static_cast<Action>(action);
 
   if (actionEnum == Action::Search) {
-    startSearch();
+    startSearch(/*everywhere=*/false);
+    return;
+  }
+  if (actionEnum == Action::SearchAll) {
+    startSearch(/*everywhere=*/true);
     return;
   }
   if (actionEnum == Action::ClearSearch) {

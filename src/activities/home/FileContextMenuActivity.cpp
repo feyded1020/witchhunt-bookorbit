@@ -74,6 +74,7 @@ void FileContextMenuActivity::buildMenuItems() {
     // Search narrows the folder you are standing in, so it sits with the folder actions rather
     // than the row actions. Clearing only appears when there is something to clear.
     menuItems.push_back(SettingInfo::Action(StrId::STR_SEARCH, SettingAction::None));
+    menuItems.push_back(SettingInfo::Action(StrId::STR_SEARCH_ALL, SettingAction::None));
     if (searchActive) {
       menuItems.push_back(SettingInfo::Action(StrId::STR_CLEAR_SEARCH, SettingAction::None));
     }
@@ -168,6 +169,8 @@ void FileContextMenuActivity::onActionSelected(int index) {
     action = Action::MoveTo;
   } else if (nameId == StrId::STR_SEARCH) {
     action = Action::Search;
+  } else if (nameId == StrId::STR_SEARCH_ALL) {
+    action = Action::SearchAll;
   } else if (nameId == StrId::STR_CLEAR_SEARCH) {
     action = Action::ClearSearch;
   } else if (nameId == StrId::STR_NEW_FOLDER) {

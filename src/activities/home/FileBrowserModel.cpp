@@ -141,7 +141,10 @@ void FileBrowserModel::openIndexIfLarge() {
 
 size_t FileBrowserModel::unfilteredEntryCount() const { return fileIndex ? fileIndex->totalCount() : files.size(); }
 
-size_t FileBrowserModel::entryCount() const { return isFiltered() ? matches.size() : unfilteredEntryCount(); }
+size_t FileBrowserModel::entryCount() const {
+  if (deepSearch) return deepResults.size();
+  return isFiltered() ? matches.size() : unfilteredEntryCount();
+}
 
 bool FileBrowserModel::indexEntryAt(const size_t displayIndex, FileIndex::Entry& out) {
   if (!fileIndex) return false;
@@ -153,6 +156,9 @@ bool FileBrowserModel::indexEntryAt(const size_t displayIndex, FileIndex::Entry&
 // directory. For the in-RAM backend `files` already stores this form; for the SD
 // index we reconstruct it from the Entry. Out-of-range / index-read failure → "".
 std::string FileBrowserModel::entryName(const size_t displayIndex) {
+  if (deepSearch) {
+    return displayIndex < deepResults.size() ? deepResults[displayIndex] : "";
+  }
   if (isFiltered()) {
     if (displayIndex >= matches.size()) return "";
     return backendEntryName(matches[displayIndex]);
@@ -218,6 +224,71 @@ void FileBrowserModel::rebuildMatches() {
     for (char& c : name) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
     if (name.find(needle) != std::string::npos) matches.push_back(static_cast<uint32_t>(i));
   }
+}
+
+std::string FileBrowserModel::entryFullPath(const size_t displayIndex) {
+  const std::string name = entryName(displayIndex);
+  if (name.empty()) return "";
+  const std::string& base = deepSearch ? deepRoot : basepath;
+  std::string full = base;
+  if (full.empty() || full.back() != '/') full += '/';
+  full += name;
+  if (!full.empty() && full.back() == '/') full.pop_back();  // directories carry a marker
+  return full;
+}
+
+void FileBrowserModel::searchEverywhere(const std::string& query) {
+  clearDeepSearch();
+  if (query.empty()) return;
+
+  std::string needle = query;
+  for (char& c : needle) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+
+  deepRoot = basepath;
+  deepSearch = true;
+
+  // Explicit stack, not recursion: the depth of a card is not ours to choose, and the reader's
+  // task stack is not the place to find out. Same shape the browser's recursive delete uses.
+  std::vector<std::string> pending;
+  pending.push_back(basepath);
+
+  char name[500];
+  while (!pending.empty() && deepResults.size() < MAX_DEEP_RESULTS) {
+    const std::string dirPath = std::move(pending.back());
+    pending.pop_back();
+
+    auto dir = Storage.open(dirPath.c_str());
+    if (!dir || !dir.isDirectory()) {
+      if (dir) dir.close();
+      continue;
+    }
+    dir.rewindDirectory();
+    for (auto entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+      entry.getName(name, sizeof(name));
+      const bool isDir = entry.isDirectory();
+      entry.close();
+      if (name[0] == '.') continue;  // dot entries, and hidden folders we never list anyway
+      std::string child = dirPath;
+      if (child.empty() || child.back() != '/') child += '/';
+      child += name;
+      if (isDir) {
+        pending.push_back(std::move(child));
+        continue;
+      }
+      if (!acceptEntry(name, false)) continue;
+      std::string folded = name;
+      for (char& c : folded) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+      if (folded.find(needle) == std::string::npos) continue;
+      if (deepResults.size() >= MAX_DEEP_RESULTS) {
+        deepTruncated = true;
+        break;
+      }
+      // Stored relative to the root, so the row shows which folder it came from.
+      deepResults.push_back(child.substr(deepRoot.size() + (deepRoot.back() == '/' ? 0 : 1)));
+    }
+    dir.close();
+  }
+  if (!pending.empty() && deepResults.size() >= MAX_DEEP_RESULTS) deepTruncated = true;
 }
 
 void FileBrowserModel::resort() {
@@ -323,6 +394,7 @@ void FileBrowserModel::clear() {
   filterQuery.clear();
   matches.clear();
   matches.shrink_to_fit();
+  clearDeepSearch();
   if (fileIndex) fileIndex->close();
   fileIndex = nullptr;
 }
