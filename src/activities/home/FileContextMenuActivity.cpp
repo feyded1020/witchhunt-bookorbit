@@ -13,11 +13,12 @@ FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedIn
                                                  const std::string& filePath,
                                                  CrossPointSettings::FILE_SORT_MODE sortMode,
                                                  CrossPointSettings::FILE_SORT_DIRECTION sortDirection,
-                                                 const bool offerDirectoryActions)
+                                                 const bool offerDirectoryActions, const bool searchActive)
     : MenuListActivity("FileContextMenu", renderer, mappedInput),
       filePath(filePath),
       isBrowserMode(filePath.empty()),
       offerDirectoryActions(offerDirectoryActions),
+      searchActive(searchActive),
       sortMode(static_cast<uint8_t>(sortMode)),
       sortDirection(static_cast<uint8_t>(sortDirection)),
       showHiddenFiles(SETTINGS.showHiddenFiles),
@@ -70,6 +71,12 @@ void FileContextMenuActivity::buildMenuItems() {
   // deleting the one selected.
   if (isBrowserMode) {
     menuItems.push_back(SettingInfo::Separator(StrId::STR_TOOL_UTILITIES));
+    // Search narrows the folder you are standing in, so it sits with the folder actions rather
+    // than the row actions. Clearing only appears when there is something to clear.
+    menuItems.push_back(SettingInfo::Action(StrId::STR_SEARCH, SettingAction::None));
+    if (searchActive) {
+      menuItems.push_back(SettingInfo::Action(StrId::STR_CLEAR_SEARCH, SettingAction::None));
+    }
     menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
     if (offerDirectoryActions) {
       menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
@@ -159,6 +166,10 @@ void FileContextMenuActivity::onActionSelected(int index) {
     action = Action::FlashFirmware;
   } else if (nameId == StrId::STR_MOVE_TO_FOLDER) {
     action = Action::MoveTo;
+  } else if (nameId == StrId::STR_SEARCH) {
+    action = Action::Search;
+  } else if (nameId == StrId::STR_CLEAR_SEARCH) {
+    action = Action::ClearSearch;
   } else if (nameId == StrId::STR_NEW_FOLDER) {
     action = Action::NewFolder;
   } else if (nameId == StrId::STR_REMOVE) {

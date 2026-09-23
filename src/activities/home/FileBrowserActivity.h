@@ -52,6 +52,9 @@ class FileBrowserActivity final : public UiListActivity {
   void showBrowserOptionsMenu(const std::string& dirEntry = {});
   void activateSelected(bool longPress);
   void resetNavigation(int selected = 0);
+  // Search: prompt for a query, then narrow the folder to the names containing it.
+  void startSearch();
+  void applyFilter(const std::string& query);
   void materializeListWindow();
 
  public:

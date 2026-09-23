@@ -136,9 +136,12 @@ void FileBrowserModel::openIndexIfLarge() {
     LOG_ERR("FBR", "FileIndex build failed for %s, falling back to in-RAM sort", basepath.c_str());
     fileIndex = nullptr;
   }
+  rebuildMatches();  // the rows were just renumbered
 }
 
-size_t FileBrowserModel::entryCount() const { return fileIndex ? fileIndex->totalCount() : files.size(); }
+size_t FileBrowserModel::unfilteredEntryCount() const { return fileIndex ? fileIndex->totalCount() : files.size(); }
+
+size_t FileBrowserModel::entryCount() const { return isFiltered() ? matches.size() : unfilteredEntryCount(); }
 
 bool FileBrowserModel::indexEntryAt(const size_t displayIndex, FileIndex::Entry& out) {
   if (!fileIndex) return false;
@@ -150,6 +153,14 @@ bool FileBrowserModel::indexEntryAt(const size_t displayIndex, FileIndex::Entry&
 // directory. For the in-RAM backend `files` already stores this form; for the SD
 // index we reconstruct it from the Entry. Out-of-range / index-read failure → "".
 std::string FileBrowserModel::entryName(const size_t displayIndex) {
+  if (isFiltered()) {
+    if (displayIndex >= matches.size()) return "";
+    return backendEntryName(matches[displayIndex]);
+  }
+  return backendEntryName(displayIndex);
+}
+
+std::string FileBrowserModel::backendEntryName(const size_t displayIndex) {
   FileIndex::Entry e;
   if (indexEntryAt(displayIndex, e)) {
     std::string name(e.name);
@@ -161,6 +172,11 @@ std::string FileBrowserModel::entryName(const size_t displayIndex) {
 }
 
 size_t FileBrowserModel::findEntry(const std::string& name) {
+  if (isFiltered()) {
+    for (size_t i = 0; i < matches.size(); i++)
+      if (backendEntryName(matches[i]) == name) return i;
+    return matches.size();
+  }
   if (fileIndex) {
     // The index stores names without the trailing '/'; strip it for the lookup.
     std::string bare = name;
@@ -174,8 +190,39 @@ size_t FileBrowserModel::findEntry(const std::string& name) {
   return files.size();
 }
 
+void FileBrowserModel::setFilter(std::string query) {
+  // Trim: a stray space from the keyboard should not be the reason nothing matches.
+  while (!query.empty() && query.front() == ' ') query.erase(query.begin());
+  while (!query.empty() && query.back() == ' ') query.pop_back();
+  if (query == filterQuery) return;
+  filterQuery = std::move(query);
+  rebuildMatches();
+}
+
+void FileBrowserModel::rebuildMatches() {
+  matches.clear();
+  if (filterQuery.empty()) {
+    matches.shrink_to_fit();  // an unfiltered browser should not keep the capacity around
+    return;
+  }
+  // ASCII-folded substring match. Deliberately not a full Unicode fold: filenames on these cards
+  // are overwhelmingly ASCII, and a UTF-8 case table costs more flash than the feature does.
+  std::string needle = filterQuery;
+  for (char& c : needle) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+
+  const size_t total = unfilteredEntryCount();
+  for (size_t i = 0; i < total && matches.size() < MAX_MATCHES; i++) {
+    std::string name = backendEntryName(i);
+    if (name.empty()) continue;
+    if (!name.empty() && name.back() == '/') name.pop_back();  // match on the name, not the marker
+    for (char& c : name) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    if (name.find(needle) != std::string::npos) matches.push_back(static_cast<uint32_t>(i));
+  }
+}
+
 void FileBrowserModel::resort() {
   if (fileIndex) return;  // the index is ordered at build time; see the header.
+  // Whatever happens below renumbers the rows, so the match list is rebuilt at the end.
   // Create index array to preserve metadata array alignment
   std::vector<size_t> indices(files.size());
   for (size_t i = 0; i < files.size(); ++i) indices[i] = i;
@@ -266,12 +313,16 @@ void FileBrowserModel::resort() {
   files = std::move(sorted_files);
   fileSizes = std::move(sorted_sizes);
   fileDateTimes = std::move(sorted_dateTimes);
+  rebuildMatches();  // the rows were just renumbered
 }
 
 void FileBrowserModel::clear() {
   files.clear();
   fileSizes.clear();
   fileDateTimes.clear();
+  filterQuery.clear();
+  matches.clear();
+  matches.shrink_to_fit();
   if (fileIndex) fileIndex->close();
   fileIndex = nullptr;
 }

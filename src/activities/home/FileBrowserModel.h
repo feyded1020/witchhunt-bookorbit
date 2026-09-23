@@ -34,7 +34,13 @@ class FileBrowserModel {
 
   // The directory currently enumerated. setPath() only records it; call load() to re-read.
   [[nodiscard]] const std::string& path() const { return basepath; }
-  void setPath(std::string newPath) { basepath = newPath.empty() ? "/" : std::move(newPath); }
+  // Changing directory ends any search: a filter is about the folder it was run in, and
+  // carrying it into the next one silently hides most of what is there.
+  void setPath(std::string newPath) {
+    basepath = newPath.empty() ? "/" : std::move(newPath);
+    filterQuery.clear();
+    matches.clear();
+  }
 
   // Re-read the directory: filter, then either build the SD index or sort in RAM.
   void load();
@@ -49,6 +55,23 @@ class FileBrowserModel {
   std::string entryName(size_t displayIndex);
   // Display index of `name` (canonical form), or entryCount() when it is not present.
   size_t findEntry(const std::string& name);
+
+  // Narrow the rows to those whose name contains `query`, case-insensitively. "" clears it.
+  //
+  // A filter belongs here rather than in the screen because this class already answers "what is
+  // in this directory, in what order", and because doing it here means both backends get it: the
+  // match list is built through entryName(), so the SD-indexed folders that most need searching
+  // are exactly the ones it works on.
+  //
+  // Applied once, on demand, not per keystroke. On the indexed backend building the list reads
+  // every name from the index file, which is fine as the cost of pressing Search and much too
+  // much to pay on each letter typed.
+  void setFilter(std::string query);
+  [[nodiscard]] const std::string& filter() const { return filterQuery; }
+  [[nodiscard]] bool isFiltered() const { return !filterQuery.empty(); }
+  // Rows the folder holds regardless of the filter. For telling someone their search matched
+  // nothing in a folder that is not itself empty.
+  [[nodiscard]] size_t unfilteredEntryCount() const;
 
   [[nodiscard]] CrossPointSettings::FILE_SORT_MODE getSortMode() const { return sortMode; }
   [[nodiscard]] CrossPointSettings::FILE_SORT_DIRECTION getSortDirection() const { return sortDirection; }
@@ -65,6 +88,17 @@ class FileBrowserModel {
  private:
   // At or above this many entries, the folder moves to the SD-backed index.
   static constexpr size_t INDEX_THRESHOLD = 64;
+  // Ceiling on a single search's match list, so a one-letter query in a huge folder cannot
+  // turn into an unbounded allocation. Four bytes each, so this is 4 KB at worst.
+  static constexpr size_t MAX_MATCHES = 1024;
+
+  // Backend row indices that match the filter, in display order. Empty and unused when no
+  // filter is set, so an unfiltered browser costs nothing.
+  std::string filterQuery;
+  std::vector<uint32_t> matches;
+  void rebuildMatches();
+  // entryName() without the filter indirection: what the live backend holds at that row.
+  std::string backendEntryName(size_t backendIndex);
 
   // What the browser lists, in the mode it was opened in. Both the in-RAM enumeration and the
   // index build/staleness scan go through these, so the two backends cannot disagree about

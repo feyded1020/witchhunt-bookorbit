@@ -428,6 +428,10 @@ void FileBrowserActivity::drawChrome() {
           // row under the highlight, and the first reading of it is the other way round.
           ? std::string(tr(STR_MOVE_TO_FOLDER)) + ": " + destination
           : ((model.path() == "/") ? std::string(tr(STR_SD_CARD)) : model.path().substr(model.path().rfind('/') + 1));
+  // A narrowed folder is indistinguishable from a small one unless the header says otherwise.
+  if (model.isFiltered()) {
+    folderName += ": \"" + model.filter() + "\"";
+  }
   GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), folderName.c_str());
 }
 
@@ -596,6 +600,35 @@ bool FileBrowserActivity::confirmOpensOptions() const {
   return model.getMode() == Mode::Books && !HalCapabilities::hasBackAndConfirmButtons();
 }
 
+// Asks for a query, then narrows the folder to the names containing it.
+//
+// One prompt rather than a live filter: on a folder large enough to be worth searching the model
+// is reading names off the card to match them, which is the right price for pressing Search and
+// the wrong one for every letter typed.
+void FileBrowserActivity::startSearch() {
+  startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SEARCH), model.filter(),
+                                                                 64, InputType::Text),
+                         [this](const ActivityResult& result) {
+                           if (result.isCancelled) {
+                             requestUpdate();
+                             return;
+                           }
+                           const auto& kb = std::get<KeyboardResult>(result.data);
+                           applyFilter(kb.text);
+                         });
+}
+
+// Applies a query (or "" to clear) and puts the selection somewhere sensible: a search that
+// matches nothing still shows the folder's own empty state rather than a stale row.
+void FileBrowserActivity::applyFilter(const std::string& query) {
+  {
+    RenderLock lock(*this);
+    model.setFilter(query);
+    resetNavigation(0);
+  }
+  requestUpdate();
+}
+
 void FileBrowserActivity::showBrowserOptionsMenu(const std::string& dirEntry) {
   // Resolved now rather than in the handler: the menu cannot change the selection while it is
   // open, but reading it back afterwards would be a dependency on that staying true.
@@ -606,7 +639,7 @@ void FileBrowserActivity::showBrowserOptionsMenu(const std::string& dirEntry) {
     dirPath += dirEntry.substr(0, dirEntry.length() - 1);
   }
   startActivityForResult(std::make_unique<FileContextMenuActivity>(renderer, mappedInput, "", model.getSortMode(),
-                                                                   model.getSortDirection(), isDir),
+                                                                   model.getSortDirection(), isDir, model.isFiltered()),
                          [this, isDir, dirPath, dirEntry](const ActivityResult& res) {
                            if (res.isCancelled) {
                              requestUpdate();
@@ -635,6 +668,14 @@ void FileBrowserActivity::handleContextMenuAction(int action, const std::string&
   using Action = FileContextMenuActivity::Action;
   const Action actionEnum = static_cast<Action>(action);
 
+  if (actionEnum == Action::Search) {
+    startSearch();
+    return;
+  }
+  if (actionEnum == Action::ClearSearch) {
+    applyFilter("");
+    return;
+  }
   if (actionEnum == Action::NewFolder) {
     createFolderHere();
     return;
