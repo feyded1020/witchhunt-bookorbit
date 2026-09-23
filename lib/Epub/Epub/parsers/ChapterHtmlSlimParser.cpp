@@ -762,6 +762,20 @@ bool ChapterHtmlSlimParser::heapAllowsImageHeaderRead() const {
   return ok;
 }
 
+bool ChapterHtmlSlimParser::heapAllowsImageWalk(const size_t walkBytes) const {
+  const uint32_t freeHeap = ESP.getFreeHeap();
+  const uint32_t maxAllocHeap = ESP.getMaxAllocHeap();
+  // The ring is one contiguous block, so contig is the hard bar; free keeps the same margin the
+  // header-read gate keeps for the paragraph fallback, on top of what the walk itself takes.
+  const bool ok =
+      freeHeap >= MIN_FREE_HEAP_FOR_IMAGE_HEADER + walkBytes && maxAllocHeap >= walkBytes + LARGEST_FREE_BLOCK_SLACK;
+  if (!ok) {
+    LOG_DBG("EHP", "Skipping image header walk (%u bytes; %u free, %u max alloc); image deferred to build end",
+            static_cast<unsigned>(walkBytes), freeHeap, maxAllocHeap);
+  }
+  return ok;
+}
+
 bool ChapterHtmlSlimParser::recoverHeapForImageHeader() {
   if (fontCachesReleasedForImageHeader) return false;
   fontCachesReleasedForImageHeader = true;
@@ -1718,11 +1732,16 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
 
             // Get dimensions, cheapest ring-free source first:
             //  1. explicit width/height on the tag (an SVG cover / sized <img>) — no ZIP read at all;
-            //  2. the pre-built image manifest (each header read at most once ever);
-            //  3. fall back to reading the ZIP entry header directly — a ~32 KB inflate ring that can
-            //     OOM on the reader's tight heap (this is what left the cover.jpeg titlepage blank).
+            //  2. the image manifest (each header read at most once ever; a header the probe
+            //     window cannot reach is walked only when the heap can host the ring, else deferred
+            //     to the build's end — see the Deferred branch);
+            //  3. without a manifest, read the ZIP entry header directly — a ~32 KB inflate ring
+            //     that can OOM on the reader's tight heap (this is what left the cover.jpeg
+            //     titlepage blank).
             ImageDimensions dims = {0, 0};
             bool dimsOk = false;
+            bool manifestAnswered = false;
+            bool imageDeferred = false;
             if (attrWidth > 0 && attrHeight > 0) {
               dims.width = attrWidth;
               dims.height = attrHeight;
@@ -1730,15 +1749,51 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
             }
             if (!dimsOk && self->imageManifest) {
               // Resolve + cache on a miss: each image's header is read at most once ever.
-              const ImageManifestEntry* entry =
-                  self->imageManifest->ensureResolved(self->epub->getPath(), resolvedPath);
-              if (entry) {
-                dims.width = entry->width;
-                dims.height = entry->height;
-                dimsOk = true;
+              const ImageManifestEntry* entry = nullptr;
+              switch (self->imageManifest->resolve(self->epub->getPath(), resolvedPath, entry)) {
+                case EpubImageManifest::Resolve::Resolved:
+                  dims.width = entry->width;
+                  dims.height = entry->height;
+                  dimsOk = true;
+                  manifestAnswered = true;
+                  break;
+                case EpubImageManifest::Resolve::Unreadable:
+                  // Missing, unknown format or corrupt: alt text for good. The direct read below
+                  // would only repeat the same probe on the same bytes.
+                  manifestAnswered = true;
+                  break;
+                case EpubImageManifest::Resolve::Deferred: {
+                  // A valid JPEG whose SOF lies beyond the probe window (Exif/IPTC/XMP/ICC ahead
+                  // of it — ~29 KB per image in the #249 book). Reaching it means walking the
+                  // entry through an inflate ring sized to the entry, up to 32 KB contiguous —
+                  // the block the C3 cannot promise mid-parse: on the reporter's X3 the ring
+                  // OOMed at page 54 of a 58-page chapter and the alt text was cached as if the
+                  // file were corrupt. Walk now only when contiguous heap really covers it;
+                  // otherwise latch provisional and let the build's end resolve it
+                  // (Epub::persistImageManifest), after which the caller rebuilds clean.
+                  const size_t walkBytes = self->imageManifest->deferredWalkBytes(resolvedPath);
+                  if (self->heapAllowsImageWalk(walkBytes) ||
+                      (self->recoverHeapForImageHeader() && self->heapAllowsImageWalk(walkBytes))) {
+                    if (self->imageManifest->resolveDeferredNow(self->epub->getPath(), resolvedPath, entry)) {
+                      dims.width = entry->width;
+                      dims.height = entry->height;
+                      dimsOk = true;
+                    } else {
+                      // The ring was refused after all, or the walk found nothing: both are
+                      // retried at the build's end, so neither may be cached as final.
+                      self->imageHeaderSkippedForHeap = true;
+                      imageDeferred = true;
+                    }
+                  } else {
+                    self->imageHeaderSkippedForHeap = true;
+                    imageDeferred = true;
+                  }
+                  manifestAnswered = true;
+                  break;
+                }
               }
             }
-            if (!dimsOk) {
+            if (!dimsOk && !manifestAnswered) {
               // Only reached when neither the tag nor the manifest could supply dimensions. On
               // refusal dimsOk stays false and the code below already falls through to
               // handleImageFallback(), so a tight heap degrades exactly this image and no other.
@@ -1981,6 +2036,8 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
                 self->depth += 1;
                 return;
               }  // layout geometry block
+            } else if (imageDeferred) {
+              LOG_DBG("EHP", "Image header deferred to the build's end: %s", resolvedPath.c_str());
             } else {
               LOG_ERR("EHP", "Failed to read image dimensions from ZIP: %s", resolvedPath.c_str());
             }

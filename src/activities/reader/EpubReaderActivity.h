@@ -18,9 +18,19 @@
 #include "BookmarkStore.h"
 #include "CrossPointState.h"
 #include "EpubReaderMenuActivity.h"
+// KOReader auto-sync (upstream #269) builds on the KOReader credential store, which this
+// fork replaced with BookOrbit. The code below is already behind this guard upstream and the
+// macro is never defined here, so only these includes had to follow it. Kept rather than
+// deleted so the next upstream merge still lines up.
+#if CROSSPOINT_KOREADER_AUTOSYNC
+#include "KOReaderAutoSync.h"
+#include "KOReaderSyncWorker.h"
+#endif
+#include "ProgressMapper.h"
 #include "ReaderUtils.h"
 #include "activities/Activity.h"
 #include "bookorbit/HighlightStore.h"
+#include "components/themes/BaseTheme.h"
 #include "components/themes/TapTargets.h"
 
 class EpubReaderActivity final : public Activity {
@@ -556,6 +566,33 @@ class EpubReaderActivity final : public Activity {
   // inspection of a book should not trigger a network round-trip. Reset on every reader
   // entry; not persisted, since "session" means the lifetime of this activity instance.
   int sessionPagesAdvanced = 0;
+
+#if CROSSPOINT_KOREADER_AUTOSYNC
+  bool autoSyncPullPending = false;
+  unsigned long autoSyncLastPushAt = 0;
+  uint64_t autoSyncPushSeq = 0;
+  uint64_t autoSyncPullSeq = 0;
+  KOReaderSyncJob autoSyncPullJob;
+  bool autoSyncPullJobPending = false;
+  bool autoSyncPullDialogLaunched = false;
+  SyncIndicator autoSyncIndicator = SyncIndicator::None;
+  void refreshAutoSyncIndicator();
+
+  void serviceAutoSync();
+  bool autoSyncReaderIsQuiet() const;
+  void maybeAutoPullOnWake();
+  bool pollAutoSyncPull();
+  void evaluateAutoSyncPull();
+  bool handOffToInteractiveSync();
+  void silentUploadCurrentPosition();
+  void silentApplyRemote(const KOReaderProgress& remote);
+  void maybeAutoPushInterval();
+  void pollAutoSyncJob();
+  void maybeAutoPushOnSleep();
+  void releaseAutoSyncSlot();
+  KOReaderPosition currentKoPosition(int page, int pageCount) const;
+#endif  // CROSSPOINT_KOREADER_AUTOSYNC
+
   // -1 means use global SETTINGS value.
   int8_t bookEmbeddedStyleOverride = -1;
   int8_t bookImageRenderingOverride = -1;

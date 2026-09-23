@@ -111,9 +111,8 @@ HomeScreenLayout computeHomeScreenLayout(const ThemeMetrics& metrics, int conten
 }
 
 int getHomeCoverRenderHeight(const HomeScreenLayout& layout) {
-  // Lyra Extended's split between cover and text lives with the theme that draws it, because the
-  // height picked here ends up in the thumbnail's filename and the theme has to ask for the same
-  // one. See the comment on Lyra3CoversMetrics::coverRenderHeight.
+  // Lyra Extended's split between cover and text lives with the theme that draws it: the height
+  // chosen here goes into the thumbnail's filename, so the theme has to ask for the same one.
   return isLyraExtendedTheme() ? Lyra3CoversMetrics::coverRenderHeight(layout.recentTileHeight)
                                : std::max(120, layout.recentTileHeight - (isLyraFamilyTheme() ? 16 : 0));
 }

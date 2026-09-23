@@ -669,6 +669,18 @@ void EpubReaderActivity::onEnter() {
   // shortcut would most plausibly skip or cache in RTC, so they get their own bucket.
   WakeTrace::mark(WakeTrace::Phase::StoresLoaded);
 
+#if CROSSPOINT_KOREADER_AUTOSYNC
+  if (KOReaderAutoSync::sleepPushEnabled() || KOReaderAutoSync::intervalPushEnabled()) {
+    AUTOSYNC_STATE.seedLastSeen(
+        currentSpineIndex, navTarget.kind == NavigationTarget::Kind::Page ? navTarget.page : navTarget.fallbackPage);
+  }
+  autoSyncPullPending = KOReaderAutoSync::pullEnabled() && WakeTrace::isResume();
+  autoSyncIndicator = SyncIndicator::None;
+  if (KOREADER_STORE.getShowSyncIndicator() && AUTOSYNC_STATE.lastSyncFailed()) {
+    autoSyncIndicator = SyncIndicator::Failed;
+  }
+#endif  // CROSSPOINT_KOREADER_AUTOSYNC
+
   // Trigger first update
   logReaderMemSnapshot("onEnter_before_request_update");
   requestUpdate();
@@ -709,6 +721,12 @@ void EpubReaderActivity::onExit() {
   // no live epub reference and persists the JSON. Sleep paths that bypass
   // onExit() still end up here on resume because the activity is recreated.
   globalReadingSessionTracker().end();
+
+#if CROSSPOINT_KOREADER_AUTOSYNC
+  maybeAutoPushOnSleep();
+  releaseAutoSyncSlot();
+#endif  // CROSSPOINT_KOREADER_AUTOSYNC
+
   // If a pre-render left the next page in the frame buffer, redraw the current page so the
   // next activity (notably SleepActivity's OVERLAY mode) sees what the user was looking at.
   // Must run before section.reset() and the orientation reset below.
@@ -820,6 +838,16 @@ void EpubReaderActivity::loop() {
     serviceFinishedBookLaunch();
     return;
   }
+
+#if CROSSPOINT_KOREADER_AUTOSYNC
+  if (autoSyncPullDialogLaunched) {
+    return;
+  }
+  serviceAutoSync();
+  if (autoSyncPullDialogLaunched) {
+    return;
+  }
+#endif  // CROSSPOINT_KOREADER_AUTOSYNC
 
   if (inputDrainGuard.shouldDrain(mappedInput)) {
     buttonEvents.drain();
@@ -1675,10 +1703,17 @@ void EpubReaderActivity::stepBackgroundSectionBuild() {
       // framebuffer back at once rather than holding it across the Settled tick — AA is off for
       // every render until it returns. A completed backgroundSection_ survives this (it no longer
       // references the arena) so buildSection() can still adopt it.
-      endBackgroundBorrow();
-      // Flush any image dimensions this background build resolved (valid regardless of the
+      // Resolve the image headers this build deferred BEFORE the borrowed framebuffer goes back
+      // (#249): device-measured on the X3, reader-time contiguous heap tops out around 31.7 KB
+      // while the walk's ring needs 33.3 KB — at every moment of a session, this one included.
+      // The borrowed region is the only block of that size, and the build that used it as an
+      // arena is finished (its state is torn down before Done/Failed; a completed Section no
+      // longer references it), so reset() reclaims the build's bump allocations and the walk
+      // carves its ring there. Also flushes whatever this build resolved (valid regardless of the
       // build's outcome). One write per completed background section, under the render lock.
-      epub->persistImageManifest();
+      if (buildScratch_) buildScratch_->reset();
+      epub->persistImageManifest(buildScratch_.get());
+      endBackgroundBorrow();
       backgroundBuildState_ = BackgroundBuildState::Settled;
       return;
     }
@@ -1814,13 +1849,27 @@ void EpubReaderActivity::stepCurrentSectionBuild() {
     return;
   }
 
+  // Done, but possibly with an image dropped to alt text because its header walk was deferred
+  // (SOF behind a large metadata block; the ring could not be had mid-parse — #249). The parser
+  // and its arena are gone now, so resolve the deferred headers here; if that answered any, the
+  // manifest serves the dimensions with no ring at all and a rebuild comes out clean. Nothing
+  // resolved means a rebuild would do nothing different, so the build stands as it is.
+  // Ring storage for the walk: the borrowed arena when C holds one (idle now — the build state is
+  // gone), else the heap, which on the released path still contains the freed buffer because
+  // recoverSecondaryBufferIfNeeded() only restores it on the next render.
+  if (secondaryBorrowed_ && buildScratch_) buildScratch_->reset();
+  const bool imageHeadersResolved = epub->persistImageManifest(secondaryBorrowed_ ? buildScratch_.get() : nullptr);
+  if (section->isImageHeaderDegraded() && imageHeadersResolved) {
+    fallbackToReleasedRebuild("image headers resolved after build", /*retryIncremental=*/true);
+    return;
+  }
+
   // Done & clean: the on-disk LUT is written and `section` is now a complete cache. Resolve the
   // navigation target now that the final page count is known, then transition to reading.
 #if DEBUG_BACKGROUND_WORK
   bgCounters_.cCompletes++;
 #endif
   LOG_INF("ERS", "Background-C spine=%d complete: %u pages", currentSpineIndex, section->pageCount);
-  epub->persistImageManifest();
   readerPhase_ = ReaderPhase::READING;
 
   // Resolve the display position. For a Page target, section->currentPage already tracked the
@@ -3652,6 +3701,21 @@ EpubReaderActivity::BuildOutcome EpubReaderActivity::compileSectionCache(const R
     checkHeapIntegrity("after_createSectionFile_retry");
   }
 
+  // An image dropped to alt text because its header walk was deferred (#249) is resolved now,
+  // while the buffer is still released: the walk's ring needs ~33 KB contiguous, which this
+  // reader heap only has with the buffer gone (X3 steady state tops out ~31.7 KB). Only a
+  // resolve earns the one rebuild — the manifest then answers with no ring at all — so a walk
+  // that still fails leaves the build as it is.
+  if (createOk && section->isImageHeaderDegraded() && epub->persistImageManifest()) {
+    LOG_INF("ERS", "Section %d: image headers resolved after the build; rebuilding once", currentSpineIndex);
+    section->clearCache();
+    const uint32_t rebuildStart = millis();
+    createOk = runCreate();
+    LOG_INF("ERS", "createSectionFile image rebuild returned %d in %ums (free=%lu)", createOk ? 1 : 0,
+            millis() - rebuildStart, esp_get_free_heap_size());
+    checkHeapIntegrity("after_createSectionFile_image_rebuild");
+  }
+
   // No eager image pre-decode here. Only the dimensions are needed to lay a section out, and
   // those come from the ZIP entry header at parse time (ImageDecoderFactory::getDimensions-
   // FromZipEntry) — nothing about building the section requires an image to be extracted.
@@ -5343,8 +5407,13 @@ void EpubReaderActivity::renderStatusBar() const {
       printedPageLabel = std::string("(") + *nearest + ")";
     }
   }
+#if CROSSPOINT_KOREADER_AUTOSYNC
+  const SyncIndicator syncIndicator = autoSyncIndicator;
+#else
+  const SyncIndicator syncIndicator = SyncIndicator::None;
+#endif
   GUI.drawStatusBar(renderer, bookProgress, currentPage, displayPageCount, title, 0, isStarred, printedPageLabel,
-                    /*fillMargin=*/true, /*pageCountApproximate=*/building);
+                    /*fillMargin=*/true, /*pageCountApproximate=*/building, syncIndicator);
 
 #if DEBUG_BACKGROUND_WORK
   renderBackgroundDebugOverlay();

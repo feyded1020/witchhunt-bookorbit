@@ -49,8 +49,15 @@
 #include "UiFontScale.h"
 #include "WallClock.h"
 #include "WeatherSettingsStore.h"
+#include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#if CROSSPOINT_KOREADER_AUTOSYNC
+#include "activities/reader/KOReaderAutoSync.h"
+#endif
+#if CROSSPOINT_KOREADER_AUTOSYNC
+#include "activities/reader/KOReaderSyncWorker.h"
+#endif
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -605,9 +612,17 @@ void enterDeepSleep(bool fromTimeout = false, BootDiag::SleepTrigger trigger = B
 
   APP_STATE.saveToFile();
   BootDiag::markSleepStage(BootDiag::SleepStage::StatePersisted);
+  bool keepRadioUp = false;
+#if CROSSPOINT_KOREADER_AUTOSYNC
+  // Deiniting esp_wifi under a worker job's open socket crashes so let's drain first.
+  constexpr unsigned long AUTO_SYNC_PRESLEEP_DRAIN_MS = 3000;
+  keepRadioUp = !KOReaderSyncWorker::drain(AUTO_SYNC_PRESLEEP_DRAIN_MS);
+  keepRadioUp = keepRadioUp || (KOReaderAutoSync::sleepPushEnabled() && activityManager.isReaderActivity());
+#endif
   // Tear down WiFi so the modem power domain isn't held alive across deep sleep.
   // Wake from deep sleep is effectively a chip reset, so no state needs to survive.
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
+  // cppcheck-suppress knownConditionTrueFalse ; compile-time false without CROSSPOINT_KOREADER_AUTOSYNC
+  if (!keepRadioUp && WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
   }
@@ -616,6 +631,13 @@ void enterDeepSleep(bool fromTimeout = false, BootDiag::SleepTrigger trigger = B
   // a WiFi activity would otherwise silentRestart() here and reboot instead.
   deepSleepInProgress = true;
   activityManager.goToSleep(fromTimeout);
+
+#if CROSSPOINT_KOREADER_AUTOSYNC
+  if (!KOReaderSyncWorker::isBusy() && WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+  }
+#endif
 
   // Persist the moon-icon-overlaid framebuffer after goToSleep() has painted it. Quick Resume
   // only: it restores this frame and paints a loading icon over it, which is worth the mandatory

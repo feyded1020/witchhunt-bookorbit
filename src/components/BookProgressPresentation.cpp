@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <ctime>
 #include <string>
 
 #include "KOReaderDocumentId.h"
@@ -176,27 +177,28 @@ void drawBadge(const GfxRenderer& renderer, Rect coverRect, const RecentBook& bo
 std::string formatReadingDuration(uint32_t totalSeconds) {
   const uint32_t h = totalSeconds / 3600;
   const uint32_t m = (totalSeconds % 3600) / 60;
+  const uint32_t s = totalSeconds % 60;
   char buf[24];
   if (h > 0) {
     snprintf(buf, sizeof(buf), "%uh %02um", h, m);
+  } else if (m > 0) {
+    snprintf(buf, sizeof(buf), "%um %02us", m, s);
   } else {
-    snprintf(buf, sizeof(buf), "%um", m);
+    snprintf(buf, sizeof(buf), "%us", s);
   }
   return buf;
 }
 
-// "N days ago" / "Nh ago" style, or an absolute date past a month. Empty when
-// the epoch is unknown or the clock isn't synced (caller then skips the row).
 std::string formatLastRead(time_t epoch) {
   if (epoch == 0 || !HalClock::isSynced()) {
     return {};
   }
   const time_t now = HalClock::now();
-  char buf[24];
   if (now <= epoch) {
     return "just now";
   }
   const uint32_t delta = static_cast<uint32_t>(now - epoch);
+  char buf[24];
   if (delta < 60) {
     return "just now";
   }
@@ -229,13 +231,13 @@ std::string historyLine(const RecentBook& book) {
   snprintf(buf, sizeof(buf), tr(STR_STATS_READ_FORMAT), formatReadingDuration(stats->totalSeconds).c_str());
   std::string line = buf;
 
-  // Days the book was actually opened on, not sittings. Sittings counts every open, so a glance
-  // inflates it and 69 of them says nothing; days says how long you have been living with the
-  // book, which is the thing you can feel.
+  // Days the book was opened on, not sittings. Sessions counts every open, so a glance inflates
+  // it and "69 sittings" says nothing; days says how long you have been living with the book,
+  // which is the thing you can feel.
   //
-  // dayIndex 0 is the reserved bucket for sessions recorded while the clock was unsynced. Those
+  // dayIndex 0 is the bucket for sessions recorded while the clock was not wall-anchored. Those
   // are real reading but belong to no known day, so they are excluded -- and on a device whose
-  // clock has never synced that leaves nothing to say, and the clause is dropped rather than
+  // clock has never synced that leaves nothing to say, so the clause is dropped rather than
   // claiming zero days.
   size_t knownDays = 0;
   for (const auto& day : stats->days) {
@@ -248,7 +250,7 @@ std::string historyLine(const RecentBook& book) {
     line += buf;
   }
   // Dropped rather than shown as unknown: a clock that has never synced would otherwise put
-  // "last read: never" under a book you finished yesterday.
+  // "last read: never" under a book finished yesterday.
   const std::string last = formatLastRead(stats->lastReadEpoch);
   if (!last.empty()) {
     snprintf(buf, sizeof(buf), tr(STR_STATS_LAST_FORMAT), last.c_str());
@@ -265,8 +267,6 @@ std::string historyLineCompact(const RecentBook& book) {
   }
 
   std::string line = formatReadingDuration(stats->totalSeconds);
-  // Same dayIndex 0 exclusion as historyLine(): sessions recorded on an unsynced clock belong
-  // to no known day.
   size_t knownDays = 0;
   for (const auto& day : stats->days) {
     if (day.dayIndex != 0) ++knownDays;

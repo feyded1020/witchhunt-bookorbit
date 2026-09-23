@@ -75,6 +75,32 @@ int statusBarProgressPercent(const uint8_t progressBar, const float bookProgress
       (pageCount > 0) ? static_cast<int>((static_cast<float>(currentPage) / pageCount) * 100) : 0;
   return std::clamp(chapterProgress, 0, 100);
 }
+
+constexpr int SYNC_INDICATOR_SIZE = 12;
+
+void drawSyncIndicator(const GfxRenderer& renderer, const int x, const int y, const SyncIndicator indicator) {
+  const int r = SYNC_INDICATOR_SIZE / 2;
+  const int cx = x + r;
+  const int cy = y + r;
+  switch (indicator) {
+    case SyncIndicator::None:
+      return;
+    case SyncIndicator::Active:
+      renderer.drawArc(r, cx, cy, 1, -1, 2, true);
+      renderer.drawArc(r, cx, cy, -1, 1, 2, true);
+      renderer.fillRect(cx + r - 3, cy - 1, 4, 3, true);
+      renderer.fillRect(cx - r, cy - 1, 4, 3, true);
+      return;
+    case SyncIndicator::Failed:
+      renderer.drawArc(r, cx, cy, 1, -1, 1, true);
+      renderer.drawArc(r, cx, cy, -1, -1, 1, true);
+      renderer.drawArc(r, cx, cy, 1, 1, 1, true);
+      renderer.drawArc(r, cx, cy, -1, 1, 1, true);
+      renderer.fillRect(cx - 1, cy - 4, 2, 5, true);
+      renderer.fillRect(cx - 1, cy + 2, 2, 2, true);
+      return;
+  }
+}
 }  // namespace
 
 void BaseTheme::drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight) {
@@ -559,11 +585,11 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
   // When there's cover image, adapt width to image aspect ratio, keep height fixed at 400px
   const int baseHeight = rect.height;  // The tile height the layout settled on, not the metric
 
-  // The cover thumbnail's height is part of its filename, and HomeActivity generates it from
-  // this same rect. Asking for the metric constant instead looked equivalent only while the tile
-  // was never shrunk -- once the menu grew by a row the layout started trimming the tile, and
-  // this side kept asking for a file the other side had stopped writing, so the cover sat on
-  // "Loading..." for ever. Mirror getHomeCoverRenderHeight()'s non-Lyra branch exactly.
+  // The cover thumbnail's height is part of its filename, and HomeActivity generates the file
+  // from this same rect (getHomeCoverRenderHeight). Asking for BaseMetrics::homeCoverHeight
+  // instead is equivalent only while the tile is never trimmed -- and computeHomeScreenLayout
+  // trims it as soon as the menu needs the room, at which point this side asks the card for a
+  // file the other side never wrote and the cover reads "Loading..." for ever.
   const int coverThumbHeight = std::max(120, rect.height);
 
   int bookWidth, bookX;
@@ -571,8 +597,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
   if (hasContinueReading && !recentBooks[0].coverBmpPath.empty()) {
     // Try to get actual image dimensions from BMP header
-    const std::string coverBmpPath =
-        UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, coverThumbHeight);
+    const std::string coverBmpPath = UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, coverThumbHeight);
 
     FsFile file;
     if (Storage.openFileForRead("HOME", coverBmpPath, file)) {
@@ -634,8 +659,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     // Only load from SD on first render, then use stored buffer
 
     if (hasContinueReading && !recentBooks[0].coverBmpPath.empty() && !coverRendered) {
-      const std::string coverBmpPath =
-          UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, coverThumbHeight);
+      const std::string coverBmpPath = UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, coverThumbHeight);
 
       // First time: load cover from SD and render
       FsFile file;
@@ -734,9 +758,9 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     }
 
     // What you have put into the book, under the title block rather than over the cover art.
-    // The card is a little over half the screen wide, so the sentence gets up to two lines, in
-    // the non-scaling small face: this block is centred inside a fixed-height card and sits
-    // above the "Continue Reading" label, so it cannot be allowed to grow with the UI font.
+    // The card is a little over half the screen wide, so the sentence gets up to two lines, set
+    // in the non-scaling small face: this block is centred inside a fixed-height card and sits
+    // above the "Continue Reading" label, so it must not grow with the UI font setting.
     const std::string history = BookProgressPresentation::historyLine(recentBooks[0]);
     const int historyLineHeight = renderer.getLineHeight(FIT_SMALL_FONT_ID);
     const auto historyLines = history.empty()
@@ -995,7 +1019,7 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const bool isStarred,
                               const std::string& printedPageLabel, const bool fillMargin,
-                              const bool pageCountApproximate) const {
+                              const bool pageCountApproximate, const SyncIndicator syncIndicator) const {
   // While a section is still being laid out the total page count is a byte-based estimate, shown
   // with a leading "~" so the reader knows it will firm up as the chapter finishes building.
   const char* pageCountPrefix = pageCountApproximate ? "~" : "";
@@ -1031,7 +1055,8 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   const bool hasProgressText = SETTINGS.statusBarBookProgressPercentage || SETTINGS.statusBarChapterPageCount;
   const bool hasStatusItems = hasProgressText || SETTINGS.statusBarBattery || !title.empty() ||
                               SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
-                              (SETTINGS.useClock && SETTINGS.statusBarClock) || !printedPageLabel.empty();
+                              (SETTINGS.useClock && SETTINGS.statusBarClock) || !printedPageLabel.empty() ||
+                              syncIndicator != SyncIndicator::None;
   if (!hasStatusItems) {
     return;
   }
@@ -1113,11 +1138,14 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   }
 
   // Right cluster, laid out from the right edge inwards: progress text (already drawn), then the
-  // star, then the clock when it is right-positioned.
+  // star, then the sync indicator, then the clock when it is right-positioned.
   const int rightEdge = screenWidth - metrics.statusBarHorizontalMargin - orientedMarginRight;
   const int starWidth = isStarred ? renderer.getTextWidth(SMALL_FONT_ID, "*") : 0;
   const int starReserve = isStarred ? starWidth + (progressTextWidth > 0 ? starGap : 0) : 0;
-  int rightClusterWidth = progressTextWidth + starReserve;
+  const int syncReserve = syncIndicator != SyncIndicator::None
+                              ? SYNC_INDICATOR_SIZE + (progressTextWidth + starReserve > 0 ? statusItemGap : 0)
+                              : 0;
+  int rightClusterWidth = progressTextWidth + starReserve + syncReserve;
 
   // Draw Clock at whichever end it was assigned. Left: just past the battery. Right: just past the
   // star / progress text, so it can never land on top of either.
@@ -1168,6 +1196,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   if (isStarred) {
     renderer.drawText(SMALL_FONT_ID, rightEdge - progressTextWidth - starReserve, textY, "*");
   }
+  drawSyncIndicator(renderer, rightEdge - progressTextWidth - starReserve - syncReserve, textY + 6, syncIndicator);
 }
 
 void BaseTheme::drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label) const {

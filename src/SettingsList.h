@@ -17,6 +17,13 @@
 #include "SdCardFontGlobals.h"
 #include "TouchGestures.h"
 #include "TouchUi.h"
+// KOReader auto-sync (upstream #269) builds on the KOReader credential store, which this
+// fork replaced with BookOrbit. The code below is already behind this guard upstream and the
+// macro is never defined here, so only these includes had to follow it. Kept rather than
+// deleted so the next upstream merge still lines up.
+#if CROSSPOINT_KOREADER_AUTOSYNC
+#include "activities/reader/KOReaderAutoSync.h"
+#endif
 #include "activities/settings/SettingInfo.h"
 #include "activities/settings/TimezoneOptions.h"
 
@@ -71,14 +78,6 @@ inline std::string getDictionaryDisplay(void*) {
 inline std::string getRefreshFrequencyDisplay(void*) {
   const uint8_t v = SETTINGS.refreshFrequencyPages;
   if (v == 0) return std::string(tr(STR_NEVER));
-  return std::to_string(v) + tr(STR_PAGES_SUFFIX);
-}
-
-inline std::string getKoSyncMinPagesDisplay(void*) {
-  const uint8_t v = SETTINGS.koSyncMinSessionPages;
-  // Zero is "Always", not "Never": it means no minimum, so every close pushes. Turning the
-  // feature off is the separate Auto-Push toggle.
-  if (v == 0) return std::string(tr(STR_ALWAYS));
   return std::to_string(v) + tr(STR_PAGES_SUFFIX);
 }
 
@@ -627,10 +626,58 @@ inline std::vector<SettingInfo> buildSettingsList() {
       "boSyncBehavior", StrId::STR_BOOKORBIT_SYNC));
   settings.push_back(SettingInfo::Toggle(StrId::STR_KO_SYNC_ON_BOOK_CLOSE, &CrossPointSettings::koSyncOnBookClose,
                                          "koSyncOnBookClose", StrId::STR_BOOKORBIT_SYNC));
-  settings.push_back(SettingInfo::Action(StrId::STR_KO_MIN_SESSION_PAGES, SettingAction::KOSyncMinPagesPicker)
-                         .persisting(&CrossPointSettings::koSyncMinSessionPages, "koSyncMinSessionPages", 60)
-                         .withDisplayGetter(getKoSyncMinPagesDisplay)
-                         .withCategory(StrId::STR_BOOKORBIT_SYNC));
+  // Upstream retired the KOSyncMinPagesPicker action and its display getter in favour of a plain
+  // Value row; the setting it writes is the same one. Adopted here, filed under BookOrbit.
+  settings.push_back(SettingInfo::Value(StrId::STR_KO_MIN_SESSION_PAGES, &CrossPointSettings::koSyncMinSessionPages,
+                                        {0, 60, 1}, "koSyncMinSessionPages", StrId::STR_BOOKORBIT_SYNC));
+
+#if CROSSPOINT_KOREADER_AUTOSYNC
+  settings.push_back(SettingInfo::DynamicToggle(
+                         StrId::STR_KO_AUTO_ON_WAKE,
+                         [](const void*) -> uint8_t { return KOREADER_STORE.getSyncOnWake() ? 1u : 0u; },
+                         [](void*, uint8_t v) {
+                           KOREADER_STORE.setSyncOnWake(v != 0);
+                           KOREADER_STORE.saveToFile();
+                         },
+                         "koSyncOnWake", StrId::STR_KOREADER_SYNC)
+                         .withSubmenu(StrId::STR_MENU_KOSYNC_AUTO));
+  settings.push_back(
+      SettingInfo::DynamicValue(
+          StrId::STR_KO_AUTO_WHILE_READING, {0, KOReaderCredentialStore::PUSH_INTERVAL_MAX_PAGES, 1},
+          [](const void*) -> uint8_t { return static_cast<uint8_t>(KOREADER_STORE.getPushIntervalPages()); },
+          [](void*, uint8_t v) {
+            KOREADER_STORE.setPushIntervalPages(v);
+            KOREADER_STORE.saveToFile();
+          },
+          "koPushIntervalPages", StrId::STR_KOREADER_SYNC)
+          .withSubmenu(StrId::STR_MENU_KOSYNC_AUTO));
+  settings.push_back(SettingInfo::DynamicToggle(
+                         StrId::STR_KO_AUTO_ON_SLEEP,
+                         [](const void*) -> uint8_t { return KOREADER_STORE.getSyncOnSleep() ? 1u : 0u; },
+                         [](void*, uint8_t v) {
+                           KOREADER_STORE.setSyncOnSleep(v != 0);
+                           KOREADER_STORE.saveToFile();
+                         },
+                         "koSyncOnSleep", StrId::STR_KOREADER_SYNC)
+                         .withSubmenu(StrId::STR_MENU_KOSYNC_AUTO));
+#endif  // CROSSPOINT_KOREADER_AUTOSYNC
+  settings.push_back(SettingInfo::Toggle(StrId::STR_KO_AUTO_ON_CLOSE, &CrossPointSettings::koSyncOnBookClose,
+                                         "koSyncOnBookClose", StrId::STR_KOREADER_SYNC)
+                         .withSubmenu(StrId::STR_MENU_KOSYNC_AUTO));
+  settings.push_back(SettingInfo::Value(StrId::STR_KO_MIN_SESSION_PAGES, &CrossPointSettings::koSyncMinSessionPages,
+                                        {0, 60, 1}, "koSyncMinSessionPages", StrId::STR_KOREADER_SYNC)
+                         .withSubmenu(StrId::STR_MENU_KOSYNC_AUTO));
+#if CROSSPOINT_KOREADER_AUTOSYNC
+  settings.push_back(SettingInfo::DynamicToggle(
+                         StrId::STR_KO_SHOW_SYNC_INDICATOR,
+                         [](const void*) -> uint8_t { return KOREADER_STORE.getShowSyncIndicator() ? 1u : 0u; },
+                         [](void*, uint8_t v) {
+                           KOREADER_STORE.setShowSyncIndicator(v != 0);
+                           KOREADER_STORE.saveToFile();
+                         },
+                         "koShowSyncIndicator", StrId::STR_KOREADER_SYNC)
+                         .withSubmenu(StrId::STR_MENU_KOSYNC_AUTO));
+#endif  // CROSSPOINT_KOREADER_AUTOSYNC
 
   // --- Status Bar Settings (web-only, uses StatusBarSettingsActivity) ---
   settings.push_back(SettingInfo::Enum(StrId::STR_UPPER_PROGRESS_BAR, &CrossPointSettings::statusBarUpperProgressBar,

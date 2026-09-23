@@ -51,7 +51,7 @@ void BookOrbitSettingsActivity::buildMenuItems() {
           .withSubcategory(StrId::STR_MENU_KOSYNC_BEHAVIOR));
   menuItems.push_back(SettingInfo::Toggle(StrId::STR_KO_SYNC_ON_BOOK_CLOSE, &CrossPointSettings::koSyncOnBookClose,
                                           "koSyncOnBookClose"));
-  menuItems.push_back(SettingInfo::Action(StrId::STR_KO_MIN_SESSION_PAGES, SettingAction::KOSyncMinPagesPicker));
+  menuItems.push_back(SettingInfo::Action(StrId::STR_KO_MIN_SESSION_PAGES, SettingAction::KOSyncOnClosePicker));
 
   // Catalog: browse, and the download folder ("" = SD root; created on first download).
   menuItems.push_back(SettingInfo::Action(StrId::STR_BROWSE_CATALOG, SettingAction::None)
@@ -139,12 +139,12 @@ void BookOrbitSettingsActivity::onActionSelected(int index) {
                            });
   } else if (item.nameId == StrId::STR_KO_MIN_SESSION_PAGES) {
     SliderPickerActivity::Config cfg;
-    if (SliderSetting::configFor(SettingAction::KOSyncMinPagesPicker, cfg)) {
+    if (SliderSetting::configFor(SettingAction::KOSyncOnClosePicker, cfg)) {
       startActivityForResult(std::make_unique<SliderPickerActivity>(renderer, mappedInput, std::move(cfg)),
                              [this](const ActivityResult& result) {
                                if (!result.isCancelled) {
                                  if (const auto* pr = std::get_if<PercentResult>(&result.data)) {
-                                   SliderSetting::apply(SettingAction::KOSyncMinPagesPicker,
+                                   SliderSetting::apply(SettingAction::KOSyncOnClosePicker,
                                                         static_cast<uint8_t>(pr->percent));
                                    SETTINGS.saveToFile();
                                  }

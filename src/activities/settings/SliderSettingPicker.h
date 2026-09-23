@@ -21,9 +21,10 @@ namespace SliderSetting {
 // number. Nothing is persisted by that -- a preview is undone by cancel() and settled by apply().
 bool configFor(SettingAction action, SliderPickerActivity::Config& cfg);
 
-// Writes a value the picker returned back to the setting the action denotes. Callers still own
-// persisting SETTINGS afterwards.
-void apply(SettingAction action, uint8_t value);
+// Writes a value the picker returned back to the setting the action denotes. Returns whether
+// SETTINGS needs to be persisted. Some rows write to different stores, so they'll return false
+// to avoid rewriting unchanged settings files.
+bool apply(SettingAction action, uint8_t value);
 
 // Undoes a live preview when the picker was dismissed instead of confirmed. Callers MUST call
 // exactly one of apply() or cancel() for every picker they open: a preview may have lit the

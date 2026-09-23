@@ -1,6 +1,5 @@
 #pragma once
 
-#include <ctime>
 #include <string>
 
 #include "GfxRenderer.h"
@@ -42,24 +41,28 @@ std::string formatStatus(const RecentBook& book, int progressPercent);
 // centre cover). Draws nothing when the book has no progress data.
 void drawBadge(const GfxRenderer& renderer, Rect coverRect, const RecentBook& book, int progressPercent);
 
-// "3h 07m" / "45m". Shared so the carousel line and the book info screen word a duration the
-// same way -- two spellings of the same number read as two different numbers.
+// "3h 07m" / "45m 30s" / "12s". The single spelling of a reading duration, shared by the home
+// themes and the two reading-stats screens -- two spellings of the same number read as two
+// different numbers. Moved here from the copies in ReadingStatsActivity and
+// ReadingStatsBookDetailActivity, which were byte-identical; behaviour is unchanged.
 std::string formatReadingDuration(uint32_t totalSeconds);
 
 // "just now" / "5m ago" / "3d ago", falling back to an absolute date past a month. Empty when
-// the epoch is unknown or the clock was never synced, so the caller draws nothing.
+// the epoch is unknown or the clock has never been wall-anchored, so the caller draws nothing
+// rather than claiming a book was last read at the epoch.
 std::string formatLastRead(time_t epoch);
 
-// Compact reading-history line for a recent book, e.g. "3h 12m - 8 sittings - 3d ago".
+// A book's reading history in one line, e.g. "Read 3h 18m over 5 days - last 6m ago".
 //
-// What you have put INTO the book, where drawProgressStatus() covers what is left of it. Empty
-// for a book that has never been read, so the caller draws nothing rather than a row of zeroes.
+// What you have put INTO a book, where formatStatus() covers what is left of it. Counts days
+// the book was actually opened on rather than times it was opened, because a ten second glance
+// is not a reading session. Empty for a book with no history, so the caller draws nothing
+// rather than a row of zeroes.
 std::string historyLine(const RecentBook& book);
 
-// The same history, squeezed for a column too narrow to hold a sentence: "3h 12m · 5d",
-// or just "3h 12m" when no dated sessions are on record. Digits and unit letters only, so it
-// needs no translation string and no room for one -- the same reasoning as the "~45m" ETA in
-// formatStatus(). Empty for a book that has never been read.
+// The same history for a column too narrow to hold a sentence: "3h 18m · 5d", or just the
+// duration when no dated sessions are on record. Digits and unit letters only, so it needs no
+// translation string and no room for one -- the same reasoning as the "~45m" in formatStatus().
 std::string historyLineCompact(const RecentBook& book);
 
 }  // namespace BookProgressPresentation
