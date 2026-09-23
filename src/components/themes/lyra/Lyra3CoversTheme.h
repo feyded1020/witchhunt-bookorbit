@@ -56,11 +56,11 @@ constexpr ThemeMetrics values = {.batteryWidth = 16,
 // for a file nobody writes and the tile reads "Loading..." for ever. That is not hypothetical --
 // it is what happened when the theme started sizing covers dynamically and HomeActivity kept
 // subtracting a flat 58. Change the arithmetic here and both sides follow.
-constexpr int titleLineBudget = 3;    // wrapped title lines the text block is sized to hold
-constexpr int historyRowHeight = 23;  // FIT_SMALL_FONT_ID line height; deliberately does not scale
-constexpr int textBlockPadding = 5;   // below the cover, above the title
+constexpr int titleLineBudget = 3;        // wrapped title lines the text block is sized to hold
+constexpr int historyRowHeight = 23;      // FIT_SMALL_FONT_ID line height; deliberately does not scale
+constexpr int textBlockPadding = 5;       // below the cover, above the title
 constexpr int textBlockBottomMargin = 3;  // clearance so the last line clears the tile edge
-constexpr int tileTopPadding = 8;     // matches hPaddingInSelection in the theme
+constexpr int tileTopPadding = 8;         // matches hPaddingInSelection in the theme
 constexpr int minCoverHeight = 80;
 
 // Title lines grow with the UI font size, so the block under the cover has to as well. The
@@ -74,7 +74,7 @@ inline int textBlockHeight() {
 inline int coverRenderHeight(int recentTileHeight) {
   return std::max(minCoverHeight, recentTileHeight - tileTopPadding - textBlockHeight());
 }
-}
+}  // namespace Lyra3CoversMetrics
 
 class Lyra3CoversTheme : public LyraTheme {
  public:

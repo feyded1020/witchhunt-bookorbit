@@ -59,8 +59,8 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
   // regardless. Three lines of a large UI font do not fit under a cover sized for them plus the
   // history row, and the lines that did not fit were printing over the menu below.
   const int titleAreaHeight = textBoxHeight - historyLineHeight - 5;
-  const int titleLineBudget = std::max(1, std::min(Lyra3CoversMetrics::titleLineBudget,
-                                                   titleLineHeight > 0 ? titleAreaHeight / titleLineHeight : 1));
+  const int titleLineBudget = std::max(
+      1, std::min(Lyra3CoversMetrics::titleLineBudget, titleLineHeight > 0 ? titleAreaHeight / titleLineHeight : 1));
   std::vector<std::vector<std::string>> titleLinesPerTile;
   titleLinesPerTile.reserve(static_cast<size_t>(tileCount));
   for (int i = 0; i < tileCount; i++) {
@@ -114,8 +114,8 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
 
               // Clear tile to white before drawing: 1-bit BMPs only draw dark pixels,
               // leaving white pixels transparent — any stale dark content shows through.
-              renderer.fillRect(tileX + hPaddingInSelection + coverBoxInset, tileY + hPaddingInSelection,
-                                coverBoxWidth, coverHeight, false);
+              renderer.fillRect(tileX + hPaddingInSelection + coverBoxInset, tileY + hPaddingInSelection, coverBoxWidth,
+                                coverHeight, false);
               renderer.drawBitmap(bitmap, tileX + hPaddingInSelection + coverBoxInset, tileY + hPaddingInSelection,
                                   coverBoxWidth, coverHeight, cropX);
             } else {
@@ -142,8 +142,9 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
                               tileY + hPaddingInSelection + (coverHeight - textH) / 2, loadingText, true);
           } else {
             // No cover at all — render empty cover placeholder
-            renderer.fillRect(tileX + hPaddingInSelection + coverBoxInset, tileY + hPaddingInSelection + (coverHeight / 3),
-                              coverBoxWidth, 2 * coverHeight / 3, true);
+            renderer.fillRect(tileX + hPaddingInSelection + coverBoxInset,
+                              tileY + hPaddingInSelection + (coverHeight / 3), coverBoxWidth, 2 * coverHeight / 3,
+                              true);
             renderer.drawIcon(CoverIcon, tileX + hPaddingInSelection + coverBoxInset + (coverBoxWidth - 32) / 2,
                               tileY + hPaddingInSelection + 24, 32, 32);
           }
@@ -185,10 +186,10 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
                                  cornerRadius, false, false, true, true, Color::LightGray);
       }
 
-      BookProgressPresentation::drawIndicator(static_cast<const GfxRenderer&>(renderer),
-                                              Rect{tileX + hPaddingInSelection + coverBoxInset,
-                                                   tileY + hPaddingInSelection, coverBoxWidth, coverHeight},
-                                              progressPercent);
+      BookProgressPresentation::drawIndicator(
+          static_cast<const GfxRenderer&>(renderer),
+          Rect{tileX + hPaddingInSelection + coverBoxInset, tileY + hPaddingInSelection, coverBoxWidth, coverHeight},
+          progressPercent);
 
       int currentY = tileY + coverHeight + hPaddingInSelection + 5;
       for (const auto& line : titleLines) {
