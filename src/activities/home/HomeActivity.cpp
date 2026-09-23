@@ -129,13 +129,14 @@ void HomeActivity::rebuildMenuEntries() {
   // Beside Recent Books rather than down in Settings: both answer "what have I been reading",
   // and a screen nobody can find is a screen nobody reads.
   //
-  // Unconditional on purpose. Hiding it until there was history meant asking the stats store,
-  // which is deliberately not resident -- loaded on demand and released to give ~15 KB back --
-  // and rebuildMenuEntries() runs both inside and outside that window. Outside it every
-  // accessor reads zero, so the entry came and went depending on which rebuild ran last. The
-  // screen already says so plainly when there is nothing to show, which is the better place for
-  // that decision than a menu that cannot see the data.
-  menuEntries.push_back({MenuAction::ReadingStats, StrId::STR_READING_STATS, Stats});
+  // Unconditional on purpose. Hiding it until there was history would mean asking the stats
+  // store, which is deliberately not resident -- loaded on demand and released to give the heap
+  // back -- and rebuildMenuEntries() runs both inside and outside that window. Outside it every
+  // accessor reads zero, so the row would come and go depending on which rebuild ran last. The
+  // screen already says so plainly when there is nothing to show.
+  if (SETTINGS.showReadingStatsOnHome) {
+    menuEntries.push_back({MenuAction::ReadingStats, StrId::STR_READING_STATS, Stats});
+  }
   if (!GLOBAL_BOOKMARKS.isEmpty()) {
     menuEntries.push_back({MenuAction::GlobalBookmarks, StrId::STR_GLOBAL_BOOKMARKS, Book});
   }
