@@ -11,10 +11,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include "I18n.h"
 #include "RecentBooksStore.h"
 #include "UiFontScale.h"
+#include "components/BookProgressPresentation.h"
 #include "components/UITheme.h"
 #include "components/themes/ButtonHintLayout.h"
 #include "components/themes/ListTouchBand.h"
@@ -755,6 +757,19 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       totalTextHeight += renderer.getLineHeight(UI_10_FONT_ID);
     }
 
+    // What you have put into the book, under the title block rather than over the cover art.
+    // The card is a little over half the screen wide, so the sentence gets up to two lines, set
+    // in the non-scaling small face: this block is centred inside a fixed-height card and sits
+    // above the "Continue Reading" label, so it must not grow with the UI font setting.
+    const std::string history = BookProgressPresentation::historyLine(recentBooks[0]);
+    const int historyLineHeight = renderer.getLineHeight(FIT_SMALL_FONT_ID);
+    const auto historyLines = history.empty()
+                                  ? std::vector<std::string>{}
+                                  : renderer.wrappedText(FIT_SMALL_FONT_ID, history.c_str(), bookWidth - 40, 2);
+    if (!historyLines.empty()) {
+      totalTextHeight += historyLineHeight / 2 + static_cast<int>(historyLines.size()) * historyLineHeight;
+    }
+
     // Vertically center the title block within the card
     int titleYStart = bookY + (bookHeight - totalTextHeight) / 2;
 
@@ -788,6 +803,12 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
           maxTextWidth = seriesWidth;
         }
       }
+      for (const auto& line : historyLines) {
+        const int historyWidth = renderer.getTextWidth(FIT_SMALL_FONT_ID, line.c_str());
+        if (historyWidth > maxTextWidth) {
+          maxTextWidth = historyWidth;
+        }
+      }
 
       const int boxWidth = maxTextWidth + boxPadding * 2;
       const int boxHeight = totalTextHeight + boxPadding * 2;
@@ -813,6 +834,15 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     if (!truncatedSeries.empty()) {
       renderer.drawCenteredText(UI_10_FONT_ID, titleYStart, truncatedSeries.c_str(), !bookSelected);
+      titleYStart += renderer.getLineHeight(UI_10_FONT_ID);
+    }
+
+    if (!historyLines.empty()) {
+      titleYStart += historyLineHeight / 2;
+      for (const auto& line : historyLines) {
+        renderer.drawCenteredText(FIT_SMALL_FONT_ID, titleYStart, line.c_str(), !bookSelected);
+        titleYStart += historyLineHeight;
+      }
     }
 
     // "Continue Reading" label at the bottom
