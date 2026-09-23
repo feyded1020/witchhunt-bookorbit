@@ -237,6 +237,17 @@ std::string FileBrowserModel::entryFullPath(const size_t displayIndex) {
   return full;
 }
 
+std::string FileBrowserModel::resultFolder(const size_t displayIndex) {
+  if (!deepSearch || displayIndex >= deepResults.size()) return "";
+  const std::string& rel = deepResults[displayIndex];
+  const size_t slash = rel.rfind('/');
+  if (slash == std::string::npos) return deepRoot;  // it sat in the search root
+  std::string folder = deepRoot;
+  if (folder.empty() || folder.back() != '/') folder += '/';
+  folder += rel.substr(0, slash);
+  return folder;
+}
+
 void FileBrowserModel::searchEverywhere(const std::string& query) {
   clearDeepSearch();
   if (query.empty()) return;
@@ -267,7 +278,12 @@ void FileBrowserModel::searchEverywhere(const std::string& query) {
       entry.getName(name, sizeof(name));
       const bool isDir = entry.isDirectory();
       entry.close();
-      if (name[0] == '.') continue;  // dot entries, and hidden folders we never list anyway
+      // "." and ".." always; anything else beginning with a dot only when the browser is
+      // showing hidden files, so a search sees exactly what browsing would.
+      if (name[0] == '.') {
+        const bool dotdot = (name[1] == '\0') || (name[1] == '.' && name[2] == '\0');
+        if (dotdot || !SETTINGS.showHiddenFiles) continue;
+      }
       std::string child = dirPath;
       if (child.empty() || child.back() != '/') child += '/';
       child += name;

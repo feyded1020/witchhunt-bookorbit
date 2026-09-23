@@ -372,8 +372,7 @@ void SettingsActivity::onBackFromTabs() {
 void SettingsActivity::drawChrome() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION);
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION);
 }
 
 void SettingsActivity::drawFooter() {

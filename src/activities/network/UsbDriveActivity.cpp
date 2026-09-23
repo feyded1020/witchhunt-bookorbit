@@ -162,8 +162,7 @@ void UsbDriveActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_USB_DRIVE));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_USB_DRIVE));
 
   // What the screen says for each state. `message` is the headline, the details
   // are the standing instructions underneath it.

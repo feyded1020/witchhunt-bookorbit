@@ -31,8 +31,7 @@ void QrDisplayActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_DISPLAY_QR), nullptr);
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_DISPLAY_QR), nullptr);
 
   const int startY = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   constexpr int truncNoticeHeight = 16;

@@ -129,8 +129,7 @@ void SerialTransferActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_USB_TRANSFER));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_USB_TRANSFER));
 
   const int x = contentRect.x + metrics.contentSidePadding;
   const int maxWidth = contentRect.width - 2 * metrics.contentSidePadding;

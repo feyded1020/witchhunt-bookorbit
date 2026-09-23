@@ -126,8 +126,7 @@ void ScreenRepairActivity::render(RenderLock&&) {
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_SCREEN_REPAIR));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_SCREEN_REPAIR));
 
   const int midY = contentRect.y + contentRect.height / 2;
 

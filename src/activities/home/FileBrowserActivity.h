@@ -55,6 +55,7 @@ class FileBrowserActivity final : public UiListActivity {
   // Search: prompt for a query, then narrow the folder to the names containing it.
   void startSearch(bool everywhere);
   void applyFilter(const std::string& query);
+  void goToResultFolder();
   void materializeListWindow();
 
  public:

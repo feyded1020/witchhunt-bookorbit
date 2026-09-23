@@ -920,8 +920,7 @@ void WifiSelectionActivity::render(RenderLock&&) {
   // Belarusian "Знойдзена сетак: %zu" is 36 bytes on its own, so a 32-byte buffer truncated it.
   char countStr[64];
   snprintf(countStr, sizeof(countStr), tr(STR_NETWORKS_FOUND), networks.size());
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_WIFI_NETWORKS), countStr);
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_WIFI_NETWORKS), countStr);
   GUI.drawSubHeader(
       renderer, Rect{contentRect.x, metrics.topPadding + metrics.headerHeight, contentRect.width, metrics.tabBarHeight},
       cachedMacAddress.c_str());

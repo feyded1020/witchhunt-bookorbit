@@ -13,12 +13,14 @@ FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedIn
                                                  const std::string& filePath,
                                                  CrossPointSettings::FILE_SORT_MODE sortMode,
                                                  CrossPointSettings::FILE_SORT_DIRECTION sortDirection,
-                                                 const bool offerDirectoryActions, const bool searchActive)
+                                                 const bool offerDirectoryActions, const bool searchActive,
+                                                 const bool offerGoToFolder)
     : MenuListActivity("FileContextMenu", renderer, mappedInput),
       filePath(filePath),
       isBrowserMode(filePath.empty()),
       offerDirectoryActions(offerDirectoryActions),
       searchActive(searchActive),
+      offerGoToFolder(offerGoToFolder),
       sortMode(static_cast<uint8_t>(sortMode)),
       sortDirection(static_cast<uint8_t>(sortDirection)),
       showHiddenFiles(SETTINGS.showHiddenFiles),
@@ -128,6 +130,16 @@ void FileContextMenuActivity::buildMenuItems() {
   // the bytes are.
   menuItems.push_back(SettingInfo::Action(StrId::STR_MOVE_TO_FOLDER, SettingAction::None));
   menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
+  // Searching belongs to the folder, not to the row, so it has to be reachable with a file
+  // selected as well -- which is most of the time.
+  if (offerGoToFolder) {
+    menuItems.push_back(SettingInfo::Action(StrId::STR_GO_TO_FOLDER, SettingAction::None));
+  }
+  menuItems.push_back(SettingInfo::Action(StrId::STR_SEARCH, SettingAction::None));
+  menuItems.push_back(SettingInfo::Action(StrId::STR_SEARCH_ALL, SettingAction::None));
+  if (searchActive) {
+    menuItems.push_back(SettingInfo::Action(StrId::STR_CLEAR_SEARCH, SettingAction::None));
+  }
 }
 
 void FileContextMenuActivity::finishWithDisplayOptions(Action action) {
@@ -171,6 +183,8 @@ void FileContextMenuActivity::onActionSelected(int index) {
     action = Action::Search;
   } else if (nameId == StrId::STR_SEARCH_ALL) {
     action = Action::SearchAll;
+  } else if (nameId == StrId::STR_GO_TO_FOLDER) {
+    action = Action::GoToFolder;
   } else if (nameId == StrId::STR_CLEAR_SEARCH) {
     action = Action::ClearSearch;
   } else if (nameId == StrId::STR_NEW_FOLDER) {
@@ -205,15 +219,17 @@ void FileContextMenuActivity::render(RenderLock&&) {
     const auto slashPos = filePath.rfind('/');
     return (slashPos == std::string::npos) ? filePath : filePath.substr(slashPos + 1);
   }();
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 header.c_str());
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), header.c_str());
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = contentRect.height - contentTop - metrics.verticalSpacing;
   drawMenuList(Rect{contentRect.x, contentTop, contentRect.width, contentHeight});
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "", "");
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  const auto hints = mappedInput.mapHints(tr(STR_BACK), tr(STR_SELECT), "", "", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, hints.front.btn1, hints.front.btn2, hints.front.btn3, hints.front.btn4);
+  // This menu can outgrow a screen, and on a board with no digitiser the side hints are the only
+  // thing that says it scrolls.
+  GUI.drawSideButtonHints(renderer, hints.side.up, hints.side.down);
 
   renderer.displayBuffer();
 }

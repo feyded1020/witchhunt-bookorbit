@@ -145,6 +145,19 @@ bool FileBrowserActivity::handleCustomInput() {
         }
         // PickFirmware: long Back = same as short Back (cancel / up dir)
       }
+      // A search is the first thing Back undoes. Without this, a search that matched nothing in
+      // the root folder leaves the screen empty with Home as the only way out, which throws away
+      // where you were standing.
+      if (model.isFiltered() || model.isDeepSearch()) {
+        {
+          RenderLock lock(*this);
+          model.setFilter("");
+          model.clearSearch();
+          resetNavigation(0);
+        }
+        requestUpdate();
+        return true;
+      }
       if (ev.type == ButtonEventManager::PressType::Short || ev.type == ButtonEventManager::PressType::Long) {
         if (model.path() != "/") {
           std::string parent = model.path();
@@ -488,8 +501,10 @@ void FileBrowserActivity::openContextMenu() {
   if (cleanBase.back() != '/') cleanBase += "/";
   const std::string fullPath = cleanBase + entry;
 
-  startActivityForResult(std::make_unique<FileContextMenuActivity>(renderer, mappedInput, fullPath, model.getSortMode(),
-                                                                   model.getSortDirection()),
+  startActivityForResult(std::make_unique<FileContextMenuActivity>(
+                             renderer, mappedInput, fullPath, model.getSortMode(), model.getSortDirection(),
+                             /*offerDirectoryActions=*/false, model.isFiltered() || model.isDeepSearch(),
+                             /*offerGoToFolder=*/model.isDeepSearch()),
                          [this, fullPath, entry](const ActivityResult& res) {
                            if (res.isCancelled) {
                              requestUpdate();
@@ -632,6 +647,27 @@ void FileBrowserActivity::startSearch(const bool everywhere) {
 
 // Applies a query (or "" to clear) and puts the selection somewhere sensible: a search that
 // matches nothing still shows the folder's own empty state rather than a stale row.
+// Leaves the results and opens the folder the selected one actually lives in, with it selected.
+// A card-wide search tells you where a book is; this is how you go and stand there.
+void FileBrowserActivity::goToResultFolder() {
+  if (!model.isDeepSearch() || nav.selected < 0) return;
+  const std::string folder = model.resultFolder(static_cast<size_t>(nav.selected));
+  const std::string full = model.entryFullPath(static_cast<size_t>(nav.selected));
+  if (folder.empty()) return;
+  const size_t slash = full.rfind('/');
+  focusName = (slash == std::string::npos) ? full : full.substr(slash + 1);
+  mappedInput.flushTouchEvents();
+  {
+    RenderLock lock(*this);
+    model.setPath(folder);  // also ends the search
+    model.load();
+    const size_t idx = model.findEntry(focusName);
+    focusName.clear();
+    resetNavigation(idx < model.entryCount() ? static_cast<int>(idx) : 0);
+  }
+  requestUpdate();
+}
+
 void FileBrowserActivity::applyFilter(const std::string& query) {
   {
     RenderLock lock(*this);
@@ -651,7 +687,8 @@ void FileBrowserActivity::showBrowserOptionsMenu(const std::string& dirEntry) {
     dirPath += dirEntry.substr(0, dirEntry.length() - 1);
   }
   startActivityForResult(std::make_unique<FileContextMenuActivity>(renderer, mappedInput, "", model.getSortMode(),
-                                                                   model.getSortDirection(), isDir, model.isFiltered()),
+                                                                   model.getSortDirection(), isDir,
+                                                                   model.isFiltered() || model.isDeepSearch()),
                          [this, isDir, dirPath, dirEntry](const ActivityResult& res) {
                            if (res.isCancelled) {
                              requestUpdate();
@@ -689,7 +726,15 @@ void FileBrowserActivity::handleContextMenuAction(int action, const std::string&
     return;
   }
   if (actionEnum == Action::ClearSearch) {
+    {
+      RenderLock lock(*this);
+      model.clearSearch();
+    }
     applyFilter("");
+    return;
+  }
+  if (actionEnum == Action::GoToFolder) {
+    goToResultFolder();
     return;
   }
   if (actionEnum == Action::NewFolder) {

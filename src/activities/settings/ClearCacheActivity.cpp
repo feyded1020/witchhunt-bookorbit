@@ -83,8 +83,7 @@ void ClearCacheActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_CLEAR_READING_CACHE));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_CLEAR_READING_CACHE));
 
   const int midY = contentRect.y + contentRect.height / 2;
   if (state == WARNING) {

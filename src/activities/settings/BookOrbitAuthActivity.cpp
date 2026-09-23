@@ -130,8 +130,7 @@ void BookOrbitAuthActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_BOOKORBIT_SYNC));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_BOOKORBIT_SYNC));
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = contentRect.y + (contentRect.height - height) / 2;
 

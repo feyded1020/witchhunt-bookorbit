@@ -38,8 +38,7 @@ void BookInfoActivity::renderLoading() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_INFO));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_INFO));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   renderer.drawText(UI_12_FONT_ID, contentRect.x + metrics.contentSidePadding, contentTop, tr(STR_LOADING));
@@ -226,8 +225,7 @@ void BookInfoActivity::render(RenderLock&&) {
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
   // Header
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_INFO));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_INFO));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentBottom = contentRect.y + contentRect.height - metrics.verticalSpacing;

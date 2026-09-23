@@ -38,8 +38,7 @@ void RecentBookOptionsActivity::render(RenderLock&&) {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, true);
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_OPTIONS));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_OPTIONS));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);

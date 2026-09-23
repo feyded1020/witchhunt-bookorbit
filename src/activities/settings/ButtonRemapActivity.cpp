@@ -109,8 +109,7 @@ void ButtonRemapActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_REMAP_FRONT_BUTTONS));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_REMAP_FRONT_BUTTONS));
   GUI.drawSubHeader(
       renderer, Rect{contentRect.x, metrics.topPadding + metrics.headerHeight, contentRect.width, metrics.tabBarHeight},
       tr(STR_REMAP_PROMPT));

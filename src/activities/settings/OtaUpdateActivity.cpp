@@ -199,8 +199,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_UPDATE));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_UPDATE));
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = contentRect.y + (contentRect.height - height) / 2;
 

@@ -89,6 +89,10 @@ class FileBrowserModel {
   [[nodiscard]] bool deepResultsTruncated() const { return deepTruncated; }
   // Absolute path for a row, whichever mode is live. The caller no longer composes it.
   [[nodiscard]] std::string entryFullPath(size_t displayIndex);
+  // Ends a card-wide search and returns the browser to the folder it was started from.
+  void clearSearch() { clearDeepSearch(); }
+  // Folder holding a result row, relative to the search root ("" when it sat at the root).
+  [[nodiscard]] std::string resultFolder(size_t displayIndex);
 
   [[nodiscard]] CrossPointSettings::FILE_SORT_MODE getSortMode() const { return sortMode; }
   [[nodiscard]] CrossPointSettings::FILE_SORT_DIRECTION getSortDirection() const { return sortDirection; }

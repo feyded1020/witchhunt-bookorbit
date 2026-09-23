@@ -269,8 +269,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   const int pageWidth = (int)renderer.getScreenWidth();
   const int pageHeight = (int)renderer.getScreenHeight();
 
-  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_CUSTOMISE_STATUS_BAR));
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_CUSTOMISE_STATUS_BAR));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int previewLabelHeight = renderer.getLineHeight(UI_10_FONT_ID);
