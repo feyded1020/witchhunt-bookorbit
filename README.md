@@ -70,16 +70,30 @@ BookOrbit is the point of this fork, so here is what it actually looks like. You
 
 <table>
 <tr>
-<td align="center"><img src="docs/images/bookorbit-catalog.jpg" width="250"><br><sub>Browse the catalog</sub></td>
-<td align="center"><img src="docs/images/bookorbit-authors.jpg" width="250"><br><sub>By author, series, collection</sub></td>
-<td align="center"><img src="docs/images/bookorbit-book.jpg" width="250"><br><sub>Full metadata, then download</sub></td>
-<td align="center"><img src="docs/images/bookorbit-in-progress.jpg" width="250"><br><sub>What you are part way through</sub></td>
+<td align="center"><img src="docs/images/bookorbit-catalog.jpg" width="230"><br><sub>Browse the catalog</sub></td>
+<td align="center"><img src="docs/images/bookorbit-authors.jpg" width="230"><br><sub>By author, series, collection</sub></td>
+<td align="center"><img src="docs/images/bookorbit-recent.jpg" width="230"><br><sub>Recently added, with your place kept</sub></td>
+<td align="center"><img src="docs/images/bookorbit-book.jpg" width="230"><br><sub>Full metadata, then download</sub></td>
 </tr>
 </table>
 
 Continue reading, recently added, libraries, collections, authors, series, everything, what is already on the device, what you are part way through, and a search. Pick a book, read its blurb and page count, and pull it down over Wi-Fi.
 
-**In progress** is the one that shows what the sync is for: it knows you are 52% through, whether you got there on this reader, your phone, or KOReader on something else.
+## Sync that shows its working
+
+Most sync is a spinner and a hope. This one tells you what it found on each side and lets you choose.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/bookorbit-sync.jpg" width="250"><br><sub>Both positions, and the choice</sub></td>
+<td align="center"><img src="docs/images/bookorbit-in-progress.jpg" width="250"><br><sub>What you are part way through</sub></td>
+<td align="center"><img src="docs/images/bookorbit-settings.jpg" width="250"><br><sub>Or let it decide for you</sub></td>
+</tr>
+</table>
+
+The reader had you on page 62; the server had page 64, left there by a different device. It names the chapter, both page numbers, both percentages and **which device the remote position came from**, then asks. Highlights and bookmarks travel the same way.
+
+If you would rather not be asked, set **On Progress Conflict** to resolve itself, and push automatically when you close a book or every few pages.
 
 ## Your reading history, under the book
 
