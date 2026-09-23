@@ -32,6 +32,7 @@
 #include "activities/reader/ReaderActivity.h"
 #include "components/UITheme.h"
 #include "components/themes/TapTargets.h"
+#include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "fontIds.h"
 
 namespace {
@@ -108,7 +109,9 @@ HomeScreenLayout computeHomeScreenLayout(const ThemeMetrics& metrics, int conten
 }
 
 int getHomeCoverRenderHeight(const HomeScreenLayout& layout) {
-  return isLyraExtendedTheme() ? std::max(120, layout.recentTileHeight - 58)
+  // Lyra Extended's split between cover and text lives with the theme that draws it: the height
+  // chosen here goes into the thumbnail's filename, so the theme has to ask for the same one.
+  return isLyraExtendedTheme() ? Lyra3CoversMetrics::coverRenderHeight(layout.recentTileHeight)
                                : std::max(120, layout.recentTileHeight - (isLyraFamilyTheme() ? 16 : 0));
 }
 }  // namespace
