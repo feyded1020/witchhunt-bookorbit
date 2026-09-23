@@ -111,7 +111,7 @@ Every highlight in the book is one screen away. **Select** jumps straight back t
 <table>
 <tr>
 <td align="center"><img src="docs/images/highlights-list.jpg" width="250"><br><sub>The list</sub></td>
-<td align="center"><img src="docs/images/highlights-preview.jpg" width="250"><br><sub>Preview in full</sub></td>
+<td align="center"><img src="docs/images/highlights-preview.jpg" width="250"><br><sub>Preview in full, scrolling if it needs to</sub></td>
 </tr>
 </table>
 
