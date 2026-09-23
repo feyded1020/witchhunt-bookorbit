@@ -132,7 +132,9 @@ void HomeActivity::rebuildMenuEntries() {
   // back -- and rebuildMenuEntries() runs both inside and outside that window. Outside it every
   // accessor reads zero, so the row would come and go depending on which rebuild ran last. The
   // screen already says so plainly when there is nothing to show.
-  menuEntries.push_back({MenuAction::ReadingStats, StrId::STR_READING_STATS, Stats});
+  if (SETTINGS.showReadingStatsOnHome) {
+    menuEntries.push_back({MenuAction::ReadingStats, StrId::STR_READING_STATS, Stats});
+  }
   if (!GLOBAL_BOOKMARKS.isEmpty()) {
     menuEntries.push_back({MenuAction::GlobalBookmarks, StrId::STR_GLOBAL_BOOKMARKS, Book});
   }
