@@ -137,9 +137,9 @@ void FileContextMenuActivity::buildMenuItems() {
   }
   menuItems.push_back(SettingInfo::Action(StrId::STR_SEARCH, SettingAction::None));
   menuItems.push_back(SettingInfo::Action(StrId::STR_SEARCH_ALL, SettingAction::None));
-  if (searchActive) {
-    menuItems.push_back(SettingInfo::Action(StrId::STR_CLEAR_SEARCH, SettingAction::None));
-  }
+  // No Clear search here. Back already ends a search, which is the gesture people reach for
+  // anyway, and this menu is about the file you selected -- clearing would throw that file away
+  // and drop you at the top of the folder you searched from. The folder menu still offers it.
 }
 
 void FileContextMenuActivity::finishWithDisplayOptions(Action action) {
