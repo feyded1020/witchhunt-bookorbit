@@ -64,6 +64,23 @@ share the same library.
 
 Photographed on an Xteink X4 Pro. No mock-ups.
 
+## Your whole library, on the reader
+
+BookOrbit is the point of this fork, so here is what it actually looks like. Your library browsed from the device, not a file list on a card.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/bookorbit-catalog.jpg" width="250"><br><sub>Browse the catalog</sub></td>
+<td align="center"><img src="docs/images/bookorbit-authors.jpg" width="250"><br><sub>By author, series, collection</sub></td>
+<td align="center"><img src="docs/images/bookorbit-book.jpg" width="250"><br><sub>Full metadata, then download</sub></td>
+<td align="center"><img src="docs/images/bookorbit-in-progress.jpg" width="250"><br><sub>What you are part way through</sub></td>
+</tr>
+</table>
+
+Continue reading, recently added, libraries, collections, authors, series, everything, what is already on the device, what you are part way through, and a search. Pick a book, read its blurb and page count, and pull it down over Wi-Fi.
+
+**In progress** is the one that shows what the sync is for: it knows you are 52% through, whether you got there on this reader, your phone, or KOReader on something else.
+
 ## Your reading history, under the book
 
 The badge on a cover tells you what is **left** of a book. The line under it tells you what you have already **put in** — time in the book, how many days you have been living with it, and when you last picked it up.
