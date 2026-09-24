@@ -125,6 +125,30 @@ Time per book, sessions, pages, streaks, first and last read, and a day-by-day r
 </tr>
 </table>
 
+## Find a book anywhere on the card
+
+A folder holding a few hundred books was a scroll, and the only way to reach one was to know roughly where it sorted.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/search-menu.jpg" width="250"><br><sub>Options, from any row</sub></td>
+<td align="center"><img src="docs/images/search-query.jpg" width="250"><br><sub>Type what you remember</sub></td>
+<td align="center"><img src="docs/images/search-results.jpg" width="250"><br><sub>Every match, and where it lives</sub></td>
+</tr>
+</table>
+
+**Search** narrows the folder you are standing in. **Search all folders** walks the whole card and shows each hit as the path it was found at, so two books of the same name in different folders can be told apart. **Go to folder** takes you to where one actually lives, and Back ends the search and puts you where you started.
+
+No index, and that is deliberate. An index of the card would have to know when the card changed, and FAT gives no way to ask — so it would have to re-walk the tree to check whether it was still true, which is the walk it was meant to save, and it would still be blind to anything written over USB. Walking when asked is always correct, costs nothing when nobody asks, and takes no space on the card. In practice it returns faster than you can let go of the button.
+
+## The browser it grew into
+
+Somewhere along the way this stopped being a file list.
+
+<p align="center"><img src="docs/images/browser-folders.jpg" width="300"></p>
+
+Move a file into a folder, make a folder, delete one with its contents, sort by name, date or size, show or hide dotted entries and file extensions, and search. Moving a book is instant whatever its size, because nothing is copied.
+
 ## Highlights
 
 Pick a word, press **Start**, move to the end of the passage, press **Save**. The range can run to a whole paragraph and across line breaks, and a saved highlight is underlined in the text where you left it.
