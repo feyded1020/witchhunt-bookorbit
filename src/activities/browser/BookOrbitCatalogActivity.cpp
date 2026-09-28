@@ -492,13 +492,13 @@ void BookOrbitCatalogActivity::downloadBook(const BookOrbitCatalogBook& book) {
   }
   requestUpdateAndWait();
 
-  BookOrbitBookDetail detail;
-  if (!BookOrbitCatalogClient::fetchBookDetail(book.id, detail)) {
+  BookOrbitBookDetail fetched;
+  if (!BookOrbitCatalogClient::fetchBookDetail(book.id, fetched)) {
     fail(tr(STR_KOREADER_SYNC_NETWORK_ERROR));
     return;
   }
   const BookOrbitCatalogFile* epubFile = nullptr;
-  for (const auto& file : detail.files) {
+  for (const auto& file : fetched.files) {
     if (file.format == "epub") {
       epubFile = &file;
       break;
@@ -511,8 +511,8 @@ void BookOrbitCatalogActivity::downloadBook(const BookOrbitCatalogBook& book) {
 
   const std::string folder = BOOKORBIT_STORE.getDownloadFolder();
   if (!folder.empty() && !Storage.exists(folder.c_str())) Storage.mkdir(folder.c_str());
-  const std::string path = catalogPath(detail.title.empty() ? book.title : detail.title,
-                                       detail.author.empty() ? book.author : detail.author);
+  const std::string path = catalogPath(fetched.title.empty() ? book.title : fetched.title,
+                                       fetched.author.empty() ? book.author : fetched.author);
   if (Storage.exists(path.c_str())) {
     RenderLock lock(*this);
     downloadedPath = path;
@@ -525,7 +525,7 @@ void BookOrbitCatalogActivity::downloadBook(const BookOrbitCatalogBook& book) {
   {
     RenderLock lock(*this);
     state = State::DOWNLOADING;
-    statusMessage = detail.title.empty() ? book.title : detail.title;
+    statusMessage = fetched.title.empty() ? book.title : fetched.title;
     downloadDone = 0;
     downloadTotal = epubFile->sizeBytes;
   }
@@ -637,7 +637,7 @@ void BookOrbitCatalogActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, true);
-  const std::string& title = stack.empty() ? std::string(tr(STR_BOOKORBIT_CATALOG)) : stack.back().title;
+  const std::string title = stack.empty() ? std::string(tr(STR_BOOKORBIT_CATALOG)) : stack.back().title;
   GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), title.c_str());
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = contentRect.height - contentTop - metrics.verticalSpacing;

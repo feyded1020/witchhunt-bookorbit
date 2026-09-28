@@ -17,14 +17,12 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
-#include <cstring>
 #include <vector>
 
 #include "EpdFontData.h"
 #include "FontDecompressor.h"
-#include "uzlib.h"
 
-// A real generated font: 15 groups, uncompressed sizes up to ~25 KB, rings measured from the
+// A real generated font: 19 groups, uncompressed sizes up to ~25 KB, rings measured from the
 // finished DEFLATE streams by fontconvert.py.
 #include "notosans_14_regular.h"
 
@@ -36,59 +34,36 @@ namespace {
 
 struct Decoded {
   bool ok = false;
-  std::vector<uint8_t> bytes;
+  std::vector<uint8_t> bytes;  // every glyph of the group, packed, in glyph order
+  uint32_t consumed = 0;       // bytes of the group the stream decoded to get them
 };
 
-// Decode one group through a ring of exactly `ringBytes`, the way FontDecompressor::GroupStream
-// does: output is pulled in small chunks while the ring alone carries back-reference history.
+// Pull every glyph of `group` through the real FontDecompressor::GroupStream with a ring of
+// exactly `ringBytes`, in ascending order as prewarmCache and getBitmap do. The stream reaches
+// each glyph by skipping 64 bytes at a time, so the ring carries the back-reference history
+// across many separate reads.
 Decoded DecodeThroughRing(const EpdFontData& font, const EpdFontGroup& group, uint32_t ringBytes) {
-  std::vector<uint8_t> ring(ringBytes, 0);
-  std::vector<uint8_t> out(group.uncompressedSize);
+  std::vector<uint8_t> ring(ringBytes);
+  FontDecompressor::GroupStream stream;
+  if (!stream.begin(&font, group, ring.data(), ringBytes)) return {};
 
-  uzlib_uncomp d;
-  memset(&d, 0, sizeof(d));
-  uzlib_uncompress_init(&d, ring.data(), ringBytes);
-  d.source = &font.bitmap[group.compressedOffset];
-  d.source_limit = d.source + group.compressedSize;
-
-  // 64 bytes at a time: the same MAX_ROW_STRIDE-sized pull the real decoder uses to skip
-  // forward, so the ring is exercised across many separate calls rather than one big read.
-  uint32_t produced = 0;
-  while (produced < group.uncompressedSize) {
-    const uint32_t want = std::min<uint32_t>(64, group.uncompressedSize - produced);
-    d.dest = out.data() + produced;
-    d.dest_start = out.data();
-    d.dest_limit = d.dest + want;
-    const int res = uzlib_uncompress(&d);
-    if (res != TINF_OK && res != TINF_DONE) return {};
-    const uint32_t got = static_cast<uint32_t>(d.dest - (out.data() + produced));
-    if (got == 0) return {};
-    produced += got;
+  Decoded out;
+  uint32_t alignedOffset = 0;
+  for (uint32_t i = group.firstGlyphIndex; i < group.firstGlyphIndex + group.glyphCount; i++) {
+    const EpdGlyphRef glyph = epdResolveGlyph(&font, i);
+    const size_t at = out.bytes.size();
+    out.bytes.resize(at + glyphDataBytes(glyph.width, glyph.height, font.is2Bit));
+    if (!stream.extractGlyph(alignedOffset, glyph, out.bytes.data() + at)) return {};
+    // Byte-aligned rows, the layout fontconvert.py emits (see FontDecompressor::getAlignedOffset).
+    alignedOffset += (glyph.width + 3u) / 4u * glyph.height;
   }
-  return {true, std::move(out)};
+  out.ok = true;
+  out.consumed = stream.consumed();
+  return out;
 }
 
-// Only the fields the decode path reads; everything else stays zeroed. Assigned rather than
-// brace-initialised because EpdFontData has ~25 members and listing four of them trips
-// -Wmissing-field-initializers.
-const EpdFontData& Font() {
-  static const EpdFontData font = [] {
-    EpdFontData f{};
-    f.bitmap = notosans_14_regularBitmaps;
-    f.glyphPacked = notosans_14_regularGlyphs;
-    // MUST be set, and is easy to miss on a hand-built EpdFontData: the packed glyph record does
-    // not store dataLength, it derives it from width * height * bpp, and bpp comes from here.
-    // Leaving the zero-initialised false on a 2-bit font halves every length silently.
-    f.is2Bit = true;
-    // Via the struct, not the array symbol: interval tables that several faces emitted
-    // identically are hoisted into shared_tables.h by dedupe_font_tables.py, so the per-face
-    // name is not guaranteed to exist.
-    f.intervals = notosans_14_regular.intervals;
-    f.intervalCount = notosans_14_regular.intervalCount;
-    return f;
-  }();
-  return font;
-}
+// The shipped font as the reader sees it: contiguous groups, 2-bit, compressed.
+const EpdFontData& Font() { return notosans_14_regular; }
 
 const EpdFontGroup* Groups() { return notosans_14_regularGroups; }
 constexpr uint16_t kGroupCount = sizeof(notosans_14_regularGroups) / sizeof(notosans_14_regularGroups[0]);
@@ -104,6 +79,8 @@ TEST(FontGroupStream, RingBytesIsSufficient) {
 
     const Decoded ring = DecodeThroughRing(Font(), g, g.ringBytes);
     ASSERT_TRUE(ring.ok) << "group " << i << " failed to decode through its own " << g.ringBytes << "-byte ring";
+    // Its last glyph ends the group, so the ring carried the whole stream, not a prefix.
+    EXPECT_EQ(ring.consumed, g.uncompressedSize) << "group " << i;
 
     // Ground truth: the same stream decoded with a full 32 KB window.
     const Decoded full = DecodeThroughRing(Font(), g, 32768);

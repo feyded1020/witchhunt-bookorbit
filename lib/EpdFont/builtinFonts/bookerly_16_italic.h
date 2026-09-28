@@ -3,7 +3,7 @@
  * name: bookerly_16_italic
  * size: 16
  * mode: 2-bit  compressed: zopfli
- * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels)
+ * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels; ink re-centred on the unhinted outline)
  * Command used: fontconvert.py bookerly_16_italic 16 ../builtinFonts/source/Bookerly/Bookerly-Italic.ttf --2bit --compress --zopfli
  */
 #pragma once
@@ -3712,11 +3712,11 @@ static const EpdGlyphPacked bookerly_16_italicGlyphs[] = {
     { 9, 34, 267, 4, 26 }, // U+2225
     { 22, 24, 533, 6, 24 }, // U+2227
     { 22, 24, 533, 6, 24 }, // U+2228
-    { 18, 24, 533, 7, 24 }, // U+2229
-    { 18, 24, 533, 7, 23 }, // U+222A
+    { 18, 24, 533, 8, 24 }, // U+2229
+    { 18, 24, 533, 8, 23 }, // U+222A
     { 18, 34, 332, 1, 26 }, // U+222B
-    { 21, 19, 533, 7, 18 }, // U+2234
-    { 21, 19, 533, 7, 18 }, // U+2235
+    { 21, 19, 533, 6, 18 }, // U+2234
+    { 21, 19, 533, 6, 18 }, // U+2235
     { 8, 17, 162, 1, 20 }, // U+2236
     { 20, 19, 533, 7, 18 }, // U+2237
     { 19, 6, 533, 7, 13 }, // U+223C

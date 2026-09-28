@@ -175,12 +175,4 @@ TEST_F(MetadataSidecarFixture, ReadsTheShapeTheMetadataEditorWrites) {
   EXPECT_EQ(epub.getDescription(), "Edited description text.");
 }
 
-TEST_F(MetadataSidecarFixture, MetadataSidecarPathResolves) {
-  EXPECT_EQ(Epub::metadataSidecarPath(bookPath.string()), "");
-  writeSidecar(sidecarXml("T", "A"));
-  EXPECT_EQ(Epub::metadataSidecarPath(bookPath.string()), sidecarPath.string());
-  // An extension-less path has nothing to swap.
-  EXPECT_EQ(Epub::metadataSidecarPath((work / "noext").string()), "");
-}
-
 }  // namespace

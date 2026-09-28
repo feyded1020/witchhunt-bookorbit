@@ -1,118 +1,76 @@
-#include <cstdio>
+#include <gtest/gtest.h>
+
 #include <string>
 
 #include "../../lib/Epub/Epub/css/CssParser.h"
 
-static int testsPassed = 0;
-static int testsFailed = 0;
-
-#define ASSERT_EQ(a, b)                                                         \
-  do {                                                                          \
-    if ((a) != (b)) {                                                           \
-      fprintf(stderr, "  FAIL: %s:%d: %s != %s\n", __FILE__, __LINE__, #a, #b); \
-      testsFailed++;                                                            \
-      return;                                                                   \
-    }                                                                           \
-  } while (0)
-
-#define ASSERT_TRUE(cond)                                                         \
-  do {                                                                            \
-    if (!(cond)) {                                                                \
-      fprintf(stderr, "  FAIL: %s:%d: %s is false\n", __FILE__, __LINE__, #cond); \
-      testsFailed++;                                                              \
-      return;                                                                     \
-    }                                                                             \
-  } while (0)
-
-#define PASS() testsPassed++
-
-void testInlineLineThrough() {
-  printf("testInlineLineThrough...\n");
+TEST(CssParserDeclarations, InlineLineThrough) {
   const CssStyle style = CssParser::parseInlineStyle("text-decoration: line-through");
   ASSERT_TRUE(style.hasTextDecoration());
   ASSERT_EQ(style.textDecoration, CssTextDecoration::LineThrough);
-  PASS();
 }
 
-void testInlineUnderlineLineThrough() {
-  printf("testInlineUnderlineLineThrough...\n");
+TEST(CssParserDeclarations, InlineUnderlineLineThrough) {
   const CssStyle style = CssParser::parseInlineStyle("text-decoration: underline line-through");
   ASSERT_TRUE(style.hasTextDecoration());
   ASSERT_EQ(style.textDecoration, CssTextDecoration::UnderlineLineThrough);
-  PASS();
 }
 
-void testInlineLineThroughUnderlineOrderInsensitive() {
-  printf("testInlineLineThroughUnderlineOrderInsensitive...\n");
+TEST(CssParserDeclarations, InlineLineThroughUnderlineOrderInsensitive) {
   const CssStyle style = CssParser::parseInlineStyle("text-decoration: line-through underline");
   ASSERT_TRUE(style.hasTextDecoration());
   ASSERT_EQ(style.textDecoration, CssTextDecoration::UnderlineLineThrough);
-  PASS();
 }
 
-void testInlineTextDecorationNormalization() {
-  printf("testInlineTextDecorationNormalization...\n");
+TEST(CssParserDeclarations, InlineTextDecorationNormalization) {
   const CssStyle style = CssParser::parseInlineStyle("TEXT-DECORATION : LINE-THROUGH ;");
   ASSERT_TRUE(style.hasTextDecoration());
   ASSERT_EQ(style.textDecoration, CssTextDecoration::LineThrough);
-  PASS();
 }
 
 // `img { height: 100%; ...; height: auto; width: 100% }` — the later `auto` has to win. Dropping
 // it as unparseable left the 100% standing, which sized the image box to the whole viewport while
 // the decoder filled only the aspect-correct top of it; the rest replayed as a black band.
-void testImageHeightAutoClearsEarlierLength() {
-  printf("testImageHeightAutoClearsEarlierLength...\n");
+TEST(CssParserDeclarations, ImageHeightAutoClearsEarlierLength) {
   const CssStyle style = CssParser::parseInlineStyle("height: 100%; width: 100%; height: auto");
   ASSERT_TRUE(style.hasImageWidth());
-  ASSERT_TRUE(!style.hasImageHeight());
-  PASS();
+  ASSERT_FALSE(style.hasImageHeight());
 }
 
 // Order still matters the other way round: a length after the auto wins.
-void testImageHeightLengthAfterAutoWins() {
-  printf("testImageHeightLengthAfterAutoWins...\n");
+TEST(CssParserDeclarations, ImageHeightLengthAfterAutoWins) {
   const CssStyle style = CssParser::parseInlineStyle("height: auto; height: 2em");
   ASSERT_TRUE(style.hasImageHeight());
   ASSERT_EQ(style.imageHeight.unit, CssUnit::Em);
-  PASS();
 }
 
 // The auto marker must survive the cascade merge, so a more specific rule saying `width: auto`
 // clears a length a less specific one set.
-void testImageWidthAutoOverridesLowerPriorityRule() {
-  printf("testImageWidthAutoOverridesLowerPriorityRule...\n");
+TEST(CssParserDeclarations, ImageWidthAutoOverridesLowerPriorityRule) {
   CssStyle resolved = CssParser::parseInlineStyle("width: 50%");
   resolved.applyOver(CssParser::parseInlineStyle("width: auto"));
-  ASSERT_TRUE(!resolved.hasImageWidth());
-  PASS();
+  ASSERT_FALSE(resolved.hasImageWidth());
 }
 
 // Unsupported keywords stay ignored — only auto and the CSS-wide keywords that resolve to it
 // clear the property.
-void testImageHeightUnknownKeywordIgnored() {
-  printf("testImageHeightUnknownKeywordIgnored...\n");
+TEST(CssParserDeclarations, ImageHeightUnknownKeywordIgnored) {
   const CssStyle style = CssParser::parseInlineStyle("height: 100%; height: fit-content");
   ASSERT_TRUE(style.hasImageHeight());
   ASSERT_EQ(style.imageHeight.unit, CssUnit::Percent);
-  PASS();
 }
 
-void testImageWidthImportant() {
-  printf("testImageWidthImportant...\n");
+TEST(CssParserDeclarations, ImageWidthImportant) {
   const CssStyle style = CssParser::parseInlineStyle("width: 50% !important");
   ASSERT_TRUE(style.hasImageWidth());
   ASSERT_EQ(style.imageWidth.unit, CssUnit::Percent);
   ASSERT_EQ(style.imageWidth.value, 50.0f);
-  PASS();
 }
 
 // Regression: `!important` used to be stripped only by the dozen properties that called
 // stripTrailingImportant themselves. Everything else compared the marker as part of the value
 // and silently dropped the declaration. crosspoint-reader PR #3221.
-void testImportantStrippedForEveryProperty() {
-  printf("testImportantStrippedForEveryProperty...\n");
-
+TEST(CssParserDeclarations, ImportantStrippedForEveryProperty) {
   const CssStyle align = CssParser::parseInlineStyle("text-align: center !important");
   ASSERT_TRUE(align.hasTextAlign());
   ASSERT_EQ(static_cast<int>(align.textAlign), static_cast<int>(CssTextAlign::Center));
@@ -134,24 +92,29 @@ void testImportantStrippedForEveryProperty() {
   const CssStyle margin = CssParser::parseInlineStyle("margin: 0 !important");
   ASSERT_TRUE(margin.hasMarginTop());
   ASSERT_EQ(margin.marginTop.value, 0.0f);
-
-  PASS();
 }
 
-int main() {
-  printf("=== EPUB CSS Parser Tests ===\n\n");
+// Font-size absolute units and keywords resolve to body-relative multipliers:
+// pt normalises against 12 pt, px against 16 px, keywords use fixed steps.
+TEST(CssParserUnits, FontSizeKeywordsAndAbsoluteUnits) {
+  struct Case {
+    const char* decl;
+    float expected;
+  };
+  const Case cases[] = {
+      {"font-size: 9pt", 0.75f},     {"font-size: 12pt", 1.0f},     {"font-size: 24pt", 2.0f},
+      {"font-size: 8px", 0.5f},      {"font-size: 16px", 1.0f},     {"font-size: 32px", 2.0f},
+      {"font-size: xx-small", 0.6f}, {"font-size: x-small", 0.75f}, {"font-size: small", 0.8f},
+      {"font-size: smaller", 0.8f},  {"font-size: medium", 1.0f},   {"font-size: large", 1.2f},
+      {"font-size: larger", 1.2f},   {"font-size: x-large", 1.4f},  {"font-size: xx-large", 1.6f},
+  };
+  for (const auto& c : cases) {
+    const CssStyle st = CssParser::parseInlineStyle(c.decl);
+    EXPECT_TRUE(st.hasFontSizeMultiplier()) << c.decl;
+    EXPECT_FLOAT_EQ(st.fontSizeMultiplier, c.expected) << c.decl;
+  }
 
-  testInlineLineThrough();
-  testInlineUnderlineLineThrough();
-  testInlineLineThroughUnderlineOrderInsensitive();
-  testInlineTextDecorationNormalization();
-  testImageHeightAutoClearsEarlierLength();
-  testImageHeightLengthAfterAutoWins();
-  testImageWidthAutoOverridesLowerPriorityRule();
-  testImageHeightUnknownKeywordIgnored();
-  testImageWidthImportant();
-  testImportantStrippedForEveryProperty();
-
-  printf("\n=== Results: %d passed, %d failed ===\n", testsPassed, testsFailed);
-  return testsFailed > 0 ? 1 : 0;
+  // Unknown keyword must leave font-size undefined.
+  const CssStyle bogus = CssParser::parseInlineStyle("font-size: enormous");
+  EXPECT_FALSE(bogus.hasFontSizeMultiplier());
 }

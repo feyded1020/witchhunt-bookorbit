@@ -4,7 +4,7 @@ A "section" is one spine item (typically one chapter) laid out into pages for a 
 
 ## Cache identity: the property hash
 
-The section cache filename is `{cachePath}/sections/{spineIndex}_{propertyHash:08x}.bin`. The property hash is FNV-1a over a packed 64-byte buffer of the ten rendering parameters that affect layout:
+The section cache filename is `{cachePath}/spines/{spineIndex / 32}/{spineIndex}_{propertyHash:08x}.bin` (`Epub::spineCacheDir`). The per-spine caches sit in buckets of 32 spine items because a FAT open scans its directory linearly: the single flat `sections/` directory older firmware used held two files per spine item, 3400+ entries on a book with 1700 spine items, all scanned on every section open. The book-keyed inflated XHTML (`html_{spineIndex}.bin`) and the build's anchor spill share the bucket. The property hash is FNV-1a over a packed 64-byte buffer of the ten rendering parameters that affect layout:
 
 | Parameter | Type | Effect on layout |
 |---|---|---|
@@ -111,6 +111,6 @@ Once the `.pxc` files are on SD, every subsequent render finds them cached and n
 
 ## Variant eviction
 
-`Section::evictOldVariants` keeps up to `MAX_VARIANTS = 5` variants per spine index. It lists all files in the `sections/` directory whose names start with `{spineIndex}_`, sorts by SD modification timestamp (newest first), and deletes any beyond the fifth. For each deleted section variant it also deletes the associated image files (`img_{spineIndex}_{hash}_*`).
+`Section::evictOldVariants` keeps up to `MAX_VARIANTS = 5` variants per spine index. It walks the spine's bucket directory for files whose names start with `{spineIndex}_`, sorts by SD modification timestamp (newest first), and deletes any beyond the fifth. For each deleted section variant it also deletes the associated image files (`img_{spineIndex}_{hash}_*`).
 
 Eviction runs at the end of `createSectionFile` unless `skipEviction=true` (used during the CSS-fallback recursive call to avoid evicting the just-created no-CSS variant).

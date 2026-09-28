@@ -95,7 +95,8 @@ enum UIIcon {
   Hotspot,
   Weather,
   Usb,
-  Stats
+  Stats,
+  Ellipsis
 };
 
 enum class KeyboardKeyType { Normal, Shift, Mode, Reveal, Space, Del, Ok, Disabled };
@@ -238,6 +239,16 @@ class BaseTheme {
   // rebuild — use this instead of invalidateFrameCache() when a cover BMP was
   // just written so back-to-back cover arrivals don't each trigger an SD re-read.
   virtual void markFrameCacheDirty() {}
+
+  // Bytes of lent memory the frame cache would live in instead of the heap; 0 = it keeps none.
+  // HomeActivity keeps the secondary framebuffer lent after its cover pass and offers it here: the
+  // carousel's one cached frame (49 104 B on the X3, 45 120 B on the X4) is larger than any block
+  // Home's heap has while the buffer is resident, so on the heap it never fit.
+  virtual size_t frameCacheRegionBytes(const GfxRenderer& /*renderer*/) const { return 0; }
+  // Give the frame cache a lent region to live in, or take it back (null). Whatever frame the cache
+  // held is dropped either way. Call under the RenderLock: tryFastHomeRender reads the cache on
+  // the render task.
+  virtual void setFrameCacheRegion(uint8_t* /*region*/, size_t /*bytes*/) {}
 
   // ---- Shared constants and helpers for battery drawing (used by all themes) ----
   static constexpr int batteryPercentSpacing = 4;

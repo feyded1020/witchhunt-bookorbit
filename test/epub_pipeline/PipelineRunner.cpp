@@ -7,6 +7,7 @@
 #include <memory>
 #include <regex>
 
+#include "BuildArena.h"
 #include "Epub.h"
 #include "Epub/FootnotePreviews.h"
 #include "Epub/Page.h"
@@ -101,9 +102,23 @@ void dumpPage(std::ostream& out, const Page& page, const uint16_t pageIndex, con
 
 }  // namespace
 
+namespace {
+BuildBracketFn g_buildBracket;
+}  // namespace
+
+void setBuildBracket(BuildBracketFn fn) { g_buildBracket = std::move(fn); }
+
 bool runAndDump(const std::string& epubPath, const std::string& cacheDir, const Profile& profile, std::ostream& out,
-                const SpineStatFn& spineStat) {
+                const SpineStatFn& spineStat, const ArenaStatFn& arenaStat) {
   GfxRenderer renderer;
+  std::unique_ptr<BuildArena> lentArena;
+  if (profile.lentArenaBytes > 0) {
+    lentArena = std::make_unique<BuildArena>(profile.lentArenaBytes);
+    if (!lentArena->valid()) {
+      out << "ERROR lent arena allocation failed\n";
+      return false;
+    }
+  }
 
   auto epub = std::make_shared<Epub>(epubPath, cacheDir);
   if (!epub->load(true)) {
@@ -120,6 +135,10 @@ bool runAndDump(const std::string& epubPath, const std::string& cacheDir, const 
   for (int i = 0; i < epub->getSpineItemsCount(); ++i) {
     const auto spineStart = std::chrono::steady_clock::now();
     Section section(epub, i, renderer);
+    if (lentArena) {
+      lentArena->reset();
+      section.setExternalBuildScratch(lentArena.get());
+    }
     Section::BuildParams p;
     p.fontId = profile.fontId;
     p.lineCompression = profile.lineCompression;
@@ -133,10 +152,20 @@ bool runAndDump(const std::string& epubPath, const std::string& cacheDir, const 
     p.bionicReadingEnabled = profile.bionicReadingEnabled;
     p.inlineFootnotePreviews = profile.inlineFootnotePreviews;
     p.imageRendering = profile.imageRendering;
-    if (!section.createSectionFile(p, {}, /*skipEviction=*/true)) {
+    if (g_buildBracket) g_buildBracket(i, true, lentArena.get());
+    const bool built = section.createSectionFile(p, {}, /*skipEviction=*/true);
+    if (g_buildBracket) g_buildBracket(i, false, lentArena.get());
+    if (!built) {
       out << "SPINE " << i << " ERROR build failed\n";
       return false;
     }
+    if (lentArena && arenaStat) arenaStat(i, lentArena->highWater(), lentArena->capacity());
+    // The deferred image-header walk, as the reader runs it at the end of a Background-C build:
+    // ring storage from the lent region when there is one (its build state is gone now), else
+    // the heap. Until this the harness never ran the walk, so the census had no figure for it
+    // (memory audit 2026-09, F7/R5). A no-op when the build resolved every header inline.
+    if (lentArena) lentArena->reset();
+    epub->persistImageManifest(lentArena.get());
     if (!section.loadSectionFile(p)) {
       out << "SPINE " << i << " ERROR load failed\n";
       return false;

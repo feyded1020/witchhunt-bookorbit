@@ -16,8 +16,9 @@
 #include "MappedInputManager.h"
 #include "TouchUi.h"
 
-class Activity;    // forward declaration
-class RenderLock;  // forward declaration
+class Activity;                       // forward declaration
+class RenderLock;                     // forward declaration
+enum class HomeMenuAction : uint8_t;  // activities/home/HomeMenu.h
 
 // Where a "child" activity (launched via one of the replaceWith* helpers) should route
 // control when it exits successfully. See ActivityManager::returnFromChild().
@@ -160,6 +161,9 @@ class ActivityManager {
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToWeather();
   void goToReadingStats();
+  void goToHomeMore();
+  // Opens a home screen entry (see HomeMenu.h). A plain goTo*(), so the caller's ReturnHint survives.
+  void goToHomeMenuAction(HomeMenuAction action);
   void goHome(std::string focusBookPath = {}, int focusSelectorIndex = -1);
 
   // Replace-with-hint helpers: destroy the current activity before launching the new
@@ -199,6 +203,7 @@ class ActivityManager {
   bool inSleepTransition() const { return sleepTransition; }
 
   bool preventAutoSleep() const;
+  bool keepAwake() const;
   // True while the current activity owns the raw SD card (USB Drive). main.cpp
   // consults this to suspend its own loop work — see Activity::requiresExclusiveStorageLoop().
   bool requiresExclusiveStorageLoop() const;

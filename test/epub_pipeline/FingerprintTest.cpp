@@ -1,4 +1,4 @@
-// Phase-1 fingerprint invalidation (docs/compiled-book-pipeline-plan.md):
+// Fingerprint invalidation:
 // the cache key is path-derived, so a book replaced in place must invalidate
 // the cache, while an mtime-only touch must not. Observability: a canary file
 // planted inside the cache dir survives iff the cache was NOT wiped.

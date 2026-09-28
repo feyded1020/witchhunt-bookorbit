@@ -1,4 +1,7 @@
 #pragma once
+class BuildArena;  // lib/Memory
+
+#include <BuildArena.h>
 #include <PngToBmpConverter.h>
 #include <ZipFile.h>
 
@@ -9,13 +12,16 @@
 #include "activities/home/FileBrowserActivity.h"
 
 class Epub;
+class CoverThumbSession;  // Epub/CoverThumbSession.h
 class Xtc;
 class Txt;
 
 class ReaderActivity final : public Activity {
   std::string initialBookPath;
   std::string currentBookPath;  // Track current book path for navigation
-  static std::unique_ptr<Epub> loadEpub(const std::string& path);
+  // `scratch`: lent to Epub::load for its inflate rings (first-open indexing borrows the
+  // secondary framebuffer for it); null loads from the heap as before.
+  static std::unique_ptr<Epub> loadEpub(const std::string& path, BuildArena* scratch = nullptr);
   static std::unique_ptr<Xtc> loadXtc(const std::string& path);
   static std::unique_ptr<Txt> loadTxt(const std::string& path);
   static bool isXtcFile(const std::string& path);
@@ -47,8 +53,22 @@ class ReaderActivity final : public Activity {
   // tell a structural absence (no cover / unsupported — safe to record permanently) from a
   // transient failure (retry next pass/boot). A sidecar image beside the book, when present and
   // convertible, always yields Ok and clears any stale sentinel first.
-  static ThumbResult ensureCoverThumb(const std::string& bookPath, int width, int height);
-  static ThumbResult ensureCoverThumb(const std::string& bookPath, int height);
+  // `scratch` (here and on the session starters below): a lent region -- HomeActivity lends
+  // the secondary framebuffer for the whole cover pass -- for the OPF inflate ring, the cover
+  // extraction ring and the decoders' working memory. Null uses the heap as before.
+  static ThumbResult ensureCoverThumb(const std::string& bookPath, int width, int height,
+                                      BuildArena* scratch = nullptr);
+  // Every (width, height) in `sizes` for this book, from ONE decode of an embedded EPUB JPEG cover
+  // (the Lyra carousel's two thumbnail sizes used to cost two full decodes). A sidecar image, an XTC
+  // or a TXT source keeps the per-size path. Ok only when every size is complete.
+  // `sliced` (Home's cover pass): when the cover is a JPEG the sliced converter takes, the
+  // conversion is STARTED instead of run here and handed over in *sliced, with nothing written yet;
+  // the result is then TransientFail and the caller drives the session (see CoverThumbSession).
+  // Otherwise *sliced stays null and the result is the one-shot conversion's.
+  static ThumbResult ensureCoverThumbs(const std::string& bookPath, const std::pair<int, int>* sizes, int count,
+                                       BuildArena* scratch = nullptr,
+                                       std::unique_ptr<CoverThumbSession>* sliced = nullptr);
+  static ThumbResult ensureCoverThumb(const std::string& bookPath, int height, BuildArena* scratch = nullptr);
   // True only if a cover thumbnail BMP exists AND holds all its declared pixel rows. A thumbnail
   // whose write was interrupted (reboot/abort mid-decode) is left truncated on the SD card; it
   // passes a naive size>0 check but fails to draw partway (GFX "Failed to read row N"). Treating
@@ -74,7 +94,8 @@ class ReaderActivity final : public Activity {
     // Begin extracting zipEntryPath from epubPath into a staging file. The completed
     // file is atomically renamed to destPath so decoders never observe partial bytes.
     // Returns false if the entry cannot be opened.
-    bool begin(const std::string& epubPath, const std::string& zipEntryPath, const std::string& destPath);
+    bool begin(const std::string& epubPath, const std::string& zipEntryPath, const std::string& destPath,
+               BuildArena* scratch = nullptr);
 
     // Decompress up to chunkBytes into destPath. Call repeatedly until not Running.
     Status continueStep(size_t chunkBytes = 4096);
@@ -91,20 +112,27 @@ class ReaderActivity final : public Activity {
     CoverExtractSession& operator=(const CoverExtractSession&) = delete;
 
    private:
+    void releaseChunk();
+
     std::unique_ptr<ZipFile> zip_;
     std::unique_ptr<ZipFile::EntryReader> reader_;
     FsFile dst_;
     std::string finalPath_;
     std::string destPath_;
+    BuildArena* scratch_ = nullptr;
+    BuildArena::Block chunkBlock_;  // reserved after the reader's block, released before it
     uint8_t* buf_ = nullptr;
-    size_t chunkBytes_ = 0;
+    bool bufInArena_ = false;
+    size_t requestedBytes_ = 0;  // what the caller asked for
+    size_t chunkBytes_ = 0;      // what buf_ holds: the request, or less when memory was short
   };
 
   // Begin a sliced ZIP extraction for the embedded cover of bookPath.
   // Returns nullptr if the book has no extractable embedded PNG cover, or if
   // cover.img is already cached. On success the caller drives the session via
   // continueStep() each loop() tick until Done, then calls beginPngThumbSession.
-  static std::unique_ptr<CoverExtractSession> beginCoverExtractSession(const std::string& bookPath);
+  static std::unique_ptr<CoverExtractSession> beginCoverExtractSession(const std::string& bookPath,
+                                                                       BuildArena* scratch = nullptr);
 
   // Open FsFiles that must outlive a PngDecodeSession (session borrows pointers to them).
   struct PngThumbFiles {
@@ -122,12 +150,12 @@ class ReaderActivity final : public Activity {
   // alive until the session completes and then close them.
   // On failure (nullptr return), the thumb file is left as a 0-byte sentinel.
   static std::unique_ptr<PngDecodeSession> beginPngThumbSession(const std::string& bookPath, int width, int height,
-                                                                PngThumbFiles& filesOut);
+                                                                PngThumbFiles& filesOut, BuildArena* scratch = nullptr);
 
   // Single-height variant: writes the "thumb_<H>.bmp" form used by the non-carousel themes, at
   // width = H*0.6 (matching the synchronous single-height decode). Same contract as above.
   static std::unique_ptr<PngDecodeSession> beginPngThumbSession(const std::string& bookPath, int height,
-                                                                PngThumbFiles& filesOut);
+                                                                PngThumbFiles& filesOut, BuildArena* scratch = nullptr);
 
   // Render a sidecar image (or copy a sidecar BMP) into a scaled 1-bit BMP at
   // "<cacheDir>/<fileName>". Returns the written path, or "" on failure.

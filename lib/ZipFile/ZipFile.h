@@ -107,7 +107,11 @@ class ZipFile {
 
   // Same as readBytesFromEntry but for a caller that already holds the entry's central-dir
   // stat (e.g. from a prior loadFileStatSlim), avoiding a second central-directory scan.
-  size_t readBytesFromStat(const FileStatSlim& fileStat, uint8_t* outBuf, size_t maxBytes);
+  // `scratch`: when given, the inflate ring and read buffer come from a block reserved in it and
+  // released before returning (heap when it has no room). The section build passes its lent
+  // arena, so an image-header probe mid-parse costs the heap nothing.
+  size_t readBytesFromStat(const FileStatSlim& fileStat, uint8_t* outBuf, size_t maxBytes,
+                           BuildArena* scratch = nullptr);
 
   // Resumable reader for a single ZIP entry. Holds the file handle and inflate
   // state alive across calls so the caller can feed decompressed bytes in small
@@ -150,6 +154,12 @@ class ZipFile {
     // central-directory scan loadFileStatSlim performs. Closes any previously
     // open entry first.
     bool open(const FileStatSlim& fileStat);
+    // Same, reading at most `outputCap` bytes of the entry (0 = all of it): step() reports done at
+    // the cap. A deflate back-reference never reaches further back than the bytes produced so far,
+    // so the inflate ring is sized to min(entry, cap) instead of the entry -- a header walk that
+    // stops 16 KB into a 400 KB JPEG costs a 16 KB ring, not 32 KB. Budget per open:
+    // chunkSize + InflateReader::ringSizeFor(min(entry, cap)) + alignment.
+    bool open(const FileStatSlim& fileStat, size_t outputCap);
 
     // Decompress up to `cap` bytes into `out`. Sets `*produced` to the number
     // of bytes written and `*done` to true when the entry is exhausted.

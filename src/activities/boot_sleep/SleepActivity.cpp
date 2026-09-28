@@ -74,7 +74,7 @@ bool renderSleepImageFromCache(GfxRenderer& renderer, const std::string& cachePa
     cacheFile.close();
     return false;
   }
-  if (magic != PixelCache::PXC_MAGIC) {
+  if (!PixelCache::magicIsValid(magic)) {
     cacheFile.close();
     LOG_INF("SLP", "Stale sleep pixel cache (0x%04X), deleting: %s", magic, cachePath.c_str());
     Storage.remove(cachePath.c_str());
@@ -682,8 +682,8 @@ BookOverlayInfo SleepActivity::getBookOverlayInfo(const std::string& bookPath) c
             // cache so the sleep overlay can show e.g. "(42)" without instantiating
             // a Section + render parameters.
             std::string printedPagePrefix;
-            if (const auto label = Section::getPrintedPageLabelFromCache(
-                    epub.getCachePath() + "/sections", currentSpineIndex, static_cast<uint16_t>(currentPage))) {
+            if (const auto label = Section::getPrintedPageLabelFromCache(epub.getCachePath(), currentSpineIndex,
+                                                                         static_cast<uint16_t>(currentPage))) {
               printedPagePrefix = *label + " ";
             }
 
@@ -903,6 +903,10 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
     // beginAbsoluteGrayPass() does that base push itself, blocking. The
     // differential path keeps the async scrub.
     const bool panelHasAbsolute = renderer.supportsAbsoluteGrayPlanes();
+    // A reader exit arms a HALF via setNextDisplayRefreshMode(); beginAbsoluteGrayPass() below
+    // consumes it as its base mode. Logged BEFORE that consume, so the line still says whether one
+    // was pending (it was, on every reader -> cover sleep captured on X3, X4 and X4 Pro).
+    LOG_DBG("SLP", "Gray base: overridePending=%d", renderer.hasRefreshOverridePending() ? 1 : 0);
     const bool absolutePass = panelHasAbsolute && renderer.beginAbsoluteGrayPass();
     LOG_DBG("SLP", "Grayscale planes: %s",
             absolutePass ? "absolute"

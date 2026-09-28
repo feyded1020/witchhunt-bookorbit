@@ -148,7 +148,7 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
   // and would otherwise be replayed forever without re-decoding. Delete it so
   // the caller falls through to a fresh decode, which rewrites the cache.
   uint16_t magic;
-  if (cacheFile.read(&magic, 2) != 2 || magic != PixelCache::PXC_MAGIC) {
+  if (cacheFile.read(&magic, 2) != 2 || !PixelCache::magicIsValid(magic)) {
     cacheFile.close();
     LOG_INF("IMG", "Stale/unversioned pixel cache (0x%04X), deleting: %s", magic, cachePath.c_str());
     Storage.remove(cachePath.c_str());
@@ -297,6 +297,19 @@ bool ImageBlock::hasPixelCache() const { return Storage.exists(getBwCachePath(im
 
 bool ImageBlock::hasGrayscaleCache() const { return Storage.exists(getGrayscaleCachePath(imagePath).c_str()); }
 
+bool ImageBlock::dropCoarseCache(const bool monochromeOutput) const {
+  const std::string& cachePath = monochromeOutput ? getBwCachePath(imagePath) : getGrayscaleCachePath(imagePath);
+  FsFile cacheFile;
+  if (!Storage.exists(cachePath.c_str()) || !Storage.openFileForRead("IMG", cachePath, cacheFile)) return false;
+  uint16_t magic = 0;
+  const bool coarse = cacheFile.read(&magic, 2) == 2 && magic == PixelCache::PXC_MAGIC_COARSE;
+  cacheFile.close();
+  if (!coarse) return false;
+  LOG_INF("IMG", "Dropping coarse pixel cache for a full decode: %s", cachePath.c_str());
+  Storage.remove(cachePath.c_str());
+  return true;
+}
+
 bool ImageBlock::wouldShowPlaceholder(bool forceLoad, bool monochromeOutput) const {
   if (forceLoad) return false;
   if (!isLargeImage()) return false;
@@ -317,7 +330,9 @@ std::unique_ptr<ImageBlock> ImageBlock::makeCrop(const int16_t srcYOffset, const
   return crop;
 }
 
-void ImageBlock::renderPlaceholder(GfxRenderer& renderer, const int x, const int y) const {
+bool ImageBlock::placeholderOnly_ = false;
+
+void ImageBlock::renderPlaceholder(GfxRenderer& renderer, const int x, const int y, const bool loading) const {
   constexpr int BORDER = 1;
   constexpr int PADDING = 6;
 
@@ -325,12 +340,18 @@ void ImageBlock::renderPlaceholder(GfxRenderer& renderer, const int x, const int
 
   const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
   const bool hasAlt = !altText.empty();
-  const int lineCount = hasAlt ? 3 : 2;
+  // Loading: the alt text (if any) and one "indexing" line. Large image: three lines as before.
+  const int lineCount = loading ? (hasAlt ? 2 : 1) : (hasAlt ? 3 : 2);
   const int totalTextH = lineH * lineCount;
 
   if (lineH > 0 && width > PADDING * 2 && height > totalTextH + PADDING * 2) {
     const int textX = x + PADDING;
     const int textY = y + (height - totalTextH) / 2;
+    if (loading) {
+      if (hasAlt) renderer.drawText(UI_10_FONT_ID, textX, textY, altText.c_str());
+      renderer.drawText(UI_10_FONT_ID, textX, textY + lineH * (lineCount - 1), tr(STR_INDEXING));
+      return;
+    }
     renderer.drawText(UI_10_FONT_ID, textX, textY, tr(STR_LARGE_IMAGE));
     if (hasAlt) {
       renderer.drawText(UI_10_FONT_ID, textX, textY + lineH, altText.c_str());
@@ -372,6 +393,13 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   }
 
   // No pixel cache — check if this is a large image that should show a placeholder
+  // A mid-build draw (PlaceholderOnlyScope): the cache above was the only cheap source; no
+  // decode on the build's heap.
+  if (placeholderOnly_) {
+    renderPlaceholder(renderer, x, y, /*loading=*/true);
+    return;
+  }
+
   if (wouldShowPlaceholder(forceLoad, monochromeOutput)) {
     LOG_DBG("IMG", "Large image placeholder at %d,%d (%dx%d): %s", x, y, width, height, imagePath.c_str());
     renderPlaceholder(renderer, x, y);
@@ -396,6 +424,11 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   if (alsoCacheOtherVariant) {
     config.companionCachePath = monochromeOutput ? getGrayscaleCachePath(imagePath) : getBwCachePath(imagePath);
   }
+  // A JPEG decode stopped for input parks here and the next decode of it resumes (see
+  // RenderConfig::checkpointPath): the reader's image lane gives its region back on every page
+  // turn, and used to throw the decode away with it.
+  const bool jpeg = FsHelpers::hasJpgExtension(imagePath);
+  if (jpeg) config.checkpointPath = imagePath + ".ckpt";
 
   // Deliberately no adaptive tone on either variant: both .pxc files are dithered straight
   // from the raw luminance. The curve has to be derived from a completed histogram, and a
@@ -430,11 +463,26 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
     LOG_ERR("IMG", "Image file not found after extraction: %s", imagePath.c_str());
     return;
   }
-  const size_t fileSize = file.size();
+  size_t fileSize = file.size();
   file.close();
   if (fileSize == 0) {
     LOG_ERR("IMG", "Image file is empty: %s", imagePath.c_str());
     return;
+  }
+  // An extract on the card is trusted as-is, so one cut short (a reset mid-write, before the
+  // extract became atomic) was decoded as garbage on every visit of its page -- "no SOF marker"
+  // for a JPEG whose header sits 14 KB in (X3 2026-09-25). One central-directory lookup per
+  // first decode catches it: a size that differs from the entry's is re-extracted, once.
+  if (!epubFilePath_.empty() && !epubEntryPath_.empty()) {
+    Epub epub(epubFilePath_, "/.crosspoint");
+    size_t entrySize = 0;
+    if (epub.getItemSize(epubEntryPath_, &entrySize) && entrySize != 0 && entrySize != fileSize) {
+      LOG_ERR("IMG", "Extract is %u bytes, entry is %u: re-extracting %s", static_cast<unsigned>(fileSize),
+              static_cast<unsigned>(entrySize), epubEntryPath_.c_str());
+      Storage.remove(imagePath.c_str());
+      if (!ensureExtracted()) return;
+      fileSize = entrySize;
+    }
   }
 
   LOG_TRC("IMG", "Decoding and caching: %s", imagePath.c_str());
@@ -447,9 +495,15 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
 
   LOG_TRC("IMG", "Using %s decoder", decoder->getFormatName());
 
+  // A resumed decode draws only the rows after its park; the finished cache has them all.
+  const bool resuming = jpeg && Storage.exists(config.checkpointPath.c_str());
   bool success = decoder->decodeToFramebuffer(imagePath, renderer, config);
   if (!success) {
     LOG_ERR("IMG", "Failed to decode image: %s", imagePath.c_str());
+    return;
+  }
+  if (resuming && !Storage.exists(config.checkpointPath.c_str())) {
+    renderFromCache(renderer, cachePath, x, y, width, renderedHeight, srcYOffset_, srcHeight_);
   }
 }
 

@@ -66,6 +66,10 @@ void SerialTransferActivity::onEnter() {
   // we can still paint status updates). We silentRestart() on exit to rebuild it.
   if (ESP.getFreeHeap() < kLowHeapTrimThreshold) {
     if (auto* cache = renderer.getFontCacheManager()) cache->clearCache();
+    // Seed RED RAM with the displayed frame before the release, as the X4's single-buffer fast
+    // diff requires (no-op on X3); the lock keeps a status repaint off the bus meanwhile.
+    RenderLock lock;
+    if (renderer.hasSecondaryBuffer() && !renderer.isX3()) renderer.syncRedRamFromFrameBuffer();
     if (renderer.hasSecondaryBuffer() && renderer.releaseSecondaryBuffer()) {
       renderer.setSingleBufferFastDiff(true);
       LOG_DBG("SXF", "Released secondary framebuffer under low heap (free=%u)",

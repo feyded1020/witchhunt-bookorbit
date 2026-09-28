@@ -12,3 +12,10 @@ void heapTrackPause() {}
 void heapTrackResume() {}
 int heapTrackTopSites(HeapTrackSite*, int) { return 0; }
 size_t heapTrackPeakSoFar() { return 0; }
+void heapTrackWindowBegin() {}
+void heapTrackWindowEnd() {}
+size_t heapTrackLive() { return 0; }
+HeapTrackWindowSummary heapTrackWindowSummary() { return {}; }
+size_t heapTrackPhaseMark() { return 0; }
+void heapTrackSetWindowPeakCallback(void (*)()) {}
+int heapTrackWindowSites(HeapTrackWindowSite*, int) { return 0; }

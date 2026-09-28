@@ -268,8 +268,14 @@ void BaseTheme::drawSideButtonHints(GfxRenderer& renderer, const char* upBtn, co
   // beside the button it names whichever way the device is held. The side buttons sit on the
   // panel's right edge (BTN_UP nearest the top) — which is the edge getContentRect() reserves in
   // every orientation, while the logical right edge is a different one in three of the four.
+  //
+  // The labels run bottom-to-top along the panel, which reads correctly in Portrait and in
+  // LandscapeClockwise but turned 180° in the other two. Drawing inverted fixes both: the
+  // mirroring below keeps every box on the same panel spot and turns only the text round, which
+  // is all LandscapeCounterClockwise needs too (issue #336).
   const GfxRenderer::Orientation orig_orientation = renderer.getOrientation();
-  const bool inverted = orig_orientation == GfxRenderer::Orientation::PortraitInverted;
+  const bool inverted = orig_orientation == GfxRenderer::Orientation::PortraitInverted ||
+                        orig_orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
   renderer.setDrawOrientation(inverted ? GfxRenderer::Orientation::PortraitInverted
                                        : GfxRenderer::Orientation::Portrait);
 

@@ -60,24 +60,23 @@ struct ImageExtractionFixture : testing::Test {
   }
 };
 
-TEST_F(ImageExtractionFixture, HeapPathExtractsWholeEntry) {
-  const auto bytes = extract("heap.png", nullptr);
-  ASSERT_EQ(bytes.size(), kEntryBytes);
-  EXPECT_EQ(bytes[0], 0x89);  // PNG signature survived the round trip
-  EXPECT_EQ(bytes[1], 'P');
-}
-
+// The write buffer is reserved from the arena BEFORE the reader takes its block, because
+// BuildArena is LIFO. Get that order wrong and the release is rejected, leaking the block for
+// the rest of the pass — so assert the arena comes back empty, not just that the bytes are right.
 TEST_F(ImageExtractionFixture, ArenaPathMatchesHeapByteForByte) {
   const auto viaHeap = extract("heap.png", nullptr);
   ASSERT_EQ(viaHeap.size(), kEntryBytes);
+  EXPECT_EQ(viaHeap[0], 0x89);  // PNG signature survived the round trip
+  EXPECT_EQ(viaHeap[1], 'P');
 
   BuildArena arena(Epub::EXTRACT_ARENA_BYTES + 1024);  // budget + alignment slack
   ASSERT_TRUE(arena.valid());
   const auto viaArena = extract("arena.png", &arena);
 
   EXPECT_EQ(viaArena, viaHeap);
-  EXPECT_GT(arena.highWater(), 32u * 1024u) << "the ring should have come from the arena";
-  EXPECT_EQ(arena.used(), 0u) << "EntryReader::close must give the block back";
+  EXPECT_GT(arena.highWater(), 32u * 1024u + Epub::EXTRACT_WRITE_BUFFER_BYTES)
+      << "both the ring and the write buffer should have come from the arena";
+  EXPECT_EQ(arena.used(), 0u) << "write buffer and reader block must both be released";
   EXPECT_EQ(arena.failedAllocSize(), 0u);
 }
 
@@ -107,21 +106,6 @@ TEST_F(ImageExtractionFixture, TooSmallArenaFallsBackToHeapInsteadOfFailing) {
 
 }  // namespace
 
-// The write buffer is reserved from the arena BEFORE the reader takes its block, because
-// BuildArena is LIFO. Get that order wrong and the release is rejected, leaking the block for
-// the rest of the pass — so assert the arena comes back empty, not just that the bytes are right.
-TEST_F(ImageExtractionFixture, ArenaWriteBufferIsReleasedInOrder) {
-  BuildArena arena(Epub::EXTRACT_ARENA_BYTES + 1024);
-  ASSERT_TRUE(arena.valid());
-  const auto bytes = extract("ordered.png", &arena);
-
-  ASSERT_EQ(bytes.size(), kEntryBytes);
-  EXPECT_EQ(arena.used(), 0u) << "write buffer and reader block must both be released";
-  EXPECT_EQ(arena.failedAllocSize(), 0u);
-  EXPECT_GT(arena.highWater(), 32u * 1024u + Epub::EXTRACT_WRITE_BUFFER_BYTES)
-      << "both the ring and the write buffer should have come from the arena";
-}
-
 // An arena with room for the reader but not the write buffer must still extract correctly — the
 // buffer falls back to the heap, and then to unbuffered pass-through. Slow is a nuisance; a
 // truncated image is a bug.
@@ -135,6 +119,47 @@ TEST_F(ImageExtractionFixture, WriteBufferFallsBackWithoutBreakingTheExtract) {
 
   EXPECT_EQ(bytes, viaHeap);
   EXPECT_EQ(arena.used(), 0u);
+}
+
+// --- extracts that are not the entry ------------------------------------------------------
+//
+// An extract is written under a temporary name and renamed once complete, and a render checks
+// an existing extract's size against the entry before decoding it. Both exist because a reset
+// mid-extract left a short JPEG on the card that every later visit decoded as "no SOF marker"
+// (X3 2026-09-25): the file existed, so nothing ever re-extracted it.
+
+TEST_F(ImageExtractionFixture, AFailedExtractLeavesNothingBehind) {
+  const std::string dest = (work / "absent.png").string();
+  Epub epub(kBook, cacheDir);
+  EXPECT_FALSE(epub.extractItemToFile("OEBPS/images/absent.png", dest, nullptr));
+  EXPECT_FALSE(fs::exists(dest));
+  EXPECT_FALSE(fs::exists(dest + ".part")) << "the temporary name must not survive a failure either";
+}
+
+TEST_F(ImageExtractionFixture, ASuccessfulExtractLeavesOnlyTheFinalName) {
+  const std::string dest = (work / "whole.png").string();
+  Epub epub(kBook, cacheDir);
+  ASSERT_TRUE(epub.extractItemToFile(kEntry, dest, nullptr));
+  EXPECT_EQ(fs::file_size(dest), kEntryBytes);
+  EXPECT_FALSE(fs::exists(dest + ".part"));
+}
+
+TEST_F(ImageExtractionFixture, ATruncatedExtractIsReplacedBeforeItIsDecoded) {
+  const std::string path = (work / "cut.png").string();
+  {
+    Epub epub(kBook, cacheDir);
+    ASSERT_TRUE(epub.extractItemToFile(kEntry, path, nullptr));
+  }
+  ASSERT_EQ(fs::file_size(path), kEntryBytes);
+  ImageBlock block(path, 120, 160, "", kBook, kEntry);
+  fs::resize_file(path, 1000);  // what a reset mid-write used to leave behind
+  ASSERT_EQ(fs::file_size(path), 1000u);
+
+  GfxRenderer renderer;
+  block.render(renderer, 0, 0, /*forceLoad=*/true, /*monochromeOutput=*/true);
+  EXPECT_EQ(fs::file_size(path), kEntryBytes) << "the short extract must be replaced by the whole entry";
+  // Decoded from the fresh extract: the pixel cache exists, so the page will show the image.
+  EXPECT_TRUE(fs::exists(path + ".1bit.pxc") || fs::exists((work / "cut.1bit.pxc").string()));
 }
 
 // --- large-image placeholder gate ------------------------------------------------------------
@@ -290,6 +315,48 @@ TEST_F(ImageHeapGateFixture, HeapRefusalIsLatchedSoTheCacheCanBeDiscarded) {
   ESP.setFreeHeap(12 * 1024);
   EXPECT_TRUE(buildAndReportDegraded(book, (work / "lowheap").string()))
       << "a heap refusal must be latched, or the alt-text page is cached forever";
+}
+
+// The latch has to survive the build. A starved rebuild cached a chapter with all of its images
+// laid out as alt text, and nothing on the next open knew: the chapter stayed image-less even
+// after a reboot had freed the heap that would have sized them (X3 2026-09-25). The flag now
+// lives in the section header, where the reader's cache probe can see it.
+TEST_F(ImageHeapGateFixture, HeapRefusalIsReadBackFromTheCachedSection) {
+  const std::string book = makeBookWithUnresolvableImage();
+  const std::string cache = (work / "persisted").string();
+  ESP.setFreeHeap(12 * 1024);
+  ASSERT_TRUE(buildAndReportDegraded(book, cache));
+  ESP.setFreeHeap(200 * 1024);
+
+  auto epub = std::make_shared<Epub>(book, cache);
+  ASSERT_TRUE(epub->load(true));
+  Section::BuildParams params;
+  params.viewportWidth = 480;
+  params.viewportHeight = 800;
+  params.lineCompression = 1.0f;
+  GfxRenderer renderer;
+  Section section(epub, 0, renderer);
+  ASSERT_TRUE(section.loadSectionFile(params)) << "the degraded build is still a usable cache";
+  EXPECT_TRUE(section.isImageHeaderDegraded()) << "a cold open must see that images were left out";
+  EXPECT_FALSE(section.isTruncatedCache()) << "the flag shares a byte with parseComplete";
+}
+
+TEST_F(ImageHeapGateFixture, CleanBuildIsNotReadBackAsDegraded) {
+  const std::string book = makeBookWithUnresolvableImage();
+  const std::string cache = (work / "clean").string();
+  ESP.setFreeHeap(200 * 1024);
+  ASSERT_FALSE(buildAndReportDegraded(book, cache));
+
+  auto epub = std::make_shared<Epub>(book, cache);
+  ASSERT_TRUE(epub->load(true));
+  Section::BuildParams params;
+  params.viewportWidth = 480;
+  params.viewportHeight = 800;
+  params.lineCompression = 1.0f;
+  GfxRenderer renderer;
+  Section section(epub, 0, renderer);
+  ASSERT_TRUE(section.loadSectionFile(params));
+  EXPECT_FALSE(section.isImageHeaderDegraded());
 }
 
 TEST_F(ImageHeapGateFixture, ReleasingFontCachesRecoversARefusedHeaderRead) {

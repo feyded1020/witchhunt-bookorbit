@@ -1,0 +1,202 @@
+BOOK title=BR In Blocks Test lang=en spine=1 toc=1 reliableToc=1
+SPINE 0 href=OEBPS/chapter1.xhtml pages=2 truncated=0 cssFallback=0
+ PAGE 0 elements=25 footnotes=0
+  LINE y=0 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=0 s=0 z=100 t=1.
+   W x=22 s=0 z=100 t=HEADING:
+  LINE y=24 x=0 align=2 mult=1.600 hfid=0 words=2
+   W x=158 s=1 z=100 t=Alpha
+   W x=251 s=1 z=100 t=top
+  LINE y=62 x=0 align=2 mult=1.600 hfid=0 words=2
+   W x=130 s=1 z=100 t=Alpha
+   W x=223 s=1 z=100 t=bottom
+  LINE y=100 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=0 s=0 z=100 t=2.
+   W x=23 s=0 z=100 t=TWICE:
+  LINE y=124 x=0 align=2 mult=1.400 hfid=0 words=2
+   W x=161 s=1 z=100 t=Bravo
+   W x=250 s=1 z=100 t=one
+  LINE y=158 x=0 align=2 mult=1.400 hfid=0 words=2
+   W x=164 s=1 z=100 t=Bravo
+   W x=253 s=1 z=100 t=two
+  LINE y=192 x=0 align=2 mult=1.400 hfid=0 words=2
+   W x=148 s=1 z=100 t=Bravo
+   W x=237 s=1 z=100 t=three
+  LINE y=226 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=0 s=0 z=100 t=3.
+   W x=24 s=0 z=100 t=SIZED
+   W x=86 s=0 z=100 t=PARAGRAPH:
+  LINE y=250 x=0 align=0 mult=1.300 hfid=0 words=2
+   W x=0 s=0 z=100 t=Charlie
+   W x=94 s=0 z=100 t=top
+  LINE y=281 x=0 align=0 mult=1.300 hfid=0 words=2
+   W x=0 s=0 z=100 t=Charlie
+   W x=94 s=0 z=100 t=bottom
+  LINE y=312 x=0 align=0 mult=1.000 hfid=0 words=4
+   W x=0 s=0 z=100 t=4.
+   W x=25 s=0 z=100 t=LONG
+   W x=65 s=0 z=100 t=SIZED
+   W x=127 s=0 z=100 t=PARAGRAPH:
+  LINE y=336 x=0 align=0 mult=1.200 hfid=0 words=8
+   W x=0 s=0 z=100 t=word0
+   W x=62 s=0 z=100 t=word1
+   W x=117 s=0 z=100 t=word2
+   W x=173 s=0 z=100 t=word3
+   W x=230 s=0 z=100 t=word4
+   W x=289 s=0 z=100 t=word5
+   W x=349 s=0 z=100 t=word6
+   W x=410 s=0 z=100 t=word7
+  LINE y=365 x=0 align=0 mult=1.200 hfid=0 words=7
+   W x=0 s=0 z=100 t=word8
+   W x=60 s=0 z=100 t=word9
+   W x=121 s=0 z=100 t=word10
+   W x=195 s=0 z=100 t=word11
+   W x=262 s=0 z=100 t=word12
+   W x=330 s=0 z=100 t=word13
+   W x=400 s=0 z=100 t=word14
+  LINE y=394 x=0 align=0 mult=1.200 hfid=0 words=7
+   W x=0 s=0 z=100 t=word15
+   W x=67 s=0 z=100 t=word16
+   W x=135 s=0 z=100 t=word17
+   W x=204 s=0 z=100 t=word18
+   W x=266 s=0 z=100 t=word19
+   W x=329 s=0 z=100 t=word20
+   W x=400 s=0 z=100 t=word21
+  LINE y=423 x=0 align=0 mult=1.200 hfid=0 words=7
+   W x=0 s=0 z=100 t=word22
+   W x=65 s=0 z=100 t=word23
+   W x=131 s=0 z=100 t=word24
+   W x=198 s=0 z=100 t=word25
+   W x=266 s=0 z=100 t=word26
+   W x=335 s=0 z=100 t=word27
+   W x=406 s=0 z=100 t=word28
+  LINE y=452 x=0 align=0 mult=1.200 hfid=0 words=7
+   W x=0 s=0 z=100 t=word29
+   W x=65 s=0 z=100 t=word30
+   W x=137 s=0 z=100 t=word31
+   W x=202 s=0 z=100 t=word32
+   W x=268 s=0 z=100 t=word33
+   W x=335 s=0 z=100 t=word34
+   W x=403 s=0 z=100 t=word35
+  LINE y=481 x=0 align=0 mult=1.200 hfid=0 words=6
+   W x=0 s=0 z=100 t=word36
+   W x=81 s=0 z=100 t=word37
+   W x=163 s=0 z=100 t=word38
+   W x=238 s=0 z=100 t=word39
+   W x=314 s=0 z=100 t=word40
+   W x=397 s=0 z=100 t=word41
+  LINE y=510 x=0 align=0 mult=1.200 hfid=0 words=6
+   W x=0 s=0 z=100 t=word42
+   W x=76 s=0 z=100 t=word43
+   W x=153 s=0 z=100 t=word44
+   W x=231 s=0 z=100 t=word45
+   W x=311 s=0 z=100 t=word46
+   W x=392 s=0 z=100 t=word47
+  LINE y=539 x=0 align=0 mult=1.200 hfid=0 words=6
+   W x=0 s=0 z=100 t=word48
+   W x=77 s=0 z=100 t=word49
+   W x=155 s=0 z=100 t=word50
+   W x=240 s=0 z=100 t=word51
+   W x=318 s=0 z=100 t=word52
+   W x=397 s=0 z=100 t=word53
+  LINE y=568 x=0 align=0 mult=1.200 hfid=0 words=6
+   W x=0 s=0 z=100 t=word54
+   W x=79 s=0 z=100 t=word55
+   W x=159 s=0 z=100 t=word56
+   W x=240 s=0 z=100 t=word57
+   W x=322 s=0 z=100 t=word58
+   W x=397 s=0 z=100 t=word59
+  LINE y=597 x=0 align=0 mult=1.200 hfid=0 words=6
+   W x=0 s=0 z=100 t=word60
+   W x=82 s=0 z=100 t=word61
+   W x=157 s=0 z=100 t=word62
+   W x=233 s=0 z=100 t=word63
+   W x=311 s=0 z=100 t=word64
+   W x=390 s=0 z=100 t=word65
+  LINE y=626 x=0 align=0 mult=1.200 hfid=0 words=6
+   W x=0 s=0 z=100 t=word66
+   W x=81 s=0 z=100 t=word67
+   W x=163 s=0 z=100 t=word68
+   W x=238 s=0 z=100 t=word69
+   W x=314 s=0 z=100 t=word70
+   W x=398 s=0 z=100 t=word71
+  LINE y=655 x=0 align=0 mult=1.200 hfid=0 words=6
+   W x=0 s=0 z=100 t=word72
+   W x=76 s=0 z=100 t=word73
+   W x=153 s=0 z=100 t=word74
+   W x=231 s=0 z=100 t=word75
+   W x=310 s=0 z=100 t=word76
+   W x=390 s=0 z=100 t=word77
+  LINE y=684 x=0 align=0 mult=1.200 hfid=0 words=7
+   W x=0 s=0 z=100 t=word78
+   W x=69 s=0 z=100 t=word79
+   W x=140 s=0 z=100 t=word80
+   W x=209 s=0 z=100 t=word81
+   W x=271 s=0 z=100 t=word82
+   W x=334 s=0 z=100 t=word83
+   W x=399 s=0 z=100 t=word84
+  LINE y=713 x=0 align=0 mult=1.200 hfid=0 words=7
+   W x=0 s=0 z=100 t=word85
+   W x=67 s=0 z=100 t=word86
+   W x=135 s=0 z=100 t=word87
+   W x=204 s=0 z=100 t=word88
+   W x=266 s=0 z=100 t=word89
+   W x=329 s=0 z=100 t=word90
+   W x=400 s=0 z=100 t=word91
+ PAGE 1 elements=12 footnotes=0
+  LINE y=0 x=0 align=0 mult=1.200 hfid=0 words=7
+   W x=0 s=0 z=100 t=word92
+   W x=65 s=0 z=100 t=word93
+   W x=131 s=0 z=100 t=word94
+   W x=198 s=0 z=100 t=word95
+   W x=266 s=0 z=100 t=word96
+   W x=335 s=0 z=100 t=word97
+   W x=406 s=0 z=100 t=word98
+  LINE y=29 x=0 align=0 mult=1.200 hfid=0 words=6
+   W x=0 s=0 z=100 t=word99
+   W x=65 s=0 z=100 t=word100
+   W x=149 s=0 z=100 t=word101
+   W x=226 s=0 z=100 t=word102
+   W x=304 s=0 z=100 t=word103
+   W x=383 s=0 z=100 t=word104
+  LINE y=58 x=0 align=0 mult=1.200 hfid=0 words=5
+   W x=0 s=0 z=100 t=word105
+   W x=81 s=0 z=100 t=word106
+   W x=164 s=0 z=100 t=word107
+   W x=248 s=0 z=100 t=word108
+   W x=325 s=0 z=100 t=word109
+  LINE y=87 x=0 align=0 mult=1.200 hfid=0 words=4
+   W x=0 s=0 z=100 t=Delta
+   W x=68 s=0 z=100 t=after
+   W x=134 s=0 z=100 t=the
+   W x=178 s=0 z=100 t=break
+  LINE y=116 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=0 s=0 z=100 t=5.
+   W x=26 s=0 z=100 t=TRAILING
+   W x=101 s=0 z=100 t=BR:
+  LINE y=140 x=0 align=2 mult=1.400 hfid=0 words=2
+   W x=140 s=1 z=100 t=Echo
+   W x=214 s=1 z=100 t=heading
+  LINE y=198 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=0 s=0 z=100 t=Echo
+   W x=49 s=0 z=100 t=body
+   W x=89 s=0 z=100 t=text
+  LINE y=222 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=0 s=0 z=100 t=6.
+   W x=27 s=0 z=100 t=BR
+   W x=53 s=0 z=100 t=BETWEEN:
+  LINE y=246 x=0 align=2 mult=1.400 hfid=0 words=2
+   W x=122 s=1 z=100 t=Foxtrot
+   W x=231 s=1 z=100 t=heading
+  LINE y=304 x=0 align=2 mult=1.000 hfid=0 words=3
+   W x=156 s=0 z=100 t=Foxtrot
+   W x=227 s=0 z=100 t=body
+   W x=267 s=0 z=100 t=text
+  LINE y=328 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=0 s=0 z=100 t=7.
+   W x=28 s=0 z=100 t=EMPTY
+   W x=78 s=0 z=100 t=HEADING:
+  LINE y=352 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=0 s=0 z=100 t=Golf
+   W x=44 s=0 z=100 t=body
+   W x=84 s=0 z=100 t=text

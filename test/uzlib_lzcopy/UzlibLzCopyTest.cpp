@@ -1,5 +1,5 @@
-// Correctness + throughput check for tinflate.c's LZ-copy hot path, run against
-// both copy variants. This file is compiled twice -- once with
+// Correctness check for tinflate.c's LZ-copy hot path, run against both copy
+// variants. This file is compiled twice -- once with
 // UZLIB_CONF_USE_MEMCPY=0 (byte-by-byte) and once with =1 (bulk memcpy) -- into
 // two separate test executables (see CMakeLists.txt), so the two variants never
 // share a translation unit and there are no symbol clashes.
@@ -9,14 +9,14 @@
 // patterns that separate the variants -- in particular distance-1 overlapping
 // runs, which the *unclamped* memcpy path decompresses incorrectly. So with the
 // scripts/uzlib_patches fix applied this passes for both variants; without it,
-// the memcpy build fails here -- which is the point of having it in CI.
+// the memcpy build fails here -- which is the point of having it in CI. The
+// byte-by-byte build never had the bug: its pass is the control that proves the
+// fixtures and their hashes are valid, so a memcpy failure points at the copy.
 
 #include <gtest/gtest.h>
 
-#include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <iostream>
 #include <vector>
 
 #include "fixtures.h"
@@ -72,30 +72,5 @@ TEST(UzlibLzCopy, DecompressesEveryFixtureCorrectly) {
     EXPECT_GE(rc, 0) << "uzlib_uncompress returned error " << rc;
     ASSERT_EQ(produced, fx.raw_len) << "produced wrong number of bytes";
     EXPECT_EQ(Fnv1a(out.data(), produced), fx.raw_fnv1a) << "decompressed bytes do not match the original payload";
-  }
-}
-
-// Informational: reports decompression throughput for this variant. Never fails
-// on timing (CI machines vary); it only guards against a silently broken run by
-// re-checking the output hash inside the timed loop.
-TEST(UzlibLzCopy, Throughput) {
-  constexpr int kIters = 200;
-  std::cout << "\n[ throughput ] variant = " << VariantName() << "\n";
-  for (size_t i = 0; i < kUzlibFixtureCount; i++) {
-    const UzlibFixture& fx = kUzlibFixtures[i];
-    std::vector<uint8_t> out(fx.raw_len);
-
-    double best = 1e30;
-    for (int it = 0; it < kIters; it++) {
-      int rc = 0;
-      auto t0 = std::chrono::steady_clock::now();
-      size_t produced = InflateOneShot(fx.comp, fx.comp_len, out.data(), out.size(), &rc);
-      auto t1 = std::chrono::steady_clock::now();
-      ASSERT_EQ(produced, fx.raw_len);
-      double dt = std::chrono::duration<double>(t1 - t0).count();
-      if (dt < best) best = dt;
-    }
-    double mbps = static_cast<double>(fx.raw_len) / (1024.0 * 1024.0) / best;
-    std::printf("[ throughput ]   %-26s %8.1f MB/s\n", fx.name, mbps);
   }
 }

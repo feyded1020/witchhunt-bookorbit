@@ -14,13 +14,8 @@ Run a single suite directly:
 Google Test is fetched via CMake FetchContent on first configure; the pinned
 version lives in test/CMakeLists.txt.
 
-Shell-script based tests (suites that cannot be built with the host CMake
-toolchain due to embedded-only dependencies):
-
-  bash test/run_epub_css_test.sh
-
 KOReader sync (lib/KOReaderSync) is esp_http_client-based and cannot be built
-by this toolchain either. It is covered instead by a pair of offline scripts.
+by the host CMake toolchain. It is covered instead by a pair of offline scripts.
 No credentials, no accounts, no third-party server is ever contacted.
 
   # Every server dialect, end to end against a local mock.

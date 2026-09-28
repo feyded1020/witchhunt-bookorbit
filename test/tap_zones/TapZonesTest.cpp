@@ -33,10 +33,14 @@ TEST(TapZones, TheCentreColumnSplitsIntoTopCentreBottom) {
   EXPECT_EQ(Zone::Bottom, zoneFor(x, H - 1, W, H));
 }
 
-TEST(TapZones, CentreMatchesTheReaderMenuRectangleItReplaces) {
-  // ReaderUtils::isTouchMenuTap accepted x in [w/3, w - w/3) and y in
-  // [h/3, h - h/3). Centre must be exactly that set, or a centre tap stops
-  // opening the reader menu on a device that has always had it.
+TEST(TapZones, CentreMatchesTheReaderMenuRectangle) {
+  // ReaderUtils::isTouchMenuTap is still the live reader-menu tap and still
+  // carries its own copy of the rectangle (src/activities/reader/ReaderUtils.h,
+  // the zoneWidth/zoneHeight return in isTouchMenuTap): x in [w/3, w - w/3) and
+  // y in [h/3, h - h/3). wasMenuTap below mirrors that return line, because the
+  // header needs GfxRenderer and MappedInputManager and cannot build on host.
+  // Centre must be exactly that set, or the two rules disagree on which taps
+  // open the menu.
   const int zw = W / 3;
   const int zh = H / 3;
   for (int x = 0; x < W; x += 7) {
@@ -90,7 +94,7 @@ TEST(TapZones, CornersAreSquareAndSizedOffTheShorterEdge) {
 }
 
 TEST(TapZones, OnlyTheFourSquaresAreCorners) {
-  // The mirror of CentreMatchesTheReaderMenuRectangleItReplaces: sweep the frame and
+  // The mirror of CentreMatchesTheReaderMenuRectangle: sweep the frame and
   // assert cornerFor is non-None on exactly the set the geometry describes, so a
   // corner cannot quietly grow into the page-turn zone.
   const int side = W / 8;

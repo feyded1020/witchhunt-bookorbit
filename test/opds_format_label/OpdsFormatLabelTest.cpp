@@ -5,66 +5,72 @@
 
 #include "../../src/activities/browser/OpdsFormatLabel.h"
 
+// Every test goes through buildOpdsFormatSelectionLabels, the entry point
+// OpdsBookBrowserActivity actually calls to label its format-selection menu.
+
 namespace {
 OpdsAcquisitionLink makeLink(const char* href, const char* formatKey) {
   return OpdsAcquisitionLink{href, "application/epub+zip", formatKey, ".epub"};
 }
+
+using Labels = std::vector<std::string>;
 }  // namespace
 
 TEST(OpdsFormatLabel, UniqueFormatUsesBaseLabel) {
-  const auto link = makeLink("/books/example.epub", "epub");
-  const std::vector<OpdsAcquisitionLink> links{link};
+  const std::vector<OpdsAcquisitionLink> links{makeLink("/books/example.epub", "epub")};
 
-  ASSERT_EQ(opdsFormatSelectionLabel(link, links, "catalog.example.com"), "EPUB");
+  ASSERT_EQ(buildOpdsFormatSelectionLabels(links, "catalog.example.com"), (Labels{"EPUB"}));
 }
 
 TEST(OpdsFormatLabel, DuplicateAbsoluteUrlsIncludeHostname) {
-  const auto primary = makeLink("https://mirror-a.example.com/books/example.epub", "epub");
-  const auto secondary = makeLink("https://mirror-b.example.com/books/example.epub", "epub");
-  const std::vector<OpdsAcquisitionLink> links{primary, secondary};
+  const std::vector<OpdsAcquisitionLink> links{
+      makeLink("https://mirror-a.example.com/books/example.epub", "epub"),
+      makeLink("https://mirror-b.example.com/books/example.epub", "epub"),
+  };
 
-  ASSERT_EQ(opdsFormatSelectionLabel(primary, links, "catalog.example.com"), "EPUB - mirror-a.example.com");
-  ASSERT_EQ(opdsFormatSelectionLabel(secondary, links, "catalog.example.com"), "EPUB - mirror-b.example.com");
+  ASSERT_EQ(buildOpdsFormatSelectionLabels(links, "catalog.example.com"),
+            (Labels{"EPUB - mirror-a.example.com", "EPUB - mirror-b.example.com"}));
 }
 
 TEST(OpdsFormatLabel, DuplicateRootRelativeUrlsUseServerHostname) {
-  const auto primary = makeLink("/opds/download/1/epub", "epub");
-  const auto secondary = makeLink("/opds/download/2/epub", "epub");
-  const std::vector<OpdsAcquisitionLink> links{primary, secondary};
+  const std::vector<OpdsAcquisitionLink> links{
+      makeLink("/opds/download/1/epub", "epub"),
+      makeLink("/opds/download/2/epub", "epub"),
+  };
 
-  ASSERT_EQ(opdsFormatSelectionLabel(primary, links, "https://catalog.example.com/opds"),
-            "EPUB - catalog.example.com (1)");
-  ASSERT_EQ(opdsFormatSelectionLabel(secondary, links, "https://catalog.example.com/opds"),
-            "EPUB - catalog.example.com (2)");
+  ASSERT_EQ(buildOpdsFormatSelectionLabels(links, "https://catalog.example.com/opds"),
+            (Labels{"EPUB - catalog.example.com (1)", "EPUB - catalog.example.com (2)"}));
 }
 
 TEST(OpdsFormatLabel, DuplicateRelativeUrlsUseServerHostname) {
-  const auto primary = makeLink("download/1.epub", "epub");
-  const auto secondary = makeLink("download/2.epub", "epub");
-  const std::vector<OpdsAcquisitionLink> links{primary, secondary};
+  const std::vector<OpdsAcquisitionLink> links{
+      makeLink("download/1.epub", "epub"),
+      makeLink("download/2.epub", "epub"),
+  };
 
-  ASSERT_EQ(opdsFormatSelectionLabel(primary, links, "catalog.example.com/opds"), "EPUB - catalog.example.com (1)");
-  ASSERT_EQ(opdsFormatSelectionLabel(secondary, links, "catalog.example.com/opds"), "EPUB - catalog.example.com (2)");
+  ASSERT_EQ(buildOpdsFormatSelectionLabels(links, "catalog.example.com/opds"),
+            (Labels{"EPUB - catalog.example.com (1)", "EPUB - catalog.example.com (2)"}));
 }
 
 TEST(OpdsFormatLabel, DuplicateAbsoluteUrlsSameHostnameIncludeNumbering) {
-  const auto primary = makeLink("https://mirror.example.com/books/example.epub", "epub");
-  const auto secondary = makeLink("https://mirror.example.com/books/example-copy.epub", "epub");
-  const std::vector<OpdsAcquisitionLink> links{primary, secondary};
+  const std::vector<OpdsAcquisitionLink> links{
+      makeLink("https://mirror.example.com/books/example.epub", "epub"),
+      makeLink("https://mirror.example.com/books/example-copy.epub", "epub"),
+  };
 
-  ASSERT_EQ(opdsFormatSelectionLabel(primary, links, "catalog.example.com"), "EPUB - mirror.example.com (1)");
-  ASSERT_EQ(opdsFormatSelectionLabel(secondary, links, "catalog.example.com"), "EPUB - mirror.example.com (2)");
+  ASSERT_EQ(buildOpdsFormatSelectionLabels(links, "catalog.example.com"),
+            (Labels{"EPUB - mirror.example.com (1)", "EPUB - mirror.example.com (2)"}));
 }
 
-TEST(OpdsFormatLabel, BatchLabelBuilderMatchesPerLinkLabels) {
-  const auto first = makeLink("https://mirror.example.com/books/example.epub", "epub");
-  const auto second = makeLink("https://mirror.example.com/books/example-copy.epub", "epub");
-  const auto third = makeLink("/books/example.txt", "txt");
-  const std::vector<OpdsAcquisitionLink> links{first, second, third};
+// Duplicate detection is per format: a format offered once keeps its bare label even
+// when another format in the same list is decorated with hostnames and numbering.
+TEST(OpdsFormatLabel, UniqueFormatBesideDuplicatesKeepsBaseLabel) {
+  const std::vector<OpdsAcquisitionLink> links{
+      makeLink("https://mirror.example.com/books/example.epub", "epub"),
+      makeLink("https://mirror.example.com/books/example-copy.epub", "epub"),
+      makeLink("/books/example.txt", "txt"),
+  };
 
-  const auto labels = buildOpdsFormatSelectionLabels(links, "https://catalog.example.com/opds");
-  ASSERT_EQ(labels.size(), static_cast<size_t>(3));
-  ASSERT_EQ(labels[0], opdsFormatSelectionLabel(first, links, "https://catalog.example.com/opds"));
-  ASSERT_EQ(labels[1], opdsFormatSelectionLabel(second, links, "https://catalog.example.com/opds"));
-  ASSERT_EQ(labels[2], opdsFormatSelectionLabel(third, links, "https://catalog.example.com/opds"));
+  ASSERT_EQ(buildOpdsFormatSelectionLabels(links, "https://catalog.example.com/opds"),
+            (Labels{"EPUB - mirror.example.com (1)", "EPUB - mirror.example.com (2)", "TXT"}));
 }

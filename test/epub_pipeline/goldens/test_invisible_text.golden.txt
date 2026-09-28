@@ -1,20 +1,21 @@
 BOOK title=Invisible Text lang=en spine=8 toc=0 reliableToc=0
 SPINE 0 href=OEBPS/chapter1.xhtml pages=1 truncated=0 cssFallback=0
- PAGE 0 elements=3 footnotes=0
+ PAGE 0 elements=4 footnotes=0
   LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=3
    W x=93 s=1 z=100 t=Fixed
    W x=169 s=1 z=100 t=Layout
    W x=293 s=1 z=100 t=Scan
   IMG y=38 x=210 w=40 h=60 src=<cache>/epub_<hash>/img_1fd8b6a0c3056bf3.png
-  LINE y=98 x=0 align=0 mult=0.583 hfid=0 words=8
-   W x=10 s=0 z=100 t=VISIBLECAPTION
-   W x=88 s=0 z=100 t=the
-   W x=109 s=0 z=100 t=caption
-   W x=149 s=0 z=100 t=under
-   W x=179 s=0 z=100 t=the
-   W x=200 s=0 z=100 t=scan
-   W x=226 s=0 z=100 t=must
-   W x=252 s=0 z=100 t=survive.
+  LINE y=98 x=0 align=0 mult=1.000 hfid=0 words=7
+   W x=18 s=0 z=100 t=VISIBLECAPTION
+   W x=156 s=0 z=100 t=the
+   W x=197 s=0 z=100 t=caption
+   W x=271 s=0 z=100 t=under
+   W x=328 s=0 z=100 t=the
+   W x=369 s=0 z=100 t=scan
+   W x=418 s=0 z=100 t=must
+  LINE y=122 x=0 align=0 mult=1.000 hfid=0 words=1
+   W x=0 s=0 z=100 t=survive.
 SPINE 1 href=OEBPS/chapter2.xhtml pages=1 truncated=0 cssFallback=0
  PAGE 0 elements=2 footnotes=0
   LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=2

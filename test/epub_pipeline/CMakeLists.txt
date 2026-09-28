@@ -1,4 +1,4 @@
-# Full-pipeline equivalence harness (docs/compiled-book-pipeline-plan.md Phase 0):
+# Full-pipeline equivalence harness:
 # builds the REAL Epub/Section/ParsedText/CssParser pipeline for the host against
 # deterministic stubs (GfxRenderer metrics, ESP heap/wdt, I18n) and the real-I/O
 # HalStorage shim from test/zip_entry_reader.
@@ -10,6 +10,7 @@ set(PIPELINE_SOURCES
   # lib/Epub — the code under test
   ${REPO_ROOT}/lib/Epub/Epub.cpp
   ${REPO_ROOT}/lib/Epub/Epub/Section.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/SpinePageIndex.cpp
   ${REPO_ROOT}/lib/Epub/Epub/Page.cpp
   ${REPO_ROOT}/lib/Epub/Epub/ParsedText.cpp
   ${REPO_ROOT}/lib/Epub/Epub/BookMetadataCache.cpp
@@ -48,6 +49,7 @@ set(PIPELINE_SOURCES
   ${REPO_ROOT}/lib/GfxRenderer/BitmapHelpers.cpp
   ${REPO_ROOT}/lib/JpegToBmpConverter/JpegToBmpConverter.cpp
   ${REPO_ROOT}/lib/ProgressiveJpegDc/ProgressiveJpegDc.cpp
+  ${REPO_ROOT}/lib/ProgressiveJpeg/ProgressiveJpeg.cpp
   ${REPO_ROOT}/lib/PngToBmpConverter/PngToBmpConverter.cpp
   ${REPO_ROOT}/lib/PngDecoder/PngStreamDecoder.cpp
   ${REPO_ROOT}/lib/TJpgDec/src/tjpgd.c
@@ -81,6 +83,7 @@ set(PIPELINE_INCLUDES
   ${REPO_ROOT}/lib/PngToBmpConverter
   ${REPO_ROOT}/lib/PngDecoder
   ${REPO_ROOT}/lib/ProgressiveJpegDc
+  ${REPO_ROOT}/lib/ProgressiveJpeg
   ${REPO_ROOT}/lib/TJpgDec/src
 )
 
@@ -90,6 +93,7 @@ add_executable(EpubPipelineTest
   MetadataSidecarTest.cpp
   SidecarFilesTest.cpp
   SectionAbortTest.cpp
+  SpinePageIndexTest.cpp
   FootnotePreviewStoreTest.cpp
   FootnoteResolveSliceTest.cpp
   ParagraphAnchorTest.cpp
@@ -97,7 +101,12 @@ add_executable(EpubPipelineTest
   AnchorPageAccuracyTest.cpp
   ImageExtractionTest.cpp
   ImageManifestTest.cpp
+  ImageWrapperWidthTest.cpp
+  SpineCacheLayoutTest.cpp
+  SaxStateInArenaTest.cpp
+  JpegDownscaleTest.cpp
   CompanionCacheTest.cpp
+  ImageParkTest.cpp
   StoredEntryDecodeTest.cpp
   PixelCacheWriteTest.cpp
   BufferedPrintTest.cpp
@@ -112,6 +121,7 @@ target_include_directories(EpubPipelineTest PRIVATE ${PIPELINE_INCLUDES})
 target_compile_definitions(EpubPipelineTest PRIVATE
   CORPUS_DIR="${REPO_ROOT}/test/epubs"
   GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/goldens"
+  JPEG_FIXTURE_DIR="${REPO_ROOT}/test/jpeg_decoder/fixtures"
   ENABLE_SERIAL_LOG=1
   LOG_LEVEL=2
 )
@@ -136,6 +146,41 @@ target_compile_definitions(epub_pipeline_dump PRIVATE
 target_link_libraries(epub_pipeline_dump PRIVATE
   crosspoint_test_common
   SaxParser
+)
+
+# Heap-peak regression gate (memory audit 2026-09, R5): the dump tool's --bench peak, per
+# fixture and build mode, against test/epub_pipeline/heap_peak_baseline.txt. See heap_peak_check.py.
+# Not registered under ASan: HeapTrack's malloc interposer segfaults against ASan's own before
+# main(), and a sanitizer build's peaks are not comparable to the baseline anyway.
+if(NOT CMAKE_CXX_FLAGS MATCHES "-fsanitize=[^ ]*address")
+  add_test(NAME HeapPeakRegression
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/heap_peak_check.py
+            $<TARGET_FILE:epub_pipeline_dump> ${REPO_ROOT}/test
+            ${CMAKE_CURRENT_SOURCE_DIR}/heap_peak_baseline.txt
+  )
+  set_tests_properties(HeapPeakRegression PROPERTIES TIMEOUT 600)
+endif()
+
+# Exact allocation inventory of section builds (memory audit 2026-09): the heap profiler's
+# per-build window plus BuildArena's host-only trace hooks, with debug info and frame pointers so
+# every site symbolizes to file:line (inline chains included). See InventoryMain.cpp and
+# inventory_report.py. Not a test; run it by hand.
+add_executable(epub_build_inventory
+  InventoryMain.cpp
+  HeapTrack.cpp
+  ${PIPELINE_SOURCES}
+)
+target_include_directories(epub_build_inventory PRIVATE ${PIPELINE_INCLUDES})
+target_compile_definitions(epub_build_inventory PRIVATE
+  ENABLE_SERIAL_LOG=1
+  LOG_LEVEL=1
+  BUILD_ARENA_TRACE=1
+)
+target_compile_options(epub_build_inventory PRIVATE -O2 -g -fno-omit-frame-pointer -fno-ipa-icf)
+target_link_libraries(epub_build_inventory PRIVATE
+  crosspoint_test_common
+  SaxParser
+  ${CMAKE_DL_LIBS}
 )
 
 # Same dump tool without the process-wide malloc/free override, which deadlocks

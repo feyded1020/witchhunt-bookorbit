@@ -19,7 +19,6 @@
 #include "../ActivityManager.h"
 #include "../ActivityResult.h"
 #include "../reader/FinishedBookActivity.h"
-#include "../settings/SdFirmwareUpdateActivity.h"
 #include "../util/BmpViewerActivity.h"
 #include "../util/ConfirmationActivity.h"
 #include "../util/KeyboardEntryActivity.h"
@@ -459,10 +458,12 @@ void FileBrowserActivity::drawFooter() {
                              : selectingFirmwareFile ? tr(STR_SELECT)
                              : confirmOpensOptions() ? tr(STR_OPTIONS)
                                                      : tr(STR_OPEN);
-  // The Options menu is available for every entry in Books mode. The menu always
+  // The Options menu is available for every entry in Books mode and in the firmware picker, where
+  // it is the only place a .bin can be removed (Books mode never lists one). The menu always
   // offers the browser display options (sort + visibility); supported files get
   // extra file-specific actions appended. So the hint shows for files and dirs alike.
-  const bool showOptionsHint = model.getMode() == Mode::Books && hasEntries;
+  // Same gate as the Right press in handleCustomInput(), so the label and the key never disagree.
+  const bool showOptionsHint = model.getMode() != Mode::PickFolder && hasEntries;
   // In a folder worth paging through, Left/Right are the page buttons and the hints say so —
   // Options is then the long press on Right. In a folder that fits on one screen there is nothing
   // to page, so the strip looks exactly as it always did.
@@ -504,7 +505,8 @@ void FileBrowserActivity::openContextMenu() {
   startActivityForResult(std::make_unique<FileContextMenuActivity>(
                              renderer, mappedInput, fullPath, model.getSortMode(), model.getSortDirection(),
                              /*offerDirectoryActions=*/false, model.isFiltered() || model.isDeepSearch(),
-                             /*offerGoToFolder=*/model.isDeepSearch()),
+                             /*offerGoToFolder=*/model.isDeepSearch(),
+                             /*offerFileManagement=*/model.getMode() == Mode::Books),
                          [this, fullPath, entry](const ActivityResult& res) {
                            if (res.isCancelled) {
                              requestUpdate();
@@ -686,9 +688,10 @@ void FileBrowserActivity::showBrowserOptionsMenu(const std::string& dirEntry) {
     if (dirPath.back() != '/') dirPath += "/";
     dirPath += dirEntry.substr(0, dirEntry.length() - 1);
   }
-  startActivityForResult(std::make_unique<FileContextMenuActivity>(renderer, mappedInput, "", model.getSortMode(),
-                                                                   model.getSortDirection(), isDir,
-                                                                   model.isFiltered() || model.isDeepSearch()),
+  startActivityForResult(std::make_unique<FileContextMenuActivity>(
+                             renderer, mappedInput, "", model.getSortMode(), model.getSortDirection(), isDir,
+                             model.isFiltered() || model.isDeepSearch(), /*offerGoToFolder=*/false,
+                             /*offerFileManagement=*/model.getMode() == Mode::Books),
                          [this, isDir, dirPath, dirEntry](const ActivityResult& res) {
                            if (res.isCancelled) {
                              requestUpdate();
@@ -812,9 +815,6 @@ void FileBrowserActivity::handleContextMenuAction(int action, const std::string&
       return;
     case Action::SetAsSleepCover:
       doSetAsSleepCover(fullPath);
-      return;
-    case Action::FlashFirmware:
-      doFlashFirmware(fullPath);
       return;
     case Action::Remove:
       doRemove(fullPath, entry, false);
@@ -973,12 +973,6 @@ void FileBrowserActivity::doRemove(const std::string& fullPath, const std::strin
                              requestUpdate();
                            }
                          });
-}
-
-void FileBrowserActivity::doFlashFirmware(const std::string& fullPath) {
-  // Use the pre-selected-path constructor to skip the picker inside SdFirmwareUpdateActivity.
-  startActivityForResult(std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInput, fullPath),
-                         [this](const ActivityResult&) { requestUpdate(); });
 }
 
 int FileBrowserActivity::listCount() const {

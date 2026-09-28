@@ -348,7 +348,8 @@ TEST(Gray4Quantization, IsMonotonicInBothModes) {
 // gradient breaks into dither banding. A panel resolving eleven levels wants a
 // stronger curve, so the strength became a parameter. These pin the properties
 // the two call sites depend on: that it does something, that it does more of it
-// as it rises, and that leaving it alone still produces the old curve exactly.
+// as it rises, and that it stays a valid curve at every strength. Both callers
+// pass the strength explicitly, so the parameter's default is not pinned here.
 namespace {
 
 // A bimodal cover: most of the mass in a dark band, a bright sliver of title text.
@@ -372,21 +373,6 @@ double spreadAcrossBand(const Points& points, const int lo, const int hi) {
 }
 
 }  // namespace
-
-TEST(AdaptiveToneEqualizeStrength, DefaultMatchesTheShippedFourLevelBlend) {
-  const Histogram h = bimodal();
-  const Points defaulted = adaptive_tone::derivePoints(h.data(), total(h), Mode::Equalize);
-  std::array<uint8_t, 256> viaDefault{};
-  for (int i = 0; i < 256; i++)
-    viaDefault[static_cast<size_t>(i)] = adaptive_tone::apply(defaulted, static_cast<uint8_t>(i));
-
-  const Points explicitly =
-      adaptive_tone::derivePoints(h.data(), total(h), Mode::Equalize, adaptive_tone::EQ_BLEND_NUM);
-  for (int i = 0; i < 256; i++) {
-    EXPECT_EQ(adaptive_tone::apply(explicitly, static_cast<uint8_t>(i)), viaDefault[static_cast<size_t>(i)])
-        << "omitting the strength must reproduce the four-level curve, at level " << i;
-  }
-}
 
 TEST(AdaptiveToneEqualizeStrength, DeeperBlendSpreadsTheDominantBandFurther) {
   const Histogram h = bimodal();

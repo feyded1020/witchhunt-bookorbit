@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Host metrics baseline for the pipeline migration (plan Phase 0 step 4).
+# Host metrics baseline for the EPUB pipeline.
 # Runs epub_pipeline_dump --bench over the synthetic corpus plus moby-dick,
-# cold then warm, and prints a markdown table for docs/pipeline-baseline-*.md.
+# cold then warm, and prints a markdown table.
 #
 # Usage: run_baseline.sh <path-to-epub_pipeline_dump> [output.md]
 set -euo pipefail

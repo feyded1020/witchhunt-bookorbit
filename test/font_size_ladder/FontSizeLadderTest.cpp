@@ -19,26 +19,20 @@ TEST(FontSizeLadder, EnumValueIsLadderPosition) {
   }
 }
 
-TEST(FontSizeLadder, PointSizesAscend) {
+// Walked over the table rather than spelled out: the literal list stopped at PT_20, so the scaled
+// 22/24/26 pt rungs were never stepped onto or off.
+TEST(FontSizeLadder, StepsUpThroughEveryVisualSize) {
   for (int i = 1; i < S::FONT_SIZE_RUNG_COUNT; ++i) {
-    EXPECT_LT(S::FONT_SIZE_RUNGS[i - 1].points, S::FONT_SIZE_RUNGS[i].points);
+    EXPECT_EQ(S::FONT_SIZE_RUNGS[i].size, S::stepFontSize(S::FONT_SIZE_RUNGS[i - 1].size, 1))
+        << "up from " << +S::FONT_SIZE_RUNGS[i - 1].points << "pt";
   }
 }
 
-TEST(FontSizeLadder, StepsUpThroughEveryVisualSize) {
-  EXPECT_EQ(S::PT_12, S::stepFontSize(S::PT_10, 1));
-  EXPECT_EQ(S::PT_14, S::stepFontSize(S::PT_12, 1));
-  EXPECT_EQ(S::PT_16, S::stepFontSize(S::PT_14, 1));
-  EXPECT_EQ(S::PT_18, S::stepFontSize(S::PT_16, 1));
-  EXPECT_EQ(S::PT_20, S::stepFontSize(S::PT_18, 1));
-}
-
 TEST(FontSizeLadder, StepsDownThroughEveryVisualSize) {
-  EXPECT_EQ(S::PT_18, S::stepFontSize(S::PT_20, -1));
-  EXPECT_EQ(S::PT_16, S::stepFontSize(S::PT_18, -1));
-  EXPECT_EQ(S::PT_14, S::stepFontSize(S::PT_16, -1));
-  EXPECT_EQ(S::PT_12, S::stepFontSize(S::PT_14, -1));
-  EXPECT_EQ(S::PT_10, S::stepFontSize(S::PT_12, -1));
+  for (int i = S::FONT_SIZE_RUNG_COUNT - 1; i > 0; --i) {
+    EXPECT_EQ(S::FONT_SIZE_RUNGS[i - 1].size, S::stepFontSize(S::FONT_SIZE_RUNGS[i].size, -1))
+        << "down from " << +S::FONT_SIZE_RUNGS[i].points << "pt";
+  }
 }
 
 TEST(FontSizeLadder, ClampsRatherThanWrapping) {

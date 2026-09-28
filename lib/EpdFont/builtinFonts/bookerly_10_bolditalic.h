@@ -3,7 +3,7 @@
  * name: bookerly_10_bolditalic
  * size: 10
  * mode: 2-bit  compressed: zopfli
- * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels)
+ * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels; ink re-centred on the unhinted outline)
  * Command used: fontconvert.py bookerly_10_bolditalic 10 ../builtinFonts/source/Bookerly/Bookerly-BoldItalic.ttf --2bit --compress --zopfli
  */
 #pragma once
@@ -2355,7 +2355,7 @@ static const EpdGlyphPacked bookerly_10_bolditalicGlyphs[] = {
     { 14, 16, 333, 3, 15 }, // U+2207
     { 15, 15, 333, 3, 15 }, // U+2208
     { 15, 19, 333, 3, 17 }, // U+2209
-    { 15, 13, 333, 3, 14 }, // U+220A
+    { 15, 13, 333, 4, 14 }, // U+220A
     { 14, 15, 333, 3, 15 }, // U+220B
     { 14, 19, 333, 3, 17 }, // U+220C
     { 14, 13, 333, 3, 14 }, // U+220D

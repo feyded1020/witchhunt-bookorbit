@@ -20,6 +20,7 @@
 #include "components/icons/book.h"
 #include "components/icons/book24.h"
 #include "components/icons/cover.h"
+#include "components/icons/ellipsis.h"
 #include "components/icons/file24.h"
 #include "components/icons/folder.h"
 #include "components/icons/folder24.h"
@@ -112,6 +113,8 @@ const uint8_t* LyraTheme::iconForName(UIIcon icon, int size) {
         return RecentIcon;
       case UIIcon::Stats:
         return StatsIcon;
+      case UIIcon::Ellipsis:
+        return EllipsisIcon;
       case UIIcon::Settings:
         return Settings2Icon;
       case UIIcon::Transfer:
@@ -487,9 +490,10 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
 
 void LyraTheme::drawSideButtonHints(GfxRenderer& renderer, const char* upBtn, const char* downBtn) const {
   // Panel coordinates and the inverted mirroring, for the reasons spelled out in
-  // BaseTheme::drawSideButtonHints.
+  // BaseTheme::drawSideButtonHints — including why LandscapeCounterClockwise draws inverted too.
   const GfxRenderer::Orientation orig_orientation = renderer.getOrientation();
-  const bool inverted = orig_orientation == GfxRenderer::Orientation::PortraitInverted;
+  const bool inverted = orig_orientation == GfxRenderer::Orientation::PortraitInverted ||
+                        orig_orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
   renderer.setDrawOrientation(inverted ? GfxRenderer::Orientation::PortraitInverted
                                        : GfxRenderer::Orientation::Portrait);
 

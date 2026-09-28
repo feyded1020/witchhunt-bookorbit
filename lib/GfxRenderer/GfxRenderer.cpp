@@ -2843,14 +2843,20 @@ void GfxRenderer::fillPolygon(const int* xPoints, const int* yPoints, int numPoi
   free(nodeX);
 }
 
-// For performance measurement (using static to allow "const" methods)
-static unsigned long start_ms = 0;
-static bool start_ms_valid = false;
+// For performance measurement (using static to allow "const" methods). Also read from other
+// tasks through isComposingFrame(), hence atomic.
+static std::atomic<unsigned long> start_ms{0};
+static std::atomic<bool> start_ms_valid{false};
 
 void GfxRenderer::clearScreen(const uint8_t color) const {
-  start_ms = millis();
-  start_ms_valid = true;
+  start_ms.store(millis(), std::memory_order_relaxed);
+  start_ms_valid.store(true, std::memory_order_release);
   display.clearScreen(color);
+}
+
+bool GfxRenderer::isComposingFrame(const uint32_t maxAgeMs) const {
+  if (!start_ms_valid.load(std::memory_order_acquire)) return false;
+  return millis() - start_ms.load(std::memory_order_relaxed) < maxAgeMs;
 }
 
 void GfxRenderer::invertScreen() const {
@@ -2962,13 +2968,13 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
   const auto effectiveMode = consumeRefreshOverride(refreshMode);
   noteRefresh(effectiveMode);
 
-  if (start_ms_valid) {
-    auto elapsed = millis() - start_ms;
+  if (start_ms_valid.load(std::memory_order_acquire)) {
+    const unsigned long elapsed = millis() - start_ms.load(std::memory_order_relaxed);
     LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
   } else {
     LOG_DBG("GFX", "Time = n/a from clearScreen to displayBuffer (no clearScreen marker)");
   }
-  start_ms_valid = false;
+  start_ms_valid.store(false, std::memory_order_release);
   display.displayBuffer(effectiveMode, fadingFix.load(std::memory_order_relaxed));
   // swapBuffers() ran inside displayBuffer(). Resync our cached frameBuffer pointer
   // from the HAL so subsequent renders (clearScreen + glyph writes) go to the correct
@@ -3485,7 +3491,15 @@ void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(fadingFi
 bool GfxRenderer::supportsAbsoluteGrayPlanes() const { return display.supportsAbsoluteGrayPlanes(); }
 
 bool GfxRenderer::beginAbsoluteGrayPass(const HalDisplay::RefreshMode fallback) const {
-  return display.beginAbsoluteGrayPass(fallback, fadingFix);
+  // Consume a pending setNextDisplayRefreshMode() override exactly as displayBuffer() and
+  // triggerDisplay() do. This was the one display entry point that did not, so a reader exit's
+  // enforceExitFullRefresh() HALF arrived here armed and left armed: not applied to this base,
+  // and lying in wait for whatever unrelated refresh came next (device logs 2026-09-23, X3, X4
+  // and X4 Pro: `Gray base: overridePending=1` on every cover sleep from the reader). The
+  // override is the caller asking for a stronger base; the driver receives it as the fallback
+  // mode and applies it wherever it takes a B/W base push.
+  const HalDisplay::RefreshMode effective = consumeRefreshOverride(fallback);
+  return display.beginAbsoluteGrayPass(effective, fadingFix);
 }
 
 uint8_t GfxRenderer::getGrayLevels() const { return display.getGrayLevels(); }

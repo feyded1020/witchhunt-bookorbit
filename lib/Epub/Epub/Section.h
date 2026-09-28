@@ -7,6 +7,7 @@
 
 #include "Epub.h"
 #include "FontSizeLadder.h"
+#include "SpinePageIndex.h"
 
 class Page;
 class GfxRenderer;
@@ -31,8 +32,20 @@ class Section {
   // Set by the last build when CssParser hit its own low-heap mode mid-parse
   // (lowHeapSkips > 0): some elements were cached without their styles. The cache is
   // usable but visually degraded; background callers discard it so the foreground
-  // blocking path (more headroom) rebuilds it clean.
+  // blocking path (more headroom) rebuilds it clean. Persisted in the status byte
+  // (kStatusCssDegraded) and reloaded by loadSectionFile(), so a blocking build that came
+  // out degraded -- the one path that used to write the result without looking -- is
+  // rebuilt once on a later entry instead of standing for the life of the cache.
   bool cssLowHeapDegraded_ = false;
+  // Set by the last build when a table row was emitted as paragraphs instead of a grid
+  // (ChapterHtmlSlimParser::tableRowDegraded). Same persistence and rebuild policy as the
+  // CSS flag: the pages are usable, the layout is what the heap allowed.
+  bool tableRowDegraded_ = false;
+  // Set by the last build when a fixed-capacity limit changed its output (ChapterHtmlSlimParser::
+  // capOverflowFlags, or a page past Page::MAX_ELEMENTS). Deterministic -- a rebuild would hit
+  // the same limit -- so it is persisted (kStatusSimplified) for the reader to say so, not to
+  // rebuild on.
+  bool simplified_ = false;
   // Set by the last build when its inline-footnote resolve pass could not complete (OOM, an
   // unreadable note document). The pages are cached under a "previews on" property hash — see
   // EpubReaderActivity::makeSectionBuildParams — but the notes this spine points at never made
@@ -44,6 +57,9 @@ class Section {
   // the missing image would otherwise be permanent — background callers discard instead.
   bool imageHeaderDegraded_ = false;
 
+  // Records this spine's page count in the book's SpinePageIndex under `requestedHash`. No-op for
+  // a truncated or empty section.
+  void recordPageCount(uint32_t requestedHash) const;
   void writeSectionFileHeader(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
                               uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,
                               bool embeddedStyle, bool bionicReadingEnabled, uint8_t imageRendering);
@@ -54,11 +70,21 @@ class Section {
     uint16_t startPage = 0;
   };
   std::vector<TocBoundary> tocBoundaries;
-  std::vector<std::pair<uint16_t, std::string>> pageBreakLabels;
+  // Loaded lazily after a build (see pageBreakLabelsPending_), hence mutable: the const label
+  // queries are what trigger the load.
+  mutable std::vector<std::pair<uint16_t, std::string>> pageBreakLabels;
+  // Set by a build's finalize instead of copying the parser's labels into pageBreakLabels.
+  // Finalize runs while a released build still has the secondary framebuffer's hole open, and a
+  // session-lifetime block taken there splits it: 128 x 28 B = 3584 B landed mid-hole on an
+  // illustrated book (one pagebreak per printed page), leaving 36 KB contiguous where the
+  // framebuffer needs 52 KB, so it could never come back (X3, 2026-09-25). The first label query
+  // runs at render time, after the reader has re-taken the framebuffer.
+  mutable bool pageBreakLabelsPending_ = false;
 
   void buildTocBoundaries(const std::vector<std::pair<std::string, uint16_t>>& anchors);
   void buildTocBoundariesFromFile(FsFile& f);
-  void buildPageBreakLabelsFromFile(FsFile& f);
+  void buildPageBreakLabelsFromFile(FsFile& f) const;
+  void ensurePageBreakLabels() const;
 
   // Live state of an in-progress section build, shared by the blocking path and the
   // sliceable stepSectionBuild() path. Holds exactly the locals that must survive across
@@ -68,6 +94,9 @@ class Section {
   // In-flight incremental build, owned across stepSectionBuild() calls. Null when no build
   // is live. Heap-owned so the visitor's &lut capture stays stable across ticks.
   std::unique_ptr<BuildState> buildState_;
+  // The live build's arena (nullptr when no build is live, or it has none): read by the per-page
+  // heap trace, which sits above BuildState's definition in Section.cpp.
+  const BuildArena* activeBuildArena() const;
   // See setExternalBuildScratch. Not owned; must outlive any active build.
   BuildArena* externalScratch_ = nullptr;
   // Outcome of one phase method. Mostly maps to BuildStep: More means the phase yielded
@@ -78,6 +107,12 @@ class Section {
   // CSS/heap fallback recursion lives in the entry function, not here), which is what lets
   // them be called either back-to-back (blocking) or with Parse re-entered across ticks.
   BuildPhaseResult runBuildSetup(BuildState& st);
+  // Resolves the spine's ZIP stat (inflated size) into the build state once; setup and the
+  // parse's EntryReader::open reuse it. False when the entry cannot be sized at all.
+  bool resolveSpineStat(BuildState& st);
+  // True when the book-keyed inflated-XHTML cache for this spine exists with the expected size,
+  // i.e. runBuildParse will feed the parser from it and never needs an inflate ring.
+  bool htmlCacheReusable(const BuildState& st) const;
   // Feeds the chapter XHTML to the parser. budgetMs == 0 (blocking path): streams the
   // ZIP entry directly and consumes it in one call. budgetMs != 0 (sliced path): runs in
   // two budget-sliced phases — (a) inflate the entry to a temp SD file, release all ZIP
@@ -127,6 +162,11 @@ class Section {
   // re-inflating the ZIP entry. Says nothing about whether the file exists or is complete;
   // callers must validate its size against the spine's inflated size, as the builder does.
   static std::string sectionHtmlCachePath(const std::string& bookCachePath, int spineIndex);
+
+  // The page counts recorded for spines [first, last] under `p` (see SpinePageIndex), so the
+  // reader can count a chapter split over several spine items without opening their caches.
+  static SpinePageIndex::Totals indexedPageTotals(const std::string& bookCachePath, const BuildParams& p,
+                                                  int spineCount, int first, int last, int current);
 
   uint16_t pageCount = 0;
   int currentPage = 0;
@@ -217,6 +257,14 @@ class Section {
   // Increases monotonically as the build progresses; 0 when no build is live.
   // Pages [0, activeBuildPageCount()) are safe to read via loadPageFromActiveBuild().
   uint16_t activeBuildPageCount() const;
+  // Where a navigation target lands in the build in progress, once known: a TOC entry of this
+  // spine without a fragment is page 0 immediately; one with a fragment, or a bare anchor, is
+  // answered as soon as the parser has recorded it (ChapterHtmlSlimParser::
+  // lookupAnchorInActiveBuild). nullopt while unknown or when no build is live. The answer is
+  // the same one the finished cache gives (tocBoundaries / the anchor map are built from the
+  // same records), so the reader can turn the target into a page target and draw it mid-build.
+  std::optional<uint16_t> activeBuildPageForTocIndex(int tocIndex);
+  std::optional<uint16_t> activeBuildPageForAnchor(const std::string& anchor);
   // Best-known total page count: the exact pageCount when no build is live (finalized) or once
   // the stream is consumed, otherwise a byte-based projection (pages so far scaled by the
   // consumed fraction) so a "page X of ~Y" display doesn't read off the small build watermark.
@@ -229,7 +277,8 @@ class Section {
   // sees the latest committed pages (the writer is not synced per page). Must be called
   // between build slices, never concurrently with a slice on another task. Returns nullptr
   // on error. pageIndex must be < activeBuildPageCount().
-  std::unique_ptr<Page> loadPageFromActiveBuild(uint16_t pageIndex);
+  // `scratch`: see Page::deserialize -- the mid-build draw passes the build's lent region.
+  std::unique_ptr<Page> loadPageFromActiveBuild(uint16_t pageIndex, BuildArena* scratch = nullptr);
   // Pre-decode every image in the section into its .pxc cache. Skips images that are
   // already cached or would show as a placeholder. The decode writes pixels into the
   // framebuffer as a side effect; call renderer.clearScreen() afterward. forceLoad
@@ -244,19 +293,28 @@ class Section {
   // demand, borrowing the framebuffer as its arena. The one remaining caller is the
   // pre-reboot heap-recovery pass, which deliberately warms everything so the next boot can
   // render images with no decoder at all.
+  // redecodeCoarse: see Page::warmImageCaches -- only for passes that run with the framebuffers
+  // released, where the full progressive workspace fits.
   void warmAllImageCaches(int xOffset, int yOffset, bool forceLoad, bool monochromeOutput = true,
-                          bool alsoWarmGrayscale = false);
+                          bool alsoWarmGrayscale = false, bool redecodeCoarse = false);
   bool isTruncatedCache() const { return truncatedCache; }
   bool isEmbeddedStyleFallback() const { return embeddedStyleFallback; }
   // True when the last build's CSS resolution hit low-heap skips (styles silently
-  // missing from the cached pages). Only meaningful right after a build.
+  // missing from the cached pages), or when the loaded cache was written by such a build.
   bool isCssLowHeapDegraded() const { return cssLowHeapDegraded_; }
+  // True when the last build demoted a table row to paragraphs, or the loaded cache was written
+  // by such a build. The reader rebuilds such a chapter once per session when it is entered.
+  bool isTableRowDegraded() const { return tableRowDegraded_; }
+  // True when the build (or the loaded cache's build) exceeded a fixed-capacity limit and shows
+  // less than the book: see ChapterHtmlSlimParser::CapOverflow.
+  bool isSimplified() const { return simplified_; }
   // True when the last build's inline-footnote resolve pass failed, so some of this spine's
   // notes are missing from the store while the cache claims previews are on. Only meaningful
   // right after a build.
   bool isFootnotePreviewsUnresolved() const { return footnotePreviewsUnresolved_; }
   // True when the last build dropped an image to alt text on a heap refusal — transient, unlike
-  // an unreadable image. Only meaningful right after a build.
+  // an unreadable image. Set right after a build, and also by loadSectionFile() from the cached
+  // header, so a cold open can rebuild what a starved build left out.
   bool isImageHeaderDegraded() const { return imageHeaderDegraded_; }
   // True while an incremental build is in flight and its CSS resolver has ALREADY hit a
   // low-heap skip — i.e. the in-progress result is going to be css-degraded. Lets a sliced
@@ -289,12 +347,12 @@ class Section {
   // printed-page anchor exists on this or any earlier page in the section.
   std::optional<std::string> getNearestPrintedPageLabelAtOrBefore(uint16_t page) const;
 
-  // Standalone lookup that doesn't require a loaded Section. Walks the book's sections cache
-  // directory, finds any cache variant for `spineIndex`, reads its printed-page label map,
+  // Standalone lookup that doesn't require a loaded Section. Walks the spine's cache bucket
+  // (Epub::spineCacheDir), finds any cache variant for `spineIndex`, reads its printed-page label map,
   // and returns the parenthesised label for `page` if one is recorded. Returns nullopt when
   // no cache exists or the page carries no printed-page anchor. Used by SleepActivity to
   // augment the overlay without instantiating a full Section + render parameters.
-  static std::optional<std::string> getPrintedPageLabelFromCache(const std::string& sectionsDir, int spineIndex,
+  static std::optional<std::string> getPrintedPageLabelFromCache(const std::string& bookCachePath, int spineIndex,
                                                                  uint16_t page);
 
   // Look up the page number for a paragraph index (1-based, from XPath p[N]).

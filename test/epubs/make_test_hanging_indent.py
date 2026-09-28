@@ -24,12 +24,15 @@ first glyph. The cases below cover each way the two halves can be split:
                                   ONE paragraph, so the rest get no indent)
   6. nested wrappers              insets accumulate down the tree
   7. sibling after a wrapper      the wrapper's inset must NOT leak past </div>
+  8. paragraph before a wrapper   an indented <section> must not hand its
+                                  margin to the paragraph before it as that
+                                  paragraph's first-line indent
 
 At the corpus font 1em = 18px, so the goldens read: case 1 and 2 lines all sit
 at LINE x=36 with W x=-18 (net 18); case 3 at LINE x=72 with W x=-72 (net 0, the
 cap and the clamp cancelling exactly as the CSS does); case 4 at LINE x=0; case
 5 opens at 36/-18 and continues at 36/0; case 6 at LINE x=63; case 7 back at
-LINE x=0. No word may ever land at a negative x once the line offset is added.
+LINE x=0; case 8's lead paragraph opens at W x=18 like any other. No word may ever land at a negative x once the line offset is added.
 
 Regenerate with:  python test/epubs/make_test_hanging_indent.py
 then refresh goldens: UPDATE_GOLDENS=1 ctest -R EpubPipeline
@@ -116,6 +119,9 @@ p.brverse { margin-left: 2em; text-indent: -1em }
 
 /* 6. A second wrapper inside the first: the insets add up. */
 blockquote.quote { margin-left: 1.5em }
+
+/* 8. A wrapper that is not a BLOCK_TAG, opening right after a paragraph. */
+section.wide { margin-left: 3em }
 """
 
 CHAPTER = """<?xml version="1.0" encoding="UTF-8"?>
@@ -185,6 +191,11 @@ CHAPTER = """<?xml version="1.0" encoding="UTF-8"?>
   <!-- 7. The wrapper must not leak past its own end tag ────────────────────── -->
   <p>7. SIBLING: this paragraph follows the wrappers above and must be back at
   the text edge, indented only by the ordinary first-line indent.</p>
+
+  <!-- 8. The paragraph before a wrapper keeps its own indent ─────────────── -->
+  <p>8. BEFORE A WRAPPER: this paragraph is still open when the section
+  starts, and keeps its ordinary first-line indent.</p>
+  <section class="wide"><p>Listen, listen</p></section>
 
 </body>
 </html>

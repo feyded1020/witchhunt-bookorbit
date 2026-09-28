@@ -19,6 +19,11 @@
 //   - failedAllocSize(): size of the last REFUSED allocation (0 = none) —
 //     distinct from highWater(), which only records successes; together they
 //     reproduce device OOM conditions exactly in host tests.
+//   - beginLane()/laneHighWater(): the peak reached above the cursor at the last
+//     beginLane(). A build calls beginLane() at each phase boundary so its
+//     summary line can say how much each phase (extract ring, parse working set)
+//     used on top of what was resident when it started -- the per-lane figures
+//     the arena budget is derived from (memory audit 2026-09, R3).
 //
 // Heap discipline: the backing buffer comes from makeUniqueNoThrow (never a
 // throwing new); valid() must be checked before use.
@@ -27,6 +32,35 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+
+// Host-only allocation trace (the epub_build_inventory tool): every cursor move is reported, so a
+// shadow stack of live arena allocations -- with the code that made each -- can be kept outside
+// the arena. Compiled out entirely unless BUILD_ARENA_TRACE is defined; firmware never defines it.
+#ifdef BUILD_ARENA_TRACE
+class BuildArena;
+struct BuildArenaTraceHooks {
+  // An allocation landed at [offset, offset + bytes); `cursor` is the cursor after it.
+  void (*onAlloc)(const BuildArena* arena, size_t offset, size_t bytes, size_t cursor) = nullptr;
+  // The cursor moved DOWN to `cursor` (a block release or a reset).
+  void (*onRewind)(const BuildArena* arena, size_t cursor) = nullptr;
+  // beginLane(): a build phase boundary.
+  void (*onLane)(const BuildArena* arena, size_t cursor) = nullptr;
+};
+inline BuildArenaTraceHooks& buildArenaTraceHooks() {
+  static BuildArenaTraceHooks hooks;
+  return hooks;
+}
+#define BUILD_ARENA_TRACE_ALLOC(off, bytes) \
+  if (buildArenaTraceHooks().onAlloc) buildArenaTraceHooks().onAlloc(this, (off), (bytes), cursor_)
+#define BUILD_ARENA_TRACE_REWIND() \
+  if (buildArenaTraceHooks().onRewind) buildArenaTraceHooks().onRewind(this, cursor_)
+#define BUILD_ARENA_TRACE_LANE() \
+  if (buildArenaTraceHooks().onLane) buildArenaTraceHooks().onLane(this, cursor_)
+#else
+#define BUILD_ARENA_TRACE_ALLOC(off, bytes) ((void)0)
+#define BUILD_ARENA_TRACE_REWIND() ((void)0)
+#define BUILD_ARENA_TRACE_LANE() ((void)0)
+#endif
 
 class BuildArena {
  public:
@@ -83,6 +117,14 @@ class BuildArena {
   size_t used() const { return cursor_; }
   size_t highWater() const { return highWater_; }
   size_t failedAllocSize() const { return failedAllocSize_; }
+  // Lane telemetry (diagnostic only): mark the cursor as a lane's floor, then read the peak
+  // reached above it. Only alloc() moves the peak; releases never lower it.
+  void beginLane() {
+    laneStart_ = cursor_;
+    laneHighWater_ = cursor_;
+    BUILD_ARENA_TRACE_LANE();
+  }
+  size_t laneHighWater() const { return laneHighWater_ > laneStart_ ? laneHighWater_ - laneStart_ : 0; }
   uint32_t releaseFailures() const { return releaseFailures_; }
 
   // Bump-allocate `bytes` aligned to `align` (power of two). Returns nullptr
@@ -106,6 +148,8 @@ class BuildArena {
     }
     cursor_ = aligned + bytes;
     if (cursor_ > highWater_) highWater_ = cursor_;
+    if (cursor_ > laneHighWater_) laneHighWater_ = cursor_;
+    BUILD_ARENA_TRACE_ALLOC(aligned, bytes);
     return base_ + aligned;
   }
 
@@ -140,6 +184,7 @@ class BuildArena {
     activeBlockId_ = block.parentId_;
     block.id_ = 0;
     block.owner_ = nullptr;
+    BUILD_ARENA_TRACE_REWIND();
     return true;
   }
 
@@ -162,6 +207,9 @@ class BuildArena {
   void reset() {
     cursor_ = 0;
     activeBlockId_ = 0;
+    laneStart_ = 0;
+    laneHighWater_ = 0;
+    BUILD_ARENA_TRACE_REWIND();
   }
 
  private:
@@ -170,6 +218,8 @@ class BuildArena {
   size_t capacity_ = 0;
   size_t cursor_ = 0;
   size_t highWater_ = 0;
+  size_t laneStart_ = 0;
+  size_t laneHighWater_ = 0;
   size_t failedAllocSize_ = 0;
   uint32_t activeBlockId_ = 0;
   uint32_t nextBlockId_ = 1;

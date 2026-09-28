@@ -59,10 +59,45 @@ std::atomic<size_t> g_peakSiteLive[kSiteSlots];
 std::atomic<size_t> g_siteMax[kSiteSlots];
 std::atomic<size_t> g_peakSnapshotBytes{0};
 
-int trackSite(const uintptr_t pc, const size_t sz) {
+// Per-build window (see HeapTrack.h).
+std::atomic<bool> g_winActive{false};
+std::atomic<size_t> g_winBase{0};
+std::atomic<size_t> g_winPeak{0};
+std::atomic<size_t> g_winSnapLive{0};
+std::atomic<size_t> g_winEnd{0};
+std::atomic<size_t> g_phasePeak{0};
+constexpr size_t kWindowSnapStep = 128;
+std::atomic<size_t> g_winStartLive[kSiteSlots];
+std::atomic<size_t> g_winPeakLive[kSiteSlots];
+std::atomic<size_t> g_winEndLive[kSiteSlots];
+std::atomic<size_t> g_winCount[kSiteSlots];
+std::atomic<size_t> g_winBytes[kSiteSlots];
+std::atomic<uintptr_t> g_siteCtx1[kSiteSlots];
+std::atomic<uintptr_t> g_siteCtx2[kSiteSlots];
+void (*g_winPeakCallback)() = nullptr;
+
+// Sites are keyed by (pc, caller) when HEAPTRACK_SITE_BY_CALLER=1 (the inventory tool): a shared
+// helper that allocates for many callers -- SaxParser::init for every SAX user -- would otherwise
+// be ONE site labelled with whichever caller claimed it first (a container.xml parse at book load
+// showed up inside a chapter build that way). By default the key is the pc alone, as before.
+bool siteByCaller() {
+  static const bool v = [] {
+    const char* e = getenv("HEAPTRACK_SITE_BY_CALLER");
+    return e != nullptr && e[0] == '1';
+  }();
+  return v;
+}
+
+int trackSite(const uintptr_t pc, const size_t sz, const uintptr_t ctx1 = 0, const uintptr_t ctx2 = 0) {
   if (pc == 0) return -1;
-  size_t h = (pc * 0x9E3779B97F4A7C15ull) >> 49;  // spread the low-entropy high bits of a code addr
-  for (int probe = 0; probe < 8; ++probe) {
+  // Two caller frames, not one: shared helpers nest (every ZIP open goes through one scoped
+  // opener), so the caller's caller is what tells the uses apart.
+  const bool byCaller = siteByCaller();
+  const uintptr_t keyCtx = byCaller ? ctx1 : 0;
+  const uintptr_t keyCtx2 = byCaller ? ctx2 : 0;
+  size_t h =
+      ((pc ^ (keyCtx * 0x2545F4914F6CDD1Dull) ^ (keyCtx2 * 0x9E3779B97F4A7C15ull)) * 0x9E3779B97F4A7C15ull) >> 49;
+  for (int probe = 0; probe < 32; ++probe) {
     const size_t slot = (h + probe) & (kSiteSlots - 1);
     uintptr_t cur = g_siteAddr[slot].load(std::memory_order_relaxed);
     if (cur == 0) {
@@ -71,8 +106,19 @@ int trackSite(const uintptr_t pc, const size_t sz) {
         if (expected != pc) continue;  // lost the race to a different site; keep probing
       }
       cur = pc;
+      g_siteCtx1[slot].store(ctx1, std::memory_order_relaxed);
+      g_siteCtx2[slot].store(ctx2, std::memory_order_relaxed);
     }
-    if (cur == pc) {
+    if (cur == pc && (!byCaller || (g_siteCtx1[slot].load(std::memory_order_relaxed) == keyCtx &&
+                                    g_siteCtx2[slot].load(std::memory_order_relaxed) == keyCtx2))) {
+      if (g_siteCtx1[slot].load(std::memory_order_relaxed) == 0 && ctx1 != 0) {
+        g_siteCtx1[slot].store(ctx1, std::memory_order_relaxed);
+        g_siteCtx2[slot].store(ctx2, std::memory_order_relaxed);
+      }
+      if (g_winActive.load(std::memory_order_relaxed)) {
+        g_winCount[slot].fetch_add(1, std::memory_order_relaxed);
+        g_winBytes[slot].fetch_add(sz, std::memory_order_relaxed);
+      }
       g_siteCount[slot].fetch_add(1, std::memory_order_relaxed);
       g_siteBytes[slot].fetch_add(sz, std::memory_order_relaxed);
       g_siteLive[slot].fetch_add(sz, std::memory_order_relaxed);
@@ -122,10 +168,64 @@ int trackAlloc(size_t sz) {
     }
     return 3;
   }();
-  const int pick = depth > kPick ? kPick : depth - 1;
+  int pick = depth > kPick ? kPick : depth - 1;
+#if !defined(_WIN32)
+  // HEAPTRACK_SKIP_ALLOCATORS=1 (the inventory tool): instead of a fixed depth, take the first
+  // frame above the allocator itself -- skipping this file's hooks and libstdc++'s operator new /
+  // new[] by symbol -- so a direct malloc() caller and an operator-new caller are both attributed
+  // to the application line that asked. A fixed depth is one frame too high for the former.
+  static const bool kSkipAllocators = [] {
+    const char* e = getenv("HEAPTRACK_SKIP_ALLOCATORS");
+    return e != nullptr && e[0] == '1';
+  }();
+  if (kSkipAllocators) {
+    pick = depth - 1;
+    for (int i = 1; i < depth; ++i) {
+      Dl_info di{};
+      const char* name = (dladdr(frames[i], &di) != 0 && di.dli_sname != nullptr) ? di.dli_sname : "";
+      const bool allocator = std::strncmp(name, "_Zn", 3) == 0 || std::strcmp(name, "malloc") == 0 ||
+                             std::strcmp(name, "calloc") == 0 || std::strcmp(name, "realloc") == 0 ||
+                             std::strstr(name, "trackAlloc") != nullptr;
+      if (!allocator) {
+        pick = i;
+        break;
+      }
+    }
+  }
+#endif
   const uintptr_t pc = pick >= 0 ? reinterpret_cast<uintptr_t>(frames[pick]) : 0;
+  const uintptr_t ctx1 = pick + 1 < depth ? reinterpret_cast<uintptr_t>(frames[pick + 1]) : 0;
+  const uintptr_t ctx2 = pick + 2 < depth ? reinterpret_cast<uintptr_t>(frames[pick + 2]) : 0;
   g_inHook = false;
-  const int slot = trackSite(pc, sz);
+  const int slot = trackSite(pc, sz, ctx1, ctx2);
+
+  // Window bookkeeping: the phase peak, and a site snapshot each time the window's own peak grows
+  // by a step (fine-grained: a background build's whole margin is a few KB).
+  {
+    size_t pp = g_phasePeak.load(std::memory_order_relaxed);
+    while (live > pp && !g_phasePeak.compare_exchange_weak(pp, live, std::memory_order_relaxed)) {
+    }
+  }
+  if (g_winActive.load(std::memory_order_relaxed)) {
+    size_t wp = g_winPeak.load(std::memory_order_relaxed);
+    while (live > wp && !g_winPeak.compare_exchange_weak(wp, live, std::memory_order_relaxed)) {
+    }
+    if (live > g_winSnapLive.load(std::memory_order_relaxed) + kWindowSnapStep ||
+        live == g_winPeak.load(std::memory_order_relaxed)) {
+      if (live > g_winSnapLive.load(std::memory_order_relaxed)) {
+        g_winSnapLive.store(live, std::memory_order_relaxed);
+        for (int i = 0; i < kSiteSlots; ++i) {
+          g_winPeakLive[i].store(g_siteLive[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
+        }
+        // The allocation that set this peak is already counted in its site's live bytes above.
+        if (g_winPeakCallback) {
+          g_inHook = true;
+          g_winPeakCallback();
+          g_inHook = false;
+        }
+      }
+    }
+  }
 
   // Snapshot who is holding memory whenever the high-water mark moves meaningfully. Copying 4096
   // slots is far too expensive to do on every new peak -- early in a run almost every allocation
@@ -294,6 +394,69 @@ int heapTrackTopSites(HeapTrackSite* out, const int count) {
       --j;
     }
     out[j + 1] = key;
+  }
+  return n;
+}
+
+void heapTrackWindowBegin() {
+  for (int i = 0; i < kSiteSlots; ++i) {
+    g_winStartLive[i].store(g_siteLive[i].load());
+    g_winPeakLive[i].store(g_siteLive[i].load());
+    g_winEndLive[i].store(0);
+    g_winCount[i].store(0);
+    g_winBytes[i].store(0);
+  }
+  const size_t live = g_liveBytes.load();
+  g_winBase.store(live);
+  g_winPeak.store(live);
+  g_winSnapLive.store(live);
+  g_winEnd.store(live);
+  g_phasePeak.store(live);
+  g_winActive.store(true);
+}
+
+void heapTrackWindowEnd() {
+  g_winActive.store(false);
+  for (int i = 0; i < kSiteSlots; ++i) g_winEndLive[i].store(g_siteLive[i].load());
+  g_winEnd.store(g_liveBytes.load());
+}
+
+size_t heapTrackLive() { return g_liveBytes.load(std::memory_order_relaxed); }
+
+HeapTrackWindowSummary heapTrackWindowSummary() {
+  HeapTrackWindowSummary s;
+  s.base = g_winBase.load();
+  s.peak = g_winPeak.load();
+  s.atSnap = g_winSnapLive.load();
+  s.end = g_winEnd.load();
+  return s;
+}
+
+size_t heapTrackPhaseMark() {
+  const size_t peak = g_phasePeak.load();
+  g_phasePeak.store(g_liveBytes.load());
+  return peak;
+}
+
+void heapTrackSetWindowPeakCallback(void (*callback)()) { g_winPeakCallback = callback; }
+
+int heapTrackWindowSites(HeapTrackWindowSite* out, const int count) {
+  if (out == nullptr || count <= 0) return 0;
+  int n = 0;
+  for (int slot = 0; slot < kSiteSlots && n < count; ++slot) {
+    if (g_siteAddr[slot].load() == 0) continue;
+    HeapTrackWindowSite w;
+    w.pc = g_siteAddr[slot].load();
+    w.ctx1 = g_siteCtx1[slot].load();
+    w.ctx2 = g_siteCtx2[slot].load();
+    w.winCount = g_winCount[slot].load();
+    w.winBytes = g_winBytes[slot].load();
+    w.startLive = g_winStartLive[slot].load();
+    w.peakLive = g_winPeakLive[slot].load();
+    w.endLive = g_winEndLive[slot].load();
+    w.maxSize = g_siteMax[slot].load();
+    if (w.winCount == 0 && w.startLive == 0 && w.peakLive == 0 && w.endLive == 0) continue;
+    out[n++] = w;
   }
   return n;
 }

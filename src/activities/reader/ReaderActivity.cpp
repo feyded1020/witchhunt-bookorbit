@@ -1,6 +1,7 @@
 #include "ReaderActivity.h"
 
 #include <Bitmap.h>
+#include <BuildArena.h>
 #include <CooperativeAbort.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
@@ -13,10 +14,13 @@
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 
+#include <cstddef>
+
 #include "BookOrbitCredentialStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "Epub.h"
+#include "Epub/CoverThumbSession.h"
 #include "EpubReaderActivity.h"
 #include "MdReaderActivity.h"
 #include "Txt.h"
@@ -48,21 +52,21 @@ inline void logReaderLaunchMemSnapshot(const char*) {}
 // ── CoverExtractSession ──────────────────────────────────────────────────────
 
 ReaderActivity::CoverExtractSession::~CoverExtractSession() {
-  if (buf_) {
-    free(buf_);
-    buf_ = nullptr;
-  }
+  releaseChunk();  // before reader_ goes: its region block lies below the chunk's
   if (dst_.isOpen()) dst_.close();
   if (!destPath_.empty()) Storage.remove(destPath_.c_str());
   // reader_ destructor closes entry; zip_ destructor is harmless
 }
 
 bool ReaderActivity::CoverExtractSession::begin(const std::string& epubPath, const std::string& zipEntryPath,
-                                                const std::string& destPath) {
+                                                const std::string& destPath, BuildArena* scratch) {
   finalPath_ = destPath;
   destPath_ = destPath + ".part";
+  scratch_ = (scratch != nullptr && scratch->valid()) ? scratch : nullptr;
   zip_ = std::unique_ptr<ZipFile>(new ZipFile(epubPath));
-  reader_ = std::unique_ptr<ZipFile::EntryReader>(new ZipFile::EntryReader(*zip_));
+  // The read buffer and inflate ring sit in the lent region when there is one (held across
+  // the session's steps), else on the heap.
+  reader_ = std::unique_ptr<ZipFile::EntryReader>(new ZipFile::EntryReader(*zip_, 1024, scratch));
   if (!reader_->open(zipEntryPath.c_str())) {
     LOG_ERR("CEX", "Failed to open ZIP entry %s in %s", zipEntryPath.c_str(), epubPath.c_str());
     return false;
@@ -76,32 +80,69 @@ bool ReaderActivity::CoverExtractSession::begin(const std::string& epubPath, con
   return true;
 }
 
+void ReaderActivity::CoverExtractSession::releaseChunk() {
+  if (buf_ != nullptr) {
+    if (bufInArena_) {
+      scratch_->release(chunkBlock_);
+    } else {
+      free(buf_);
+    }
+  }
+  buf_ = nullptr;
+  bufInArena_ = false;
+  chunkBytes_ = 0;
+}
+
 ReaderActivity::CoverExtractSession::Status ReaderActivity::CoverExtractSession::continueStep(size_t chunkBytes) {
   if (!reader_ || !reader_->isOpen()) return Status::Error;
 
-  if (!buf_ || chunkBytes_ != chunkBytes) {
-    // Halve the request rather than abandon the cover. Device-observed on X4: a 16 KB chunk
-    // failed with ~74 KB free — plenty of heap, just not that much of it contiguous after a
-    // carousel's worth of cover work — and the book silently lost its thumbnail for the whole
-    // session. A smaller chunk only costs more inflate steps, which are sliced across ticks
-    // anyway, so degrading beats failing. 1 KB is still 400+ SD writes for a 450 KB cover, which
-    // is slow but finishes; below that the extract is not worth starting.
-    constexpr size_t MIN_CHUNK_BYTES = 1024;
-    free(buf_);
-    buf_ = nullptr;
+  if (!buf_ || requestedBytes_ != chunkBytes) {
+    releaseChunk();
+    requestedBytes_ = chunkBytes;
     size_t want = chunkBytes;
-    while (!buf_ && want >= MIN_CHUNK_BYTES) {
+    // First the lent region, which already holds the reader's 1 KB read buffer and inflate ring
+    // (32 KB for any cover larger than that): it leaves ~18 KB of the X3's 52 272-byte region and
+    // ~14 KB of the X4's 48 000, so a 16 KB chunk fits on the X3 and an 8 KB one on the X4. On the
+    // heap the 16 KB chunk failed with ~17 KB free (X3 2026-09-27, extracting a 467 KB cover).
+    constexpr size_t MIN_REGION_CHUNK_BYTES = 4096;
+    if (scratch_ != nullptr) {
+      const size_t room = scratch_->capacity() - scratch_->used();
+      const size_t slack = alignof(std::max_align_t);
+      while (want >= MIN_REGION_CHUNK_BYTES && want + slack > room) want /= 2;
+      if (want >= MIN_REGION_CHUNK_BYTES) {
+        chunkBlock_ = scratch_->reserveBlock();
+        buf_ = static_cast<uint8_t*>(scratch_->alloc(want));
+        if (buf_ != nullptr) {
+          bufInArena_ = true;
+        } else {
+          scratch_->release(chunkBlock_);
+        }
+      }
+      if (buf_ == nullptr) want = chunkBytes;
+    }
+    // Else the heap. Halve the request rather than abandon the cover. Device-observed on X4: a
+    // 16 KB chunk failed with ~74 KB free -- plenty of heap, just not that much of it contiguous
+    // after a carousel's worth of cover work -- and the book silently lost its thumbnail for the
+    // whole session. A smaller chunk only costs more inflate steps, which are sliced across ticks
+    // anyway, so degrading beats failing. 1 KB is still 400+ SD writes for a 450 KB cover, which is
+    // slow but finishes; below that the extract is not worth starting.
+    constexpr size_t MIN_CHUNK_BYTES = 1024;
+    while (buf_ == nullptr && want >= MIN_CHUNK_BYTES) {
       buf_ = static_cast<uint8_t*>(malloc(want));
       if (!buf_) want /= 2;
     }
     if (!buf_) {
       LOG_ERR("CEX", "OOM allocating chunk buffer (wanted %zu, gave up below %zu)", chunkBytes, MIN_CHUNK_BYTES);
       chunkBytes_ = 0;
+      requestedBytes_ = 0;
       return Status::Error;
     }
+    // Logged once per allocation. The request is remembered separately from what was granted:
+    // comparing the request against the granted size made every step after a shortfall free the
+    // buffer, retry the full size, fail and log again (~50 times for one 467 KB cover).
     if (want != chunkBytes) {
-      LOG_DBG("CEX", "Chunk buffer degraded %zu -> %zu bytes (heap too fragmented for the full size)", chunkBytes,
-              want);
+      LOG_DBG("CEX", "Chunk buffer %zu -> %zu bytes (%s)", chunkBytes, want,
+              bufInArena_ ? "what the lent region has room for" : "heap too fragmented for the full size");
     }
     chunkBytes_ = want;
   }
@@ -139,12 +180,12 @@ size_t ReaderActivity::CoverExtractSession::bytesProduced() const { return reade
 size_t ReaderActivity::CoverExtractSession::totalBytes() const { return reader_ ? reader_->inflatedSize() : 0; }
 
 std::unique_ptr<ReaderActivity::CoverExtractSession> ReaderActivity::beginCoverExtractSession(
-    const std::string& bookPath) {
+    const std::string& bookPath, BuildArena* scratch) {
   if (!FsHelpers::hasEpubExtension(bookPath)) return nullptr;
   if (!sidecarCoverPath(bookPath).empty()) return nullptr;  // sidecar takes priority; no extract needed
 
   Epub epub(bookPath, "/.crosspoint");
-  if (!epub.loadForCover()) return nullptr;  // cover ref only, no full book.bin build
+  if (!epub.loadForCover(scratch)) return nullptr;  // cover ref only, no full book.bin build
 
   // If cover.img already exists and is a complete recognized image, no extraction
   // is needed. The validity check rejects interrupted files that have a valid header
@@ -174,7 +215,7 @@ std::unique_ptr<ReaderActivity::CoverExtractSession> ReaderActivity::beginCoverE
   if (!Storage.exists(dir.c_str())) Storage.mkdir(dir.c_str());
 
   auto session = std::unique_ptr<CoverExtractSession>(new CoverExtractSession());
-  if (!session->begin(bookPath, normHref, coverImgPath)) return nullptr;
+  if (!session->begin(bookPath, normHref, coverImgPath, scratch)) return nullptr;
 
   return session;
 }
@@ -446,7 +487,7 @@ void healStaleEpubSentinel(const std::string& bookPath, const std::string& thumb
 }
 }  // namespace
 
-ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int width, int height) {
+ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int width, int height, BuildArena* scratch) {
   const std::string dir = bookCacheDir(bookPath);
   const std::string name = "thumb_" + std::to_string(width) + "x" + std::to_string(height) + ".bmp";
   const std::string file = dir + "/" + name;
@@ -494,8 +535,8 @@ ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int wi
     // thumbnail must never trigger a full-book parse (a 1732-spine book's index build is slow and was
     // a crash site). allowExtract=false: decode only an already-cached cover.img; the sliced
     // beginCoverExtractSession owns the (potentially multi-second) ZIP inflate.
-    if (!epub.loadForCover()) return ThumbResult::TransientFail;
-    return epub.generateThumbBmp(width, height, /*allowExtract=*/false);
+    if (!epub.loadForCover(scratch)) return ThumbResult::TransientFail;
+    return epub.generateThumbBmp(width, height, /*allowExtract=*/false, scratch);
   }
   if (FsHelpers::hasXtcExtension(bookPath)) {
     Xtc xtc(bookPath, "/.crosspoint");
@@ -508,7 +549,48 @@ ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int wi
   return ThumbResult::TransientFail;
 }
 
-ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int height) {
+ThumbResult ReaderActivity::ensureCoverThumbs(const std::string& bookPath, const std::pair<int, int>* sizes,
+                                              const int count, BuildArena* scratch,
+                                              std::unique_ptr<CoverThumbSession>* sliced) {
+  if (sliced != nullptr) sliced->reset();
+  if (sizes == nullptr || count < 1) return ThumbResult::TransientFail;
+  // Only an embedded EPUB cover has the one-decode path; a sidecar (the preferred source when
+  // present), an XTC or a TXT book converts each size on its own, exactly as before.
+  if (count == 1 || count > JpegToBmpConverter::kMaxTargets || !FsHelpers::hasEpubExtension(bookPath) ||
+      !sidecarCoverPath(bookPath).empty()) {
+    for (int i = 0; i < count; ++i) {
+      const ThumbResult r = ensureCoverThumb(bookPath, sizes[i].first, sizes[i].second, scratch);
+      if (r != ThumbResult::Ok) return r;
+    }
+    return ThumbResult::Ok;
+  }
+
+  const std::string dir = bookCacheDir(bookPath);
+  bool allValid = true;
+  for (int i = 0; i < count; ++i) {
+    const std::string file =
+        dir + "/thumb_" + std::to_string(sizes[i].first) + "x" + std::to_string(sizes[i].second) + ".bmp";
+    if (thumbFileValid(file, sizes[i].first, sizes[i].second)) continue;
+    allValid = false;
+    removeStaleThumb(file);
+    // As in ensureCoverThumb: a sentinel an older build left for a transient failure must not
+    // stop a cover that is now present from being decoded.
+    healStaleEpubSentinel(bookPath, file);
+  }
+  if (allValid) return ThumbResult::Ok;
+
+  Epub epub(bookPath, "/.crosspoint");
+  // loadForCover(): the cover reference without building book.bin; allowExtract=false: decode only
+  // an already-cached (or stored) cover -- the sliced beginCoverExtractSession owns the inflate.
+  if (!epub.loadForCover(scratch)) return ThumbResult::TransientFail;
+  if (sliced != nullptr) {
+    *sliced = epub.beginThumbSession(sizes, count, scratch);
+    if (*sliced) return ThumbResult::TransientFail;  // started, nothing written yet: the caller drives it
+  }
+  return epub.generateThumbBmps(sizes, count, /*allowExtract=*/false, scratch);
+}
+
+ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int height, BuildArena* scratch) {
   const std::string dir = bookCacheDir(bookPath);
   const std::string name = "thumb_" + std::to_string(height) + ".bmp";
   const std::string file = dir + "/" + name;
@@ -539,8 +621,8 @@ ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int he
     // loadForCover(): cover reference only, no full book.bin build (see the width/height overload).
     // allowExtract=false: decode only an already-cached cover.img; the sliced
     // beginCoverExtractSession owns the (potentially multi-second) ZIP inflate.
-    if (!epub.loadForCover()) return ThumbResult::TransientFail;
-    return epub.generateThumbBmp(height, /*allowExtract=*/false);
+    if (!epub.loadForCover(scratch)) return ThumbResult::TransientFail;
+    return epub.generateThumbBmp(height, /*allowExtract=*/false, scratch);
   }
   if (FsHelpers::hasXtcExtension(bookPath)) {
     Xtc xtc(bookPath, "/.crosspoint");
@@ -559,7 +641,8 @@ namespace {
 // funnel through here to avoid duplicating the sidecar/cover.img source selection and setup.
 std::unique_ptr<PngDecodeSession> beginPngThumbSessionImpl(const std::string& bookPath, int width, int height,
                                                            const std::string& name,
-                                                           ReaderActivity::PngThumbFiles& filesOut) {
+                                                           ReaderActivity::PngThumbFiles& filesOut,
+                                                           BuildArena* scratch) {
   const std::string dir = ReaderActivity::bookCacheDir(bookPath);
   const std::string bmpPath = dir + "/" + name;
 
@@ -582,7 +665,7 @@ std::unique_ptr<PngDecodeSession> beginPngThumbSessionImpl(const std::string& bo
     // runs first in the caller's ladder and produces it). Otherwise return null so the
     // caller falls through to that sliced extraction.
     Epub epub(bookPath, "/.crosspoint");
-    if (!epub.loadForCover()) return nullptr;  // cover ref only, no full book.bin build
+    if (!epub.loadForCover(scratch)) return nullptr;  // cover ref only, no full book.bin build
     srcPath = epub.getCoverImageCachePath();
     FsFile peek;
     if (!Storage.openFileForRead("PNG", srcPath, peek)) return nullptr;  // not yet extracted
@@ -608,7 +691,7 @@ std::unique_ptr<PngDecodeSession> beginPngThumbSessionImpl(const std::string& bo
   }
 
   auto session = std::unique_ptr<PngDecodeSession>(new PngDecodeSession());
-  if (!session->begin(filesOut.src, filesOut.dst, width, height)) {
+  if (!session->begin(filesOut.src, filesOut.dst, width, height, /*crop=*/true, scratch)) {
     filesOut.src.close();
     filesOut.dst.close();
     // Leave 0-byte sentinel so we don't retry if the failure is permanent (e.g. PNG too large).
@@ -627,19 +710,20 @@ std::unique_ptr<PngDecodeSession> beginPngThumbSessionImpl(const std::string& bo
 }  // namespace
 
 std::unique_ptr<PngDecodeSession> ReaderActivity::beginPngThumbSession(const std::string& bookPath, int width,
-                                                                       int height, PngThumbFiles& filesOut) {
+                                                                       int height, PngThumbFiles& filesOut,
+                                                                       BuildArena* scratch) {
   const std::string name = "thumb_" + std::to_string(width) + "x" + std::to_string(height) + ".bmp";
-  return beginPngThumbSessionImpl(bookPath, width, height, name, filesOut);
+  return beginPngThumbSessionImpl(bookPath, width, height, name, filesOut, scratch);
 }
 
 std::unique_ptr<PngDecodeSession> ReaderActivity::beginPngThumbSession(const std::string& bookPath, int height,
-                                                                       PngThumbFiles& filesOut) {
+                                                                       PngThumbFiles& filesOut, BuildArena* scratch) {
   // Single-height thumbs scale to height*0.6 wide (mirrors the synchronous single-height decode).
   const std::string name = "thumb_" + std::to_string(height) + ".bmp";
-  return beginPngThumbSessionImpl(bookPath, height * 6 / 10, height, name, filesOut);
+  return beginPngThumbSessionImpl(bookPath, height * 6 / 10, height, name, filesOut, scratch);
 }
 
-std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
+std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path, BuildArena* scratch) {
   if (!Storage.exists(path.c_str())) {
     LOG_ERR("READER", "File does not exist: %s", path.c_str());
     return nullptr;
@@ -647,7 +731,7 @@ std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
 
   auto epub = std::unique_ptr<Epub>(new Epub(path, "/.crosspoint"));
   epub->setSyntheticTocFallbackEnabled(SETTINGS.syntheticTocFallback != 0);
-  if (epub->load(true, SETTINGS.embeddedStyle == 0)) {
+  if (epub->load(true, SETTINGS.embeddedStyle == 0, scratch)) {
     return epub;
   }
 
@@ -829,46 +913,44 @@ void ReaderActivity::onEnter() {
     // load() performs no rendering) and restore it before the reader activity starts. Same
     // pattern as HomeActivity cover loading. If the realloc fails, EpubReaderActivity::onEnter
     // sees the missing buffer (secondaryBufferDegraded_) and recovers once heap allows.
-    bool releasedForIndexing = false;
+    // First-open indexing needs two big transients -- the TOC's 32 KB NCX inflate ring and the
+    // per-spine batch-size tables (~28 KB contiguous for a 1700-spine book) -- while the ~52 KB
+    // secondary framebuffer sits unused. It used to RELEASE the buffer for the load and realloc
+    // it afterwards; a book-lifetime allocation landing in the freed hole then left the realloc
+    // short, and the reader started without its buffer (heap-recovery restart at best). Now the
+    // buffer is LENT: the rings bump-allocate inside the region through Epub::load's scratch,
+    // the region never enters the heap, and the return below cannot fail. The tables keep the
+    // heap, which without the ring has room for them. Same pattern as Background-C's borrow.
+    // The popup above is drawn BEFORE the borrow: drawPopup needs the active buffer, and load()
+    // performs no rendering.
+    uint8_t* lentForIndexing = nullptr;
+    size_t lentSize = 0;
     if (firstOpenIndexing && renderer.hasSecondaryBuffer()) {
       RenderLock lock;
-      if (renderer.releaseSecondaryBuffer()) {
-        releasedForIndexing = true;
-        // Keep X4 fast-differential refresh alive off the controller's RED RAM (seeded by the
-        // popup's displayBuffer just above); no-op on X3.
+      // The popup's swap left the write buffer holding the pre-popup frame; the return below seeds
+      // the secondary from it. Make that the frame on the panel, so the reader's own overlays
+      // composite onto what is actually displayed.
+      renderer.syncWriteBufferFromDisplayed();
+      // The popup's FAST loaded RED RAM with the pre-popup frame, not the popup, and the first
+      // FAST after the return below diffs against RED. Seed it with the displayed frame while the
+      // secondary still holds it, as the X4's single-buffer fast diff requires (no-op on X3).
+      if (!renderer.isX3()) renderer.syncRedRamFromFrameBuffer();
+      lentForIndexing = renderer.borrowSecondaryBuffer(&lentSize);
+      if (lentForIndexing) {
         renderer.setSingleBufferFastDiff(true);
-        LOG_INF("READER", "Released secondary framebuffer for first-open indexing (free=%lu)",
-                static_cast<unsigned long>(esp_get_free_heap_size()));
+        LOG_INF("READER", "Lent secondary framebuffer for first-open indexing (%u bytes, free=%lu)",
+                static_cast<unsigned>(lentSize), static_cast<unsigned long>(esp_get_free_heap_size()));
       }
     }
-    auto epub = loadEpub(initialBookPath);
-    if (releasedForIndexing) {
+    BuildArena indexingScratch(lentForIndexing, lentSize);
+    auto epub = loadEpub(initialBookPath, indexingScratch.valid() ? &indexingScratch : nullptr);
+    if (lentForIndexing) {
       RenderLock lock;
-      bool restored = renderer.reallocSecondaryBuffer();
-      if (!restored && epub) {
-        // The indexing pass ran with the framebuffer's block free, so some of the Epub's
-        // book-lifetime allocations (spine/TOC vectors, CSS index) can now sit inside it —
-        // unevictable while the object lives, and the reason the realloc just missed.
-        // The indexing caches were written to SD above, so drop the object, reclaim the
-        // block, and reload on the warm-cache path (~50 ms, needs no released headroom).
-        // Field-observed on X3: this exact miss previously cost a heap-recovery restart.
-        epub.reset();
-        // Not a repeat of the call above: epub.reset() just freed the block that pinned the
-        // arena, so this attempt sees a different heap. cppcheck treats the identical call as
-        // returning the identical (false) value.
-        // cppcheck-suppress knownConditionTrueFalse
-        restored = renderer.reallocSecondaryBuffer();
-        LOG_INF("READER", "Dropped ePub to unpin framebuffer block (realloc %s); reloading from warm cache",
-                restored ? "ok" : "still failing");
-        epub = loadEpub(initialBookPath);
-      }
-      if (restored) {
-        renderer.setSingleBufferFastDiff(false);
-        LOG_INF("READER", "Restored secondary framebuffer after first-open indexing");
-      } else {
-        LOG_ERR("READER", "Secondary framebuffer realloc failed after indexing (free=%lu); reader will recover",
-                static_cast<unsigned long>(esp_get_free_heap_size()));
-      }
+      renderer.returnSecondaryBuffer();  // cannot fail: the region never entered the heap
+      renderer.setSingleBufferFastDiff(false);
+      LOG_INF("READER", "Returned secondary framebuffer after first-open indexing (free=%lu contig=%lu)",
+              static_cast<unsigned long>(esp_get_free_heap_size()),
+              static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT)));
     }
     if (!epub) {
       onGoBack();

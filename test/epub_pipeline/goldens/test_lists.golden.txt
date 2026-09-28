@@ -1,0 +1,185 @@
+BOOK title=List Test lang=en spine=1 toc=1 reliableToc=1
+SPINE 0 href=OEBPS/chapter1.xhtml pages=2 truncated=0 cssFallback=0
+ PAGE 0 elements=29 footnotes=0
+  LINE y=0 x=0 align=2 mult=1.600 hfid=0 words=2
+   W x=161 s=1 z=100 t=List
+   W x=237 s=1 z=100 t=Test
+  LINE y=38 x=0 align=0 mult=1.000 hfid=0 words=4
+   W x=18 s=0 z=100 t=1.
+   W x=40 s=0 z=100 t=ON
+   W x=61 s=0 z=100 t=THE
+   W x=93 s=0 z=100 t=LIST:
+  LINE y=76 x=45 align=0 mult=1.000 hfid=0 words=3
+   W x=0 s=0 z=100 t=•
+   W x=13 s=0 z=100 t=Alpha
+   W x=66 s=0 z=100 t=one
+  LINE y=100 x=45 align=0 mult=1.000 hfid=0 words=3
+   W x=0 s=0 z=100 t=•
+   W x=13 s=0 z=100 t=Alpha
+   W x=66 s=0 z=100 t=two
+  LINE y=138 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=2.
+   W x=41 s=0 z=100 t=DEFAULT:
+  LINE y=162 x=27 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Bravo
+   W x=90 s=0 z=100 t=one
+  LINE y=186 x=27 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Bravo
+   W x=90 s=0 z=100 t=two
+  LINE y=210 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=3.
+   W x=42 s=0 z=100 t=LIST
+   W x=87 s=0 z=100 t=MARGIN:
+  LINE y=234 x=45 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Charlie
+   W x=103 s=0 z=100 t=one
+  LINE y=258 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=4.
+   W x=43 s=0 z=100 t=FLAT:
+  LINE y=282 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=Delta
+   W x=75 s=0 z=100 t=one
+  LINE y=306 x=0 align=0 mult=1.000 hfid=0 words=4
+   W x=18 s=0 z=100 t=5.
+   W x=44 s=0 z=100 t=ON
+   W x=65 s=0 z=100 t=THE
+   W x=97 s=0 z=100 t=ITEM:
+  LINE y=330 x=36 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Echo
+   W x=80 s=0 z=100 t=one
+  LINE y=354 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=6.
+   W x=45 s=0 z=100 t=NESTED:
+  LINE y=378 x=27 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Foxtrot
+   W x=102 s=0 z=100 t=outer
+  LINE y=402 x=54 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Foxtrot
+   W x=102 s=0 z=100 t=inner
+  LINE y=426 x=27 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Foxtrot
+   W x=102 s=0 z=100 t=after
+  LINE y=450 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=7.
+   W x=46 s=0 z=100 t=ORDERED:
+  LINE y=474 x=27 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=3.
+   W x=42 s=0 z=100 t=Golf
+   W x=86 s=0 z=100 t=three
+  LINE y=498 x=27 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=4.
+   W x=43 s=0 z=100 t=Golf
+   W x=87 s=0 z=100 t=four
+  LINE y=522 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=8.
+   W x=40 s=0 z=100 t=PARAGRAPHS:
+  LINE y=546 x=27 align=0 mult=1.000 hfid=0 words=4
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Hotel
+   W x=85 s=0 z=100 t=first
+   W x=134 s=0 z=100 t=paragraph
+  LINE y=570 x=27 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=Hotel
+   W x=72 s=0 z=100 t=second
+   W x=134 s=0 z=100 t=paragraph
+  LINE y=594 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=9.
+   W x=41 s=0 z=100 t=WRAPPING:
+  LINE y=618 x=27 align=0 mult=1.000 hfid=0 words=10
+   W x=18 s=0 z=100 t=•
+   W x=36 s=0 z=100 t=India
+   W x=93 s=0 z=100 t=is
+   W x=119 s=0 z=100 t=a
+   W x=142 s=0 z=100 t=list
+   W x=187 s=0 z=100 t=item
+   W x=233 s=0 z=100 t=long
+   W x=287 s=0 z=100 t=enough
+   W x=364 s=0 z=100 t=to
+   W x=397 s=0 z=100 t=wrap
+  LINE y=642 x=27 align=0 mult=1.000 hfid=0 words=10
+   W x=0 s=0 z=100 t=onto
+   W x=55 s=0 z=100 t=a
+   W x=77 s=0 z=100 t=second
+   W x=143 s=0 z=100 t=line,
+   W x=196 s=0 z=100 t=and
+   W x=237 s=0 z=100 t=every
+   W x=293 s=0 z=100 t=line
+   W x=338 s=0 z=100 t=of
+   W x=370 s=0 z=100 t=it
+   W x=396 s=0 z=100 t=has
+  LINE y=666 x=27 align=0 mult=1.000 hfid=0 words=10
+   W x=0 s=0 z=100 t=to
+   W x=28 s=0 z=100 t=start
+   W x=83 s=0 z=100 t=at
+   W x=111 s=0 z=100 t=the
+   W x=148 s=0 z=100 t=same
+   W x=194 s=0 z=100 t=list
+   W x=234 s=0 z=100 t=inset
+   W x=285 s=0 z=100 t=as
+   W x=312 s=0 z=100 t=the
+   W x=349 s=0 z=100 t=first.
+  LINE y=690 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=10.
+   W x=52 s=0 z=100 t=ANCHORED:
+  LINE y=714 x=27 align=0 mult=1.000 hfid=0 words=4
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Juliet
+   W x=92 s=0 z=100 t=anchored
+   W x=177 s=0 z=100 t=paragraph
+ PAGE 1 elements=12 footnotes=0
+  LINE y=0 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=11.
+   W x=46 s=0 z=100 t=EMPTY
+   W x=96 s=0 z=100 t=ITEM:
+  LINE y=24 x=27 align=0 mult=1.000 hfid=0 words=1
+   W x=18 s=0 z=100 t=•
+  LINE y=48 x=27 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Kilo
+   W x=75 s=0 z=100 t=two
+  LINE y=72 x=0 align=0 mult=1.000 hfid=0 words=5
+   W x=18 s=0 z=100 t=12.
+   W x=47 s=0 z=100 t=OPENS
+   W x=101 s=0 z=100 t=WITH
+   W x=139 s=0 z=100 t=A
+   W x=153 s=0 z=100 t=LIST:
+  LINE y=96 x=27 align=0 mult=1.000 hfid=0 words=1
+   W x=18 s=0 z=100 t=•
+  LINE y=120 x=54 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Lima
+   W x=77 s=0 z=100 t=inner
+  LINE y=144 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=13.
+   W x=48 s=0 z=100 t=MARGINS:
+  LINE y=186 x=27 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Mike
+   W x=66 s=0 z=100 t=one
+  LINE y=219 x=27 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=Mike
+   W x=66 s=0 z=100 t=two
+  LINE y=261 x=0 align=0 mult=1.000 hfid=0 words=4
+   W x=18 s=0 z=100 t=14.
+   W x=49 s=0 z=100 t=EMPTY
+   W x=99 s=0 z=100 t=LAST
+   W x=143 s=0 z=100 t=ITEM:
+  LINE y=303 x=27 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=November
+   W x=97 s=0 z=100 t=one
+  LINE y=345 x=0 align=0 mult=1.000 hfid=0 words=7
+   W x=18 s=0 z=100 t=15.
+   W x=50 s=0 z=100 t=SIBLING:
+   W x=129 s=0 z=100 t=back
+   W x=168 s=0 z=100 t=at
+   W x=196 s=0 z=100 t=the
+   W x=233 s=0 z=100 t=text
+   W x=275 s=0 z=100 t=edge.

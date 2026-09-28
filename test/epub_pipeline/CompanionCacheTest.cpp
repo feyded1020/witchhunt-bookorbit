@@ -77,7 +77,10 @@ TEST_F(CompanionCacheFixture, MergedPassMatchesTwoSeparateDecodes) {
   const auto sepBw = read("sep_bw.pxc");
   const auto sepGrey = read("sep_grey.pxc");
   ASSERT_FALSE(sepBw.empty());
-  ASSERT_FALSE(sepGrey.empty());
+  ASSERT_EQ(sepBw.size(), sepGrey.size()) << "same 2bpp format and geometry";
+  // Otherwise both assertions below would still pass if the companion simply copied the primary --
+  // the exact bug they exist to catch.
+  ASSERT_NE(sepBw, sepGrey) << "the two variants must differ, or this test proves nothing";
 
   EXPECT_EQ(read("merged_bw.pxc"), sepBw) << "the drawn variant must not change";
   EXPECT_EQ(read("merged_grey.pxc"), sepGrey) << "the companion must equal its own separate decode";
@@ -92,17 +95,6 @@ TEST_F(CompanionCacheFixture, CompanionWorksWithGrayscalePrimary) {
 
   EXPECT_EQ(read("merged_grey.pxc"), read("sep_grey.pxc"));
   EXPECT_EQ(read("merged_bw.pxc"), read("sep_bw.pxc"));
-}
-
-// The two variants are genuinely different renditions. Without this, both assertions above would
-// still pass if the companion simply copied the primary — the exact bug they exist to catch.
-TEST_F(CompanionCacheFixture, TheTwoVariantsAreNotTheSameBytes) {
-  ASSERT_TRUE(decode("bw.pxc", /*monochrome=*/true, "grey.pxc"));
-  const auto bw = read("bw.pxc");
-  const auto grey = read("grey.pxc");
-  ASSERT_FALSE(bw.empty());
-  ASSERT_EQ(bw.size(), grey.size()) << "same 2bpp format and geometry";
-  EXPECT_NE(bw, grey);
 }
 
 // A companion path that cannot be opened must cost the caller nothing but the companion: the

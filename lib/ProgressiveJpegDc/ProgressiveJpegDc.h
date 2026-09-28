@@ -20,6 +20,8 @@ using RowCallback = bool (*)(void* user, uint16_t y, const uint8_t* grayscale, u
 using AbortCallback = bool (*)(void* user);
 
 struct DecodeOptions {
+  // Where the JPEG starts in the file (see probe()).
+  uint32_t base = 0;
   uint16_t outputWidth = 0;
   uint16_t outputHeight = 0;
   AbortCallback shouldAbort = nullptr;
@@ -33,7 +35,9 @@ struct ImageInfo {
 
 // Reads marker segments through SOF and rewinds the file before returning.
 // Returns Unsupported for baseline and other JPEG coding modes.
-Result probe(FsFile& file, ImageInfo& info);
+// `base`: where the JPEG starts in the file -- 0 for a file of its own, the entry's data offset for
+// an image stored uncompressed in a ZIP and read in place.
+Result probe(FsFile& file, ImageInfo& info, uint32_t base = 0);
 
 // Decodes the initial DC scan of an SOF2 JPEG into resized grayscale rows.
 // The input file is rewound before decoding. No full-image coefficient or pixel

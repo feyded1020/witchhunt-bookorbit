@@ -242,6 +242,7 @@ void RecentBooksActivity::onEnter() {
   if (RECENT_BOOKS.pruneMissing()) {
     RECENT_BOOKS.saveToFile();
   }
+  RECENT_BOOKS.refreshSidecarMetadata(static_cast<size_t>(RECENT_BOOKS.getCount()));
 
   loadRecentBooks();
 
@@ -382,6 +383,7 @@ bool RecentBooksActivity::hitBookAt(const int x, const int y, int& index) {
     return true;
   }
   const int row = ListTouchBand::hitTest(x, y);
+  // cppcheck-suppress knownConditionTrueFalse ; hitTest() is a -1 stub on boards without touch
   if (row < 0 || row >= static_cast<int>(recentBooks.size())) return false;
   index = row;
   return true;

@@ -3,7 +3,7 @@
  * name: bookerly_16_bolditalic
  * size: 16
  * mode: 2-bit  compressed: zopfli
- * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels)
+ * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels; ink re-centred on the unhinted outline)
  * Command used: fontconvert.py bookerly_16_bolditalic 16 ../builtinFonts/source/Bookerly/Bookerly-BoldItalic.ttf --2bit --compress --zopfli
  */
 #pragma once
@@ -2322,7 +2322,7 @@ static const uint8_t bookerly_16_bolditalicBitmaps[46690] = {
     0xA0, 0x9D, 0x5D, 0x41, 0x3B, 0x36, 0xB4, 0x53, 0x3C, 0x14, 0x68, 0x53, 0xF5, 0x03, 0x6D, 0x89,
     0xFF, 0x9F, 0x06, 0xBC, 0xE8, 0x12, 0x78, 0x36, 0xFB, 0xBC, 0xCD, 0xBE, 0x20, 0x23, 0x47, 0x81,
     0x87, 0x28, 0x9E, 0xAC, 0x7E, 0x57, 0x15, 0x96, 0xEE, 0xB7, 0x5D, 0xB3, 0x25, 0xA4, 0x27, 0x80,
-    0x37, 0x53, 0x8E, 0xEC, 0xB5, 0xFB, 0x3F, 0xDD, 0x97, 0x3D, 0x90, 0xDD, 0x56, 0x15, 0xC7, 0x8F,
+    0x37, 0x53, 0x8E, 0x00, 0x8D, 0xFF, 0x03, 0xDD, 0x97, 0x3D, 0x90, 0xDD, 0x56, 0x15, 0xC7, 0x8F,
     0x24, 0xEF, 0x8A, 0x20, 0x26, 0x72, 0x41, 0x18, 0x27, 0x9B, 0xB1, 0x52, 0xB8, 0x30, 0x33, 0xD8,
     0x6A, 0x28, 0x52, 0xC4, 0x96, 0x08, 0xCC, 0xA4, 0xA0, 0xC0, 0x45, 0x02, 0x05, 0xCD, 0x32, 0x43,
     0x4D, 0x28, 0x52, 0x9A, 0x95, 0x80, 0x32, 0xCD, 0xAB, 0x68, 0x28, 0xD8, 0x22, 0x05, 0x1D, 0x14,
@@ -3835,15 +3835,15 @@ static const EpdGlyphPacked bookerly_16_bolditalicGlyphs[] = {
     { 6, 6, 332, 7, 12 }, // U+2219
     { 22, 31, 332, -1, 27 }, // U+221A
     { 17, 13, 332, 2, 17 }, // U+221D
-    { 21, 13, 332, 0, 17 }, // U+221E
+    { 21, 13, 332, -1, 17 }, // U+221E
     { 21, 24, 533, 6, 24 }, // U+221F
     { 25, 24, 533, 4, 24 }, // U+2220
     { 5, 34, 267, 6, 26 }, // U+2223
     { 12, 34, 267, 2, 26 }, // U+2225
     { 24, 24, 533, 5, 24 }, // U+2227
     { 24, 24, 533, 5, 24 }, // U+2228
-    { 19, 24, 533, 7, 24 }, // U+2229
-    { 19, 24, 533, 7, 23 }, // U+222A
+    { 19, 24, 533, 8, 24 }, // U+2229
+    { 19, 24, 533, 8, 23 }, // U+222A
     { 19, 35, 332, 1, 27 }, // U+222B
     { 22, 20, 533, 6, 19 }, // U+2234
     { 22, 20, 533, 6, 19 }, // U+2235
@@ -3866,8 +3866,8 @@ static const EpdGlyphPacked bookerly_16_bolditalicGlyphs[] = {
     { 22, 23, 533, 6, 23 }, // U+2287
     { 25, 25, 533, 4, 24 }, // U+2295
     { 25, 25, 533, 4, 24 }, // U+2296
-    { 24, 25, 533, 4, 24 }, // U+2297
-    { 24, 25, 533, 4, 24 }, // U+2298
+    { 24, 25, 533, 5, 24 }, // U+2297
+    { 24, 25, 533, 5, 24 }, // U+2298
     { 19, 24, 533, 7, 24 }, // U+22A5
     { 6, 6, 332, 7, 12 }, // U+22C5
     { 29, 6, 533, 3, 12 }, // U+22EF

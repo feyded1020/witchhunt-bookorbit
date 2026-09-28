@@ -7,7 +7,9 @@
  * Modified from upstream here (config + the JD_FASTPATH macro below) and in tjpgd.c
  * (the JD_FASTPATH annotations on the hot decode functions, plus a BYTECLIP clamp
  * on the grayscale output path that fixes an upstream wrap-around bug — see the
- * note in mcu_output); tjpgd.h is verbatim.
+ * note in mcu_output), and jd_decomp_rows() -- jd_decomp in resumable slices, which
+ * jd_decomp itself now calls -- in tjpgd.c/tjpgd.h (JDCURSOR); tjpgd.h is otherwise
+ * verbatim.
  */
 
 #define JD_SZBUF 512

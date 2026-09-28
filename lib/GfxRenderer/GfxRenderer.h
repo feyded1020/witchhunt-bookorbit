@@ -60,10 +60,11 @@ class GfxRenderer {
   // rendering. See drawMaskFor2BitMode() in GfxRenderer.cpp for the per-level
   // pixel breakdown and a worked example glyph.
   mutable uint8_t* frameBuffer = nullptr;
-  uint16_t panelWidth = 0;       // set in begin()
-  uint16_t panelHeight = 0;      // set in begin()
-  uint16_t panelWidthBytes = 0;  // set in begin()
-  uint32_t frameBufferSize = 0;  // set in begin()
+  mutable bool cacheOnlyImageWrites_ = false;  // see ScopedCacheOnlyImageWrites
+  uint16_t panelWidth = 0;                     // set in begin()
+  uint16_t panelHeight = 0;                    // set in begin()
+  uint16_t panelWidthBytes = 0;                // set in begin()
+  uint32_t frameBufferSize = 0;                // set in begin()
   uint16_t bwSnapshotRowStart = 0;
   uint16_t bwSnapshotRowEnd = 0;
   size_t bwSnapshotSizeBytes = 0;
@@ -425,8 +426,10 @@ class GfxRenderer {
   // Make the write framebuffer match the currently displayed frame. Call before
   // a partial repaint that patches a few regions and re-displays without
   // re-rendering the full frame: displayBuffer() ends with swapBuffers(), so
-  // the write buffer otherwise holds the frame from two refreshes ago. No-op in
-  // single-buffer mode, where the write buffer is already the displayed frame.
+  // the write buffer otherwise holds the frame from two refreshes ago. No-op
+  // while the secondary is released or lent -- and a borrow does not fix the
+  // write buffer up: it is still two refreshes old until the next full render.
+  // Call this BEFORE borrowSecondaryBuffer() when the next draw may be an overlay.
   void syncWriteBufferFromDisplayed() const { display.syncWriteBufferFromActive(); }
 
   // Temporarily free the secondary (previous-frame) buffer (~52 KB) during
@@ -488,6 +491,12 @@ class GfxRenderer {
   void displayWindow(int x, int y, int width, int height, bool turnOffScreen = false) const;
   void invertScreen() const;
   void clearScreen(uint8_t color = 0xFF) const;
+  // True from clearScreen() until the displayBuffer() that hands the frame to the panel: the part
+  // of a render that draws (CPU, SD reads for bitmaps), not the refresh wait after it. Background
+  // work on another task that shares the core and the card with rendering (Home's cover pass)
+  // steps aside while this holds. A marker older than `maxAgeMs` counts as abandoned -- a
+  // clearScreen() whose frame was never displayed -- so a caller can never wait on it forever.
+  bool isComposingFrame(uint32_t maxAgeMs = 2000) const;
   void getOrientedViewableTRBL(int* outTop, int* outRight, int* outBottom, int* outLeft) const;
 
   // Extra bezel inset the reader has asked for, on top of whatever the board profile declares.
@@ -905,7 +914,20 @@ class GfxRenderer {
 
   uint8_t* getWriteTarget() const { return frameBuffer; }
   int getWriteOriginY() const { return 0; }
-  int getWriteRows() const { return static_cast<int>(panelHeight); }
+  int getWriteRows() const { return cacheOnlyImageWrites_ ? 0 : static_cast<int>(panelHeight); }
+  // While one of these is live the raw pixel writers see a zero-row write window and touch no
+  // framebuffer byte, while the decoders' pixel caches are written as usual: an image can be
+  // decoded into its .pxc without the displayed frame changing. The reader's image lane uses it
+  // to warm the caches of the next few pages between page turns (memory audit 2026-09, R7).
+  struct ScopedCacheOnlyImageWrites {
+    explicit ScopedCacheOnlyImageWrites(const GfxRenderer& r) : renderer_(r) { renderer_.cacheOnlyImageWrites_ = true; }
+    ~ScopedCacheOnlyImageWrites() { renderer_.cacheOnlyImageWrites_ = false; }
+    ScopedCacheOnlyImageWrites(const ScopedCacheOnlyImageWrites&) = delete;
+    ScopedCacheOnlyImageWrites& operator=(const ScopedCacheOnlyImageWrites&) = delete;
+
+   private:
+    const GfxRenderer& renderer_;
+  };
   bool isStripActive() const { return false; }
   bool glyphIntersectsStrip(int, int, int, int) const { return true; }
 

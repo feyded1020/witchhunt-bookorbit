@@ -22,13 +22,8 @@ target_link_libraries(EpubParserBenchmark PRIVATE
   SaxParser
 )
 
-# Benchmark is registered as a CTest but we don't use gtest_discover_tests
-# so it doesn't pollute the test list with timing-sensitive "tests".
-# Run manually: ctest -R EpubParserBenchmark -V
-add_test(NAME EpubParserBenchmark
-  COMMAND EpubParserBenchmark
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
-set_tests_properties(EpubParserBenchmark PROPERTIES
-  ENVIRONMENT "FIXTURE_DIR=${REPO_ROOT}/test/fixtures/moby-dick"
-)
+# A manual tool, not a test: it prints timings and heap peaks, and three of its four cases
+# end in SUCCEED(), so it is deliberately not registered with ctest. Parser correctness is
+# covered by the epub_pipeline goldens. Build and run it by hand from the repo root:
+#   cmake --build build/test --target EpubParserBenchmark
+#   FIXTURE_DIR=test/fixtures/moby-dick build/test/epub_benchmark/EpubParserBenchmark

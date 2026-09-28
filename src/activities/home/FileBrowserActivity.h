@@ -29,7 +29,6 @@ class FileBrowserActivity final : public UiListActivity {
   void doSetAsSleepCover(const std::string& fullPath);
   void doDeleteCache(const std::string& fullPath, const std::string& entry);
   void doRemove(const std::string& fullPath, const std::string& entry, bool isDirectory);
-  void doFlashFirmware(const std::string& fullPath);
 
   static constexpr size_t LIST_WINDOW_CAPACITY = 24;
   std::array<std::string, LIST_WINDOW_CAPACITY> windowLabels;

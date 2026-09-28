@@ -245,6 +245,8 @@ class LinkScanner {
       : epub_(epub), spineIndex_(spineIndex), targets_(targets) {}
   bool outOfMemory() const { return oom_; }
   // Scans chapter XHTML (HTML-flavored): enable bare-void-tag repair.
+  // Parser state from caller-provided storage (the build arena); call before setup().
+  void useExternalState(void* storage, const size_t bytes) { parser_.setExternalState(storage, bytes); }
   bool setup() { return parser_.init(this, startElement, endElement, characterData, nullptr, true); }
   bool feed(const uint8_t* data, const size_t size) { return parser_.feed(data, size); }
   void finalize() { parser_.finalize(); }
@@ -427,6 +429,8 @@ class NoteCapturer {
   NoteCapturer(const int spineIndex, const NoThrowArray<uint32_t>& wanted, EmitFn emit)
       : spineIndex_(spineIndex), wanted_(wanted), emit_(std::move(emit)) {}
   // Scans chapter XHTML (HTML-flavored): enable bare-void-tag repair.
+  // Parser state from caller-provided storage (the build arena); call before setup().
+  void useExternalState(void* storage, const size_t bytes) { parser_.setExternalState(storage, bytes); }
   bool setup() { return parser_.init(this, startElement, endElement, characterData, nullptr, true); }
   bool feed(const uint8_t* data, const size_t size) { return parser_.feed(data, size); }
   void finalize() {
@@ -898,6 +902,37 @@ struct Resolver::State {
   ResolvePhase phase = ResolvePhase::ScanSpine;
 
   std::unique_ptr<uint8_t[]> chunk;
+  // The live SAX parser's state -- the link scanner's in pass A, a note capturer's in pass B --
+  // from a block of the build's arena when it has room (memory audit 2026-09, build inventory:
+  // 9 832 B that sat on the heap between extraction and layout, while the arena held ~4 KB).
+  // Taken before the parser's document opens, released after it closes: DocStream's own arena
+  // block sits above this one. Declared before `doc` so that teardown, which destroys members in
+  // reverse order, releases doc's block first and this one after it.
+  struct SaxStateBlock {
+    BuildArena* arena = nullptr;
+    BuildArena::Block block;
+    void* take(BuildArena* const a) {
+      release();
+      if (a == nullptr || !a->valid()) return nullptr;
+      block = a->reserveBlock();
+      void* state = a->alloc(SaxParser::stateBytes());
+      if (state == nullptr) {
+        a->release(block);
+        return nullptr;
+      }
+      arena = a;
+      return state;
+    }
+    void release() {
+      if (arena != nullptr && block.valid()) arena->release(block);
+      arena = nullptr;
+    }
+    SaxStateBlock() = default;
+    SaxStateBlock(const SaxStateBlock&) = delete;
+    SaxStateBlock& operator=(const SaxStateBlock&) = delete;
+    ~SaxStateBlock() { release(); }
+  };
+  SaxStateBlock saxState;
   // Declared before `doc`: members destroy in reverse order and the reader inside DocStream
   // holds a handle (and possibly an arena block) that must go first.
   std::unique_ptr<ZipFile> zip;
@@ -976,7 +1011,12 @@ Resolver::Step Resolver::step() {
   State& st = *state_;
   const auto fail = [&st](const char* what) {
     LOG_ERR("FNP", "%s (spine=%d)", what, st.spineIndex);
+    // Parsers first (their state may live in saxState's block), then the document (its block sits
+    // above saxState's), then saxState.
+    st.scanner.reset();
+    st.capturer.reset();
     st.doc.close();
+    st.saxState.release();
     st.rollBack();
     st.phase = ResolvePhase::Failed;
     return Step::Failed;
@@ -991,6 +1031,9 @@ Resolver::Step Resolver::step() {
     case ResolvePhase::ScanSpine: {
       if (!st.docOpen) {
         st.scanner = makeUniqueNoThrow<LinkScanner>(*st.epub, st.spineIndex, st.targets);
+        if (st.scanner) {
+          if (void* state = st.saxState.take(st.arena)) st.scanner->useExternalState(state, SaxParser::stateBytes());
+        }
         if (!st.scanner || !st.scanner->setup()) {
           return fail("Link scanner setup failed");
         }
@@ -1018,6 +1061,7 @@ Resolver::Step Resolver::step() {
       st.scanner.reset();
       st.doc.close();
       st.docOpen = false;
+      st.saxState.release();
       if (oom) {
         return fail("OOM growing the target list");
       }
@@ -1090,6 +1134,9 @@ Resolver::Step Resolver::step() {
       st.capturer = makeUniqueNoThrow<NoteCapturer>(
           noteSpine, st.wanted,
           [&st](const uint32_t keyHash, const char* text, const size_t len) { st.store.addNote(keyHash, text, len); });
+      if (st.capturer) {
+        if (void* state = st.saxState.take(st.arena)) st.capturer->useExternalState(state, SaxParser::stateBytes());
+      }
       if (!st.capturer || !st.capturer->setup()) {
         return fail("Note capturer setup failed");
       }
@@ -1120,6 +1167,7 @@ Resolver::Step Resolver::step() {
       st.capturer.reset();
       st.doc.close();
       st.docOpen = false;
+      st.saxState.release();
       st.noteCursor++;
       st.phase = ResolvePhase::OpenNote;
       return Step::More;

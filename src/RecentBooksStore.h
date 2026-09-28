@@ -9,6 +9,9 @@ struct RecentBook {
   std::string author;
   std::string series;
   std::string coverBmpPath;
+  // SidecarFiles::metadataStamp() of the metadata sidecar title/author/series were
+  // taken with (0 = none). EPUB only; see refreshSidecarMetadata().
+  uint32_t metadataStamp = 0;
   // -1 = use global setting, otherwise explicit per-book override.
   int8_t embeddedStyleOverride = -1;
   // -1 = use global setting, otherwise CrossPointSettings::IMAGE_RENDERING value.
@@ -62,6 +65,14 @@ class RecentBooksStore {
 
   void updateBook(const std::string& path, const std::string& title, const std::string& author,
                   const std::string& series, const std::string& coverBmpPath);
+
+  // Re-read title, author and series for EPUB entries whose metadata sidecar was
+  // added, edited or removed since they were stored. They are otherwise only
+  // taken when the book is opened, so a sidecar written by the metadata-editor
+  // plugin (or copied over USB) never reached the home screen. Covers the first
+  // maxBooks entries still on the card, counted as the home screen counts them.
+  // Call before copying entries out. Saves and returns true if any changed.
+  bool refreshSidecarMetadata(size_t maxBooks);
 
   // Remove a book from the recent list by path
   void removeBook(const std::string& path);

@@ -84,9 +84,25 @@ struct JDEC {
   void* device;                              /* Pointer to I/O device identifiler for the session */
 };
 
+/* Where a jd_decomp_rows() decode stands between calls (added here, not upstream). */
+typedef struct {
+  uint32_t y;      /* top of the next MCU row, in pixels */
+  uint16_t rst;    /* restart-interval bookkeeping, as in jd_decomp */
+  uint16_t rsc;
+  uint8_t started; /* 0 in a fresh (zeroed) cursor */
+  uint8_t done;    /* set once the last MCU row has been output */
+} JDCURSOR;
+
 /* TJpgDec API functions */
 JRESULT jd_prepare(JDEC* jd, size_t (*infunc)(JDEC*, uint8_t*, size_t), void* pool, size_t sz_pool, void* dev);
 JRESULT jd_decomp(JDEC* jd, int (*outfunc)(JDEC*, void*, JRECT*), uint8_t scale);
+/* jd_decomp in slices (added here, not upstream): outputs at most `mcuRows` rows of MCUs and keeps
+   its place in *cursor, so the caller can hand control back between slices and resume. Every
+   decoder state lives in the JDEC and its pool, which must stay put in between; the input stream
+   must continue where the last call left it. Start with a zeroed cursor; JDR_OK with cursor->done
+   set means the image is complete. jd_decomp() is this with no row limit. */
+JRESULT jd_decomp_rows(JDEC* jd, int (*outfunc)(JDEC*, void*, JRECT*), uint8_t scale, JDCURSOR* cursor,
+                       unsigned int mcuRows);
 
 #ifdef __cplusplus
 }

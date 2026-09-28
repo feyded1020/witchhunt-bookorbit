@@ -3,7 +3,7 @@
  * name: notosans_14_italic
  * size: 14
  * mode: 2-bit  compressed: zopfli
- * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels)
+ * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels; ink re-centred on the unhinted outline)
  * Command used: fontconvert.py notosans_14_italic 14 ../builtinFonts/source/NotoSans/NotoSans-Italic.ttf --2bit --compress --zopfli --additional-intervals 0x0250,0x02AF --additional-intervals 0x02B0,0x02B7 --additional-intervals 0x02BC,0x02BC --additional-intervals 0x02C8,0x02D1 --additional-intervals 0x02E1,0x02E1 --additional-intervals 0x03B2,0x03B2 --additional-intervals 0x03B8,0x03B8 --additional-intervals 0x03C7,0x03C7
  */
 #pragma once

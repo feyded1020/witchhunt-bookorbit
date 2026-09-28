@@ -5,6 +5,7 @@
 #include <HalStorage.h>
 #include <JsonSettingsIO.h>
 #include <Logging.h>
+#include <SidecarFiles.h>
 #include <Xtc.h>
 
 #include <algorithm>
@@ -12,6 +13,13 @@
 namespace {
 constexpr char RECENT_BOOKS_FILE_JSON[] = "/.crosspoint/recent.json";
 constexpr int MAX_RECENT_BOOKS = 10;
+
+// "Series #3", or just "Series" without an index.
+std::string seriesLabel(const Epub& epub) {
+  std::string series = epub.getSeries();
+  if (!series.empty() && !epub.getSeriesIndex().empty()) series += " #" + epub.getSeriesIndex();
+  return series;
+}
 }  // namespace
 
 RecentBooksStore RecentBooksStore::instance;
@@ -19,6 +27,9 @@ RecentBooksStore RecentBooksStore::instance;
 void RecentBooksStore::addBook(const std::string& path, const std::string& title, const std::string& author,
                                const std::string& series, const std::string& coverBmpPath) {
   RecentBook newBook{path, title, author, series, coverBmpPath};
+  // The EPUB reader passes metadata it has just loaded, sidecar applied; stamp
+  // the sidecar it came from so refreshSidecarMetadata() does not redo it.
+  if (FsHelpers::hasEpubExtension(path)) newBook.metadataStamp = SidecarFiles::metadataStamp(path);
 
   pruneMissing();
 
@@ -58,6 +69,36 @@ void RecentBooksStore::removeBook(const std::string& path) {
     recentBooks.erase(it);
     saveToFile();
   }
+}
+
+bool RecentBooksStore::refreshSidecarMetadata(const size_t maxBooks) {
+  bool changed = false;
+  size_t seen = 0;
+  for (RecentBook& book : recentBooks) {
+    // Counted as the home screen counts them, which skips missing books.
+    if (seen >= maxBooks) break;
+    if (isMissing(book)) continue;
+    seen++;
+    if (!FsHelpers::hasEpubExtension(book.path)) continue;
+    const uint32_t stamp = SidecarFiles::metadataStamp(book.path);
+    if (stamp == book.metadataStamp) continue;
+
+    // The same load the reader's metadata comes from, so a removed sidecar
+    // restores the embedded values rather than leaving the old override.
+    Epub epub(book.path, "/.crosspoint");
+    if (!epub.loadForMetadata()) {
+      LOG_DBG("RBS", "Sidecar metadata changed but book did not load, keeping entry: %s", book.path.c_str());
+      continue;  // stamp left stale: retried next time
+    }
+    LOG_DBG("RBS", "Sidecar metadata changed, refreshing entry: %s", book.path.c_str());
+    book.title = epub.getTitle();
+    book.author = epub.getAuthor();
+    book.series = seriesLabel(epub);
+    book.metadataStamp = stamp;
+    changed = true;
+  }
+  if (changed) saveToFile();
+  return changed;
 }
 
 bool RecentBooksStore::isMissing(const RecentBook& book) { return !Storage.exists(book.path.c_str()); }
@@ -232,9 +273,7 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
   if (FsHelpers::hasEpubExtension(lastBookFileName)) {
     Epub epub(path, "/.crosspoint");
     epub.load(false, true);
-    std::string series = epub.getSeries();
-    if (!series.empty() && !epub.getSeriesIndex().empty()) series += " #" + epub.getSeriesIndex();
-    return RecentBook{path, epub.getTitle(), epub.getAuthor(), series, epub.getThumbBmpPath()};
+    return RecentBook{path, epub.getTitle(), epub.getAuthor(), seriesLabel(epub), epub.getThumbBmpPath()};
   } else if (FsHelpers::hasXtcExtension(lastBookFileName)) {
     Xtc xtc(path, "/.crosspoint");
     if (xtc.load()) {

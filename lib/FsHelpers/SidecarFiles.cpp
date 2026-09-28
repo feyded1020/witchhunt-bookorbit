@@ -47,6 +47,34 @@ std::string metadataPath(const std::string& bookPath) {
   return firstExisting(bookPath, kMetadataExtensions, sizeof(kMetadataExtensions) / sizeof(kMetadataExtensions[0]));
 }
 
+uint32_t metadataStamp(const std::string& bookPath) {
+  const std::string path = metadataPath(bookPath);
+  if (path.empty()) return 0;
+
+  HalFile file;
+  if (!Storage.openFileForRead("SIDECAR", path, file)) return 0;
+  const size_t size = file.fileSize();
+
+  // FNV-1a over the size, then the contents up to the cap.
+  uint32_t hash = 2166136261u;
+  const auto mix = [&hash](uint8_t byte) {
+    hash ^= byte;
+    hash *= 16777619u;
+  };
+  for (size_t i = 0; i < sizeof(size); i++) mix(static_cast<uint8_t>(size >> (8 * i)));
+
+  uint8_t buf[128];
+  size_t remaining = size < kMetadataStampBytes ? size : kMetadataStampBytes;
+  while (remaining > 0) {
+    const int got = file.read(buf, remaining < sizeof(buf) ? remaining : sizeof(buf));
+    if (got <= 0) break;
+    for (int i = 0; i < got; i++) mix(buf[i]);
+    remaining -= static_cast<size_t>(got);
+  }
+  file.close();
+  return hash != 0 ? hash : 1;
+}
+
 std::vector<const char*> existingExtensions(const std::string& bookPath) {
   std::vector<const char*> found;
   const std::string base = basePath(bookPath);

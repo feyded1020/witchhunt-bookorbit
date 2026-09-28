@@ -374,21 +374,27 @@ static std::vector<uint8_t> make1x4InterlacedGif() {
 // getDimensionsFromBuffer tests
 // ---------------------------------------------------------------------------
 
-TEST(GifDimensions, ValidGif87a) {
-  // First 10 bytes of a GIF87a header
-  const uint8_t buf[] = {0x47, 0x49, 0x46, 0x38, 0x37, 0x61, 0x50, 0x00, 0x78, 0x00};
-  ImageDimensions dims{};
-  ASSERT_TRUE(GifToFramebufferConverter::getDimensionsFromBuffer(buf, sizeof(buf), dims));
-  EXPECT_EQ(dims.width, 0x50);   // 80
-  EXPECT_EQ(dims.height, 0x78);  // 120
-}
-
-TEST(GifDimensions, ValidGif89a) {
-  const uint8_t buf[] = {0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x20, 0x00, 0x20, 0x00};
-  ImageDimensions dims{};
-  ASSERT_TRUE(GifToFramebufferConverter::getDimensionsFromBuffer(buf, sizeof(buf), dims));
-  EXPECT_EQ(dims.width, 32);
-  EXPECT_EQ(dims.height, 32);
+// The first 10 bytes of a header: signature, version, then little-endian width and height.
+TEST(GifDimensions, ReadsLittleEndianSizeFromEitherVersion) {
+  struct Case {
+    const char* what;
+    uint8_t header[10];
+    int width;
+    int height;
+  };
+  const Case cases[] = {
+      {"GIF87a 80x120", {0x47, 0x49, 0x46, 0x38, 0x37, 0x61, 0x50, 0x00, 0x78, 0x00}, 80, 120},
+      {"GIF89a 32x32", {0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x20, 0x00, 0x20, 0x00}, 32, 32},
+      // 800x480, a typical e-ink screen: both high bytes in use.
+      {"GIF89a 800x480", {0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x20, 0x03, 0xE0, 0x01}, 800, 480},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.what);
+    ImageDimensions dims{};
+    ASSERT_TRUE(GifToFramebufferConverter::getDimensionsFromBuffer(c.header, sizeof(c.header), dims));
+    EXPECT_EQ(dims.width, c.width);
+    EXPECT_EQ(dims.height, c.height);
+  }
 }
 
 TEST(GifDimensions, WrongSignature) {
@@ -415,30 +421,19 @@ TEST(GifDimensions, ZeroHeight) {
   EXPECT_FALSE(GifToFramebufferConverter::getDimensionsFromBuffer(buf, sizeof(buf), dims));
 }
 
-TEST(GifDimensions, LargeValidDimensions) {
-  // 800×480 — typical e-ink screen size
-  const uint8_t buf[] = {0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x20, 0x03, 0xE0, 0x01};
-  ImageDimensions dims{};
-  ASSERT_TRUE(GifToFramebufferConverter::getDimensionsFromBuffer(buf, sizeof(buf), dims));
-  EXPECT_EQ(dims.width, 800);
-  EXPECT_EQ(dims.height, 480);
-}
-
 // ---------------------------------------------------------------------------
 // supportsFormat tests
 // ---------------------------------------------------------------------------
 
-TEST(GifSupportsFormat, GifLowercase) { EXPECT_TRUE(GifToFramebufferConverter::supportsFormat(".gif")); }
-
-TEST(GifSupportsFormat, GifUppercase) { EXPECT_TRUE(GifToFramebufferConverter::supportsFormat(".GIF")); }
-
-TEST(GifSupportsFormat, GifMixedCase) { EXPECT_TRUE(GifToFramebufferConverter::supportsFormat(".Gif")); }
-
-TEST(GifSupportsFormat, NotPng) { EXPECT_FALSE(GifToFramebufferConverter::supportsFormat(".png")); }
-
-TEST(GifSupportsFormat, NotJpeg) { EXPECT_FALSE(GifToFramebufferConverter::supportsFormat(".jpg")); }
-
-TEST(GifSupportsFormat, Empty) { EXPECT_FALSE(GifToFramebufferConverter::supportsFormat("")); }
+// supportsFormat() hands off to FsHelpers::hasGifExtension; one case pins the hand-off.
+TEST(GifSupportsFormat, AcceptsGifInAnyCaseOnly) {
+  for (const char* ext : {".gif", ".GIF", ".Gif"}) {
+    EXPECT_TRUE(GifToFramebufferConverter::supportsFormat(ext)) << ext;
+  }
+  for (const char* ext : {".png", ".jpg", ""}) {
+    EXPECT_FALSE(GifToFramebufferConverter::supportsFormat(ext)) << '"' << ext << '"';
+  }
+}
 
 // ---------------------------------------------------------------------------
 // decodeFirstFrameToGrayscale tests

@@ -17,13 +17,13 @@ bool PageLine::serialize(FsFile& file) {
   return block->serialize(file);
 }
 
-std::unique_ptr<PageLine> PageLine::deserialize(FsFile& file) {
+std::unique_ptr<PageLine> PageLine::deserialize(FsFile& file, BuildArena* scratch) {
   int16_t xPos;
   int16_t yPos;
   serialization::readPod(file, xPos);
   serialization::readPod(file, yPos);
 
-  auto tb = TextBlock::deserialize(file);
+  auto tb = TextBlock::deserialize(file, scratch);
   if (!tb) {
     LOG_ERR("PGE", "PageLine: TextBlock deserialize failed");
     return nullptr;
@@ -172,9 +172,11 @@ void PageTableFragment::warmCellImages(GfxRenderer& renderer, const bool forceLo
       // discarded by the caller's clearScreen().
       if (!cached) {
         cell.image->render(renderer, 0, 0, forceLoad, monochromeOutput);
+        if (CooperativeAbort::wasAborted()) return;  // see Page::warmImageCaches
       }
       if (alsoWarmGrayscale && monochromeOutput && !cell.image->hasGrayscaleCache()) {
         cell.image->render(renderer, 0, 0, forceLoad, /*monochromeOutput=*/false);
+        if (CooperativeAbort::wasAborted()) return;
       }
     }
   }
@@ -210,7 +212,7 @@ bool PageTableFragment::serialize(FsFile& file) {
   return true;
 }
 
-std::unique_ptr<PageTableFragment> PageTableFragment::deserialize(FsFile& file) {
+std::unique_ptr<PageTableFragment> PageTableFragment::deserialize(FsFile& file, BuildArena* scratch) {
   int16_t xPos, yPos;
   serialization::readPod(file, xPos);
   serialization::readPod(file, yPos);
@@ -265,7 +267,7 @@ std::unique_ptr<PageTableFragment> PageTableFragment::deserialize(FsFile& file) 
       }
       cell.lines.reserve(lineCount);
       for (uint8_t l = 0; l < lineCount; l++) {
-        auto tb = TextBlock::deserialize(file);
+        auto tb = TextBlock::deserialize(file, scratch);
         if (!tb) {
           LOG_ERR("PGE", "TableFragment: TextBlock deserialize failed at row %u cell %u line %u", r, c, l);
           return nullptr;
@@ -312,12 +314,20 @@ void Page::renderImagesFromGrayscaleCache(GfxRenderer& renderer, const int xOffs
 }
 
 void Page::warmImageCaches(GfxRenderer& renderer, const int xOffset, const int yOffset, const bool forceLoadLargeImages,
-                           const bool monochromeOutput, const bool alsoWarmGrayscale) const {
+                           const bool monochromeOutput, const bool alsoWarmGrayscale, const bool redecodeCoarse) const {
   // Only do the costly decode pass when there's at least one image that would
   // actually require a PNG/JPG decoder allocation. Cached and placeholder paths
   // do not need the contiguous heap headroom, so skipping the iteration entirely
   // saves the no-op overhead on text-only pages (the common case).
+  //
+  // A decode that bails for pending input (CooperativeAbort) ends the whole warm: every later
+  // decode here would bail the same way, one after the other, while the input waits -- the
+  // grayscale companion of an aborted image added ~130 ms to the page turn on the X3. The latch
+  // is cleared first so a stale abort from an earlier task cannot end this one, and left set on
+  // the way out for the caller to read.
+  CooperativeAbort::clearAborted();
   for (auto& element : elements) {
+    if (CooperativeAbort::wasAborted()) return;
     if (element->getTag() == TAG_PageTable) {
       static_cast<const PageTableFragment&>(*element).warmCellImages(renderer, forceLoadLargeImages, monochromeOutput,
                                                                      alsoWarmGrayscale);
@@ -327,6 +337,10 @@ void Page::warmImageCaches(GfxRenderer& renderer, const int xOffset, const int y
     const auto& ib = static_cast<const PageImage&>(*element).getImageBlock();
     if (ib.wouldShowPlaceholder(forceLoadLargeImages, monochromeOutput)) continue;
     // Check whether the appropriate cache already exists
+    if (redecodeCoarse) {
+      ib.dropCoarseCache(monochromeOutput);
+      if (alsoWarmGrayscale && monochromeOutput) ib.dropCoarseCache(false);
+    }
     const bool alreadyCached = monochromeOutput ? ib.hasPixelCache() : ib.hasGrayscaleCache();
     // Both variants missing and both wanted: ask the decoder for them in a single inflate
     // instead of paying two. Requires BOTH to be absent — if the BW cache is already on disk
@@ -336,6 +350,7 @@ void Page::warmImageCaches(GfxRenderer& renderer, const int xOffset, const int y
     if (!alreadyCached) {
       static_cast<PageImage&>(*element).renderWithForceLoad(renderer, xOffset, yOffset, forceLoadLargeImages,
                                                             monochromeOutput, mergeVariants);
+      if (CooperativeAbort::wasAborted()) return;
     }
     // Second decode for the other variant when AA needs the grayscale planes on top of
     // the BW frame. Skipped when monochromeOutput is already false — that pass wrote the
@@ -398,10 +413,12 @@ bool Page::renderTextOnly(GfxRenderer& renderer, const int fontId, const int xOf
 }
 
 bool Page::serialize(FsFile& file) const {
-  const uint16_t count = elements.size();
+  // Clamped to what deserialize() accepts; the overflow is reported by Section::onPageComplete.
+  const uint16_t count = static_cast<uint16_t>(std::min<size_t>(elements.size(), MAX_ELEMENTS));
   serialization::writePod(file, count);
 
-  for (const auto& el : elements) {
+  for (uint16_t i = 0; i < count; ++i) {
+    const auto& el = elements[i];
     // Use getTag() method to determine type
     serialization::writePod(file, static_cast<uint8_t>(el->getTag()));
 
@@ -425,7 +442,7 @@ bool Page::serialize(FsFile& file) const {
   return true;
 }
 
-std::unique_ptr<Page> Page::deserialize(FsFile& file) {
+std::unique_ptr<Page> Page::deserialize(FsFile& file, BuildArena* scratch) {
   auto page = std::unique_ptr<Page>(new Page());
 
   uint16_t count = 0;
@@ -435,9 +452,9 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
   }
 
   // Guard a corrupt cache header from reserving an absurd number of elements. A real page is
-  // bounded by screen-height/min-line-height plus images/tables — well under this cap.
-  static constexpr uint16_t MAX_PAGE_ELEMENTS = 1024;
-  if (count > MAX_PAGE_ELEMENTS) {
+  // bounded by screen-height/min-line-height plus images/tables — well under this cap, and
+  // serialize() clamps to the same constant.
+  if (count > MAX_ELEMENTS) {
     LOG_ERR("PGE", "Deserialization failed: element count %u exceeds maximum", count);
     return nullptr;
   }
@@ -448,7 +465,7 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
     serialization::readPod(file, tag);
 
     if (tag == TAG_PageLine) {
-      auto pl = PageLine::deserialize(file);
+      auto pl = PageLine::deserialize(file, scratch);
       if (!pl) return nullptr;
       page->elements.push_back(std::move(pl));
     } else if (tag == TAG_PageImage) {
@@ -456,7 +473,7 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
       if (!pi) return nullptr;
       page->elements.push_back(std::move(pi));
     } else if (tag == TAG_PageTable) {
-      auto pt = PageTableFragment::deserialize(file);
+      auto pt = PageTableFragment::deserialize(file, scratch);
       if (!pt) return nullptr;
       page->elements.push_back(std::move(pt));
     } else if (tag == TAG_PageHR) {

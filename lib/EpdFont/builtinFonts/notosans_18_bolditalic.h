@@ -3,7 +3,7 @@
  * name: notosans_18_bolditalic
  * size: 18
  * mode: 2-bit  compressed: zopfli
- * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels)
+ * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels; ink re-centred on the unhinted outline)
  * Command used: fontconvert.py notosans_18_bolditalic 18 ../builtinFonts/source/NotoSans/NotoSans-BoldItalic.ttf --2bit --compress --zopfli
  */
 #pragma once

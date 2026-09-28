@@ -88,7 +88,9 @@ TEST(SaxParser, ParseChunked) {
   }
   EXPECT_EQ(starts, 3);  // root, a, b
   EXPECT_EQ(ends, 3);
-  EXPECT_GE(chars, 2);  // at least one Char event per text node; expat may split across chunk boundaries
+  // Text is buffered across feed() calls and only split when the 256-byte char buffer fills, so
+  // the 3-byte chunks still deliver each text node in one piece.
+  EXPECT_EQ(chars, 2);
 }
 
 TEST(SaxParser, EarlyStop) {
@@ -162,26 +164,9 @@ TEST(SaxParser, ByteOffsetAdvances) {
   ASSERT_TRUE(p.feed(bytes, strlen(xml)));
   ASSERT_TRUE(p.finalize());
 
-  EXPECT_GT(state.offsetAtChild, 0u);
-}
-
-TEST(SaxParser, DefaultHandler) {
-  // Verify the defaultCb fires for entity references
-  const char* xml = "<root>&amp;</root>";
-
-  Collector c;
-  SaxParser p;
-  ASSERT_TRUE(p.init(&c, Collector::onStart, Collector::onEnd, nullptr, Collector::onDefault));
-
-  const auto* bytes = reinterpret_cast<const uint8_t*>(xml);
-  ASSERT_TRUE(p.feed(bytes, strlen(xml)));
-  ASSERT_TRUE(p.finalize());
-
-  // With SetDefaultHandlerExpand, standard entities like &amp; are expanded
-  // by expat into char data before reaching the default handler — so no
-  // Default event is expected here. Instead we may get a Char event.
-  // What matters is that the document parsed successfully and no crash occurred.
-  SUCCEED();
+  // "<root><child>" is 13 bytes. yxml has no end-of-start-tag token, so the start callback waits
+  // for the next token -- the 't' of "text" -- and the offset is the byte after it.
+  EXPECT_EQ(state.offsetAtChild, 14u);
 }
 
 TEST(SaxParser, HtmlEntityRoutedToDefaultCb) {
@@ -253,6 +238,16 @@ TEST(SaxParser, XmlBuiltinEntitiesPassThrough) {
   for (const auto& e : c.events) {
     EXPECT_NE(e.type, Event::Type::Default) << "built-in entity reached defaultCb: " << e.text;
   }
+
+  // Without a charCb the expansions are dropped, and still none of them reaches defaultCb.
+  Collector noChars;
+  SaxParser q;
+  ASSERT_TRUE(q.init(&noChars, Collector::onStart, Collector::onEnd, nullptr, Collector::onDefault));
+  ASSERT_TRUE(q.feed(bytes, strlen(xml)));
+  ASSERT_TRUE(q.finalize());
+  ASSERT_EQ(noChars.events.size(), 2u);
+  EXPECT_EQ(noChars.events[0].type, Event::Type::Start);
+  EXPECT_EQ(noChars.events[1].type, Event::Type::End);
 }
 
 TEST(SaxParser, TruncationFlagsClearForWellSizedDoc) {
@@ -272,7 +267,7 @@ TEST(SaxParser, TruncationFlagsClearForWellSizedDoc) {
 
 TEST(SaxParser, TruncationFlagsReportMaxAttrs) {
   // 13 attributes — one more than kMaxAttrs (12). The 13th is dropped and the
-  // overflow is recorded so callers can log it (the yxml backend only).
+  // overflow is recorded so callers can log it.
   const char* xml =
       "<e a1='1' a2='2' a3='3' a4='4' a5='5' a6='6' a7='7' a8='8' a9='9' "
       "a10='10' a11='11' a12='12' a13='13'/>";
@@ -285,10 +280,52 @@ TEST(SaxParser, TruncationFlagsReportMaxAttrs) {
   ASSERT_TRUE(p.feed(bytes, strlen(xml)));
   ASSERT_TRUE(p.finalize());
 
-  // The active backend (yxml) has fixed caps and records the overflow. expat,
-  // if ever re-enabled, has no fixed caps and returns 0 — so only assert the
-  // flag when the parser actually reports truncation support.
   EXPECT_TRUE(p.truncationFlags() & SaxParser::kTruncMaxAttrs);
+}
+
+// Nesting past kMaxDepth (64) flattens the tree instead of shifting it. Before this, the 65th
+// level's push was skipped but its callbacks still fired, so every later endCb named the wrong
+// element and the innermost closes got no endCb at all (memory audit 2026-09, F5/R4). Now the
+// excess elements are simply not reported -- no start, no end -- and their text reaches the
+// deepest reported ancestor; the reported events stay a well-formed tree.
+TEST(SaxParser, OverDeepNestingIsFlattenedNotShifted) {
+  constexpr int kDepth = 70;  // six levels past kMaxDepth
+  std::string xml;
+  for (int i = 0; i < kDepth; ++i) xml += "<d" + std::to_string(i) + ">";
+  xml += "deep text";
+  for (int i = kDepth - 1; i >= 0; --i) xml += "</d" + std::to_string(i) + ">";
+
+  Collector c;
+  SaxParser p;
+  ASSERT_TRUE(p.init(&c, Collector::onStart, Collector::onEnd, Collector::onChar));
+  const auto* bytes = reinterpret_cast<const uint8_t*>(xml.data());
+  ASSERT_TRUE(p.feed(bytes, xml.size()));
+  ASSERT_TRUE(p.finalize());
+  EXPECT_TRUE(p.truncationFlags() & SaxParser::kTruncMaxDepth);
+
+  // Exactly the first 64 levels are reported, opened and closed in order, with the text
+  // attributed to the deepest reported element.
+  std::vector<std::string> opened, closed;
+  std::string text;
+  for (const auto& e : c.events) {
+    if (e.type == Event::Type::Start) opened.push_back(e.name);
+    if (e.type == Event::Type::End) closed.push_back(e.name);
+    if (e.type == Event::Type::Char) text += e.text;
+  }
+  ASSERT_EQ(opened.size(), 64u);
+  ASSERT_EQ(closed.size(), 64u);
+  for (int i = 0; i < 64; ++i) {
+    EXPECT_EQ(opened[i], "d" + std::to_string(i));
+    EXPECT_EQ(closed[i], "d" + std::to_string(63 - i)) << "end tag " << i << " names the wrong element";
+  }
+  EXPECT_EQ(text, "deep text");
+  // Start/end pairs interleave as a proper tree: the last start precedes the first end.
+  size_t lastStart = 0, firstEnd = c.events.size();
+  for (size_t i = 0; i < c.events.size(); ++i) {
+    if (c.events[i].type == Event::Type::Start) lastStart = i;
+    if (c.events[i].type == Event::Type::End && i < firstEnd) firstEnd = i;
+  }
+  EXPECT_LT(lastStart, firstEnd);
 }
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -393,9 +394,14 @@ TEST(FootnoteResolveSlice, RepeatedAbandonsStillResolveCleanly) {
 
 // The same guarantee one level up: a build driven with a 1 ms budget over a chapter whose resolve
 // cannot fit in it must still produce the pages the blocking build produces. The resolve is a
-// LAYOUT input, so an equal page count over a 100-note chapter says the previews were in place
-// before the parse in both.
-TEST(FootnoteResolveSlice, SlicedBuildResolvesManyNotesAcrossSlices) {
+// LAYOUT input, so an equal page count says the previews were in place before the parse in both.
+//
+// `bookIn(dir)` returns the book to build, written into `dir` if it is generated. Each build gets
+// its own cache dir, so the sliced one cannot lean on anything the blocking one banked.
+namespace {
+void expectSlicedBuildMatchesBlocking(const std::string& tag,
+                                      const std::function<std::string(const std::string&)>& bookIn) {
+  SCOPED_TRACE(tag);
   Section::BuildParams params;
   params.viewportWidth = 480;
   params.viewportHeight = 800;
@@ -403,30 +409,59 @@ TEST(FootnoteResolveSlice, SlicedBuildResolvesManyNotesAcrossSlices) {
   params.inlineFootnotePreviews = true;
 
   GfxRenderer renderer;
-  const std::string blockingDir = freshDir("build_blocking");
-  const std::string blockingBook = makeBook(blockingDir, /*noteCount=*/100, /*chapterBytes=*/64 * 1024);
-  auto blockingEpub = openBook(blockingBook, blockingDir);
+  const std::string blockingDir = freshDir(tag + "_blocking");
+  auto blockingEpub = openBook(bookIn(blockingDir), blockingDir);
   Section blocking(blockingEpub, kChapterSpine, renderer);
   ASSERT_TRUE(blocking.createSectionFile(params, {}, /*skipEviction=*/true));
   ASSERT_TRUE(blocking.loadSectionFile(params));
   ASSERT_GT(blocking.pageCount, 0);
 
-  const std::string slicedDir = freshDir("build_sliced");
-  const std::string slicedBook = makeBook(slicedDir, 100, 64 * 1024);
-  auto slicedEpub = openBook(slicedBook, slicedDir);
+  const std::string slicedDir = freshDir(tag + "_sliced");
+  auto slicedEpub = openBook(bookIn(slicedDir), slicedDir);
   Section sliced(slicedEpub, kChapterSpine, renderer);
+  size_t chapterBytes = 0;
+  ASSERT_TRUE(slicedEpub->getSpineItemInflatedSize(kChapterSpine, &chapterBytes));
+  const std::string bank = Section::sectionHtmlCachePath(slicedEpub->getCachePath(), kChapterSpine);
+
+  // A slice that ends with the chapter fully banked but the spine not yet resolved yielded inside
+  // the resolve, between the extract and the layout parse.
+  int resolveSlices = 0;
   int slices = 0;
   Section::BuildStep step = Section::BuildStep::More;
-  while (step != Section::BuildStep::Done && step != Section::BuildStep::Failed && slices < 200000) {
-    step = sliced.stepSectionBuild(params, /*budgetMs=*/1);
-    ++slices;
+  {
+    // Without a ticking clock the host's millis() is frozen, overBudget() is never true, and the
+    // first stepSectionBuild runs the whole build: blocking against blocking.
+    const host_clock::Ticking tick(1);
+    while (step != Section::BuildStep::Done && step != Section::BuildStep::Failed && slices < 200000) {
+      step = sliced.stepSectionBuild(params, /*budgetMs=*/1);
+      ++slices;
+      if (step == Section::BuildStep::More && fs::exists(bank) && fs::file_size(bank) == chapterBytes &&
+          !FootnotePreviews::spineResolved(slicedEpub->getCachePath(), kChapterSpine)) {
+        ++resolveSlices;
+      }
+    }
   }
   ASSERT_EQ(step, Section::BuildStep::Done);
+  EXPECT_GT(resolveSlices, 1) << "the resolve ran in " << resolveSlices << " slice(s) of " << slices;
   ASSERT_TRUE(sliced.loadSectionFile(params));
 
+  EXPECT_FALSE(storeTexts(*slicedEpub).empty());
   EXPECT_EQ(storeBytes(*slicedEpub), storeBytes(*blockingEpub));
   EXPECT_EQ(sliced.pageCount, blocking.pageCount);
   EXPECT_TRUE(FootnotePreviews::spineResolved(slicedEpub->getCachePath(), kChapterSpine));
+}
+}  // namespace
+
+TEST(FootnoteResolveSlice, SlicedBuildResolvesManyNotesAcrossSlices) {
+  // Stored entries, 100 callers into one notes document: a long pass A and a long pass B.
+  expectSlicedBuildMatchesBlocking("build_many_notes", [](const std::string& dir) {
+    return makeBook(dir, /*noteCount=*/100, /*chapterBytes=*/64 * 1024);
+  });
+  // Deflated, one note per document: each note document is inflated from the archive mid-build,
+  // with the build's slices falling between them.
+  expectSlicedBuildMatchesBlocking("build_split_deflated", [](const std::string&) {
+    return std::string(CORPUS_DIR) + "/test_split_footnotes.epub";
+  });
 }
 
 // The generated books are STORED entries, so the paths above never exercise the inflate ring the
@@ -481,21 +516,32 @@ TEST(FootnoteResolveSlice, SharedNotesDocumentShapeSlicesIdentically) {
   EXPECT_EQ(storeTexts(*slicedEpub), expected);
 }
 
-// Front matter with no callers at all still has to end up marked resolved, in the same book as
-// chapters that do have them. A book whose front matter looked permanently unresolved would send
-// Background-B back to refusing spines — the shape of issue #211, one level down.
+// The resolved bit means "scanned, nothing outstanding", NOT "has notes". A spine without callers
+// has to answer true once scanned: Background-B holds back heap for the resolver on any spine that
+// answers false, and the footnote list only trusts a store miss on a spine that answers true. It is
+// also per spine -- resolving one, or streaming a notes document for its note text, marks no other.
 TEST(FootnoteResolveSlice, SpinesWithoutNotesAreMarkedInABookThatHasThem) {
   const std::string dir = freshDir("shared_frontmatter");
   auto epub = openBook(makeSharedNotesBook(dir, {{4 * 1024, 5}}), dir);
+  constexpr int kChapter = 2;   // after the two front-matter documents
+  constexpr int kNotesDoc = 3;  // note bodies; its only links point back at their callers
+  const auto resolved = [&](const int spine) { return FootnotePreviews::spineResolved(epub->getCachePath(), spine); };
 
   for (int spine = 0; spine < 2; ++spine) {
-    EXPECT_FALSE(FootnotePreviews::spineResolved(epub->getCachePath(), spine)) << spine;
+    EXPECT_FALSE(resolved(spine)) << spine;
     ASSERT_GT(resolveStepByStep(*epub, spine), 0) << spine;
-    EXPECT_TRUE(FootnotePreviews::spineResolved(epub->getCachePath(), spine)) << spine;
+    EXPECT_TRUE(resolved(spine)) << spine;
   }
   EXPECT_TRUE(storeTexts(*epub).empty()) << "front matter has no notes to store";
+  EXPECT_FALSE(resolved(kChapter)) << "resolving one spine must not mark another";
 
-  ASSERT_GT(resolveStepByStep(*epub, 2), 0);
+  ASSERT_GT(resolveStepByStep(*epub, kChapter), 0);
+  EXPECT_TRUE(resolved(kChapter));
+  EXPECT_EQ(storeTexts(*epub).size(), 5u);
+  EXPECT_FALSE(resolved(kNotesDoc)) << "streaming a notes document for its notes is not scanning it for callers";
+
+  ASSERT_GT(resolveStepByStep(*epub, kNotesDoc), 0);
+  EXPECT_TRUE(resolved(kNotesDoc));
   EXPECT_EQ(storeTexts(*epub).size(), 5u);
 }
 

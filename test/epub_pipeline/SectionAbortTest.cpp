@@ -55,12 +55,10 @@ Section::BuildParams defaultParams() {
 }
 
 // The book-keyed HTML cache is keyed on the spine alone, not on render properties
-// (Section::getSectionHtmlCachePath), so a test can name it without running a build. Note the
+// (Section::sectionHtmlCachePath), so a test can name it without running a build. Note the
 // base is the EPUB's own cache directory (cacheDir/epub_<hash>), not the cacheDir handed to the
 // Epub constructor.
-std::string htmlCachePath(const Epub& epub) {
-  return epub.getCachePath() + "/sections/html_" + std::to_string(kSpineIndex) + ".bin";
-}
+std::string htmlCachePath(const Epub& epub) { return Section::sectionHtmlCachePath(epub.getCachePath(), kSpineIndex); }
 
 }  // namespace
 

@@ -44,3 +44,38 @@ int heapTrackTopSites(HeapTrackSite* out, int count);
 // Peak live bytes so far, readable while tracking is active (heapTrackEnd() stops tracking).
 // Lets a per-spine hook see which spine moved the high-water mark.
 size_t heapTrackPeakSoFar();
+
+// --- Per-build window (epub_build_inventory) -----------------------------------------------
+// The whole-run peak above answers "what did the book cost"; a background build is judged on its
+// OWN peak above the heap it started from, and on who holds what at that instant. A window
+// records every site's live bytes at its start, snapshots them again at the window's peak (to
+// within kWindowSnapStep bytes) and at its end, and counts the allocations made inside it.
+void heapTrackWindowBegin();
+void heapTrackWindowEnd();
+size_t heapTrackLive();
+struct HeapTrackWindowSummary {
+  size_t base = 0;    // live bytes when the window opened
+  size_t peak = 0;    // highest live bytes inside it
+  size_t atSnap = 0;  // live bytes when the peak snapshot was taken (trails peak by < step)
+  size_t end = 0;     // live bytes when it closed
+};
+HeapTrackWindowSummary heapTrackWindowSummary();
+// Peak since the previous mark (or the window start), then restart the phase peak at the current
+// live figure. Call at each build-phase boundary.
+size_t heapTrackPhaseMark();
+// Invoked from INSIDE the malloc hook whenever the window-peak snapshot is retaken, so it must
+// not allocate. The inventory tool uses it to capture the arena's contents at the heap's peak.
+void heapTrackSetWindowPeakCallback(void (*callback)());
+struct HeapTrackWindowSite {
+  unsigned long long pc = 0;
+  unsigned long long ctx1 = 0;  // the next two frames up, for context (first allocation seen)
+  unsigned long long ctx2 = 0;
+  size_t winCount = 0;   // allocations made inside the window
+  size_t winBytes = 0;   // their cumulative bytes
+  size_t startLive = 0;  // live at window start
+  size_t peakLive = 0;   // live at the window-peak snapshot
+  size_t endLive = 0;    // live at window end
+  size_t maxSize = 0;    // largest single allocation ever made by the site
+};
+// Every site the window touched or that held memory at its start/peak/end.
+int heapTrackWindowSites(HeapTrackWindowSite* out, int count);

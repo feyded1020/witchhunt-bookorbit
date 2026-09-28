@@ -220,7 +220,7 @@ void FileBrowserModel::rebuildMatches() {
   for (size_t i = 0; i < total && matches.size() < MAX_MATCHES; i++) {
     std::string name = backendEntryName(i);
     if (name.empty()) continue;
-    if (!name.empty() && name.back() == '/') name.pop_back();  // match on the name, not the marker
+    if (name.back() == '/') name.pop_back();  // match on the name, not the marker
     for (char& c : name) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
     if (name.find(needle) != std::string::npos) matches.push_back(static_cast<uint32_t>(i));
   }

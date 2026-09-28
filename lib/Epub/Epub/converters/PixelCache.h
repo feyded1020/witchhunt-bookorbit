@@ -44,7 +44,8 @@ struct PixelCache {
   int flushedRows;   // image-local rows already written to file
   int maxBlockRows;  // tallest single decode block, from begin() -- see advanceTo()
   FsFile file;
-  std::string cachePathStr;
+  std::string cachePathStr;  // the finished cache
+  std::string partPathStr;   // where the rows go until finalize() renames it to cachePathStr
   bool ok;
 
   // Byte the band is (re)filled with: four pixels of value 3. 3 is the only value DirectPixelWriter
@@ -82,12 +83,55 @@ struct PixelCache {
   // files persist on SD across firmware updates and are replayed without re-decode.
   // v3: uncovered pixels are white (FILL_BYTE) instead of black — see FILL_BYTE. Existing
   //     caches carry the black band baked in, so they have to be re-decoded.
-  static constexpr uint16_t PXC_MAGIC = 0x8003;
+  // v4: JPEG downscaling area-averages instead of sampling one pixel, so thin lines
+  //     survive. A v3 cache replays the nearest-neighbour picture forever otherwise.
+  // v5: progressive JPEGs are fully decoded instead of shown from their 1/8-resolution DC scan.
+  static constexpr uint16_t PXC_MAGIC = 0x8005;
+  // Same layout, written by a decode that had to settle for less than the requested scale (a
+  // progressive JPEG at a coarser DCT scale, or its DC-only preview) because the heap could not
+  // hold the workspace. Readers replay it like any cache; a warm pass with the framebuffers
+  // released deletes it and decodes again (ImageBlock::dropCoarseCache). Before this the .pxc
+  // had no quality key, so a preview-grade image stood in for the book's for good (memory audit
+  // 2026-09, F3).
+  static constexpr uint16_t PXC_MAGIC_COARSE = 0x8006;
+  static bool magicIsValid(const uint16_t magic) { return magic == PXC_MAGIC || magic == PXC_MAGIC_COARSE; }
+  bool coarse = false;
+  // Flag the cache being written as a below-requested-quality decode; finalize() stamps it.
+  void markCoarse() { coarse = true; }
   static constexpr size_t PXC_HEADER_BYTES = 6;  // magic + width + height
 
-  // Open the cache file, write the header, and allocate a band buffer big enough
-  // to hold the tallest single decode block (maxBlockDstRows output rows).
-  bool begin(const std::string& cachePath, int w, int h, int ox, int oy, int maxBlockDstRows) {
+  // Rows begin() gives the band for a w x h image whose tallest decode block is maxBlockDstRows.
+  static int bandRowsFor(const int w, const int h, const int maxBlockDstRows) {
+    const size_t rowBytes = static_cast<size_t>((w + 3) / 4);  // 2 bits per pixel, 4 pixels per byte
+    if (rowBytes == 0) return 0;
+
+    int wantRows = maxBlockDstRows + 2;
+    if (wantRows < MIN_BAND_ROWS) wantRows = MIN_BAND_ROWS;
+    if (wantRows > h) wantRows = h;
+
+    size_t maxRowsByMem = MAX_BAND_BYTES / rowBytes;
+    if (maxRowsByMem < 1) maxRowsByMem = 1;
+    if ((size_t)wantRows > maxRowsByMem) wantRows = (int)maxRowsByMem;
+    return wantRows;
+  }
+
+  // Heap begin() takes for the same image: the band plus its spare fill row. This, not
+  // MAX_BAND_BYTES, is what a caller's "can I afford to cache?" gate should charge.
+  static size_t bandBytesFor(const int w, const int h, const int maxBlockDstRows) {
+    const int rows = bandRowsFor(w, h, maxBlockDstRows);
+    return rows > 0 ? static_cast<size_t>(rows + 1) * static_cast<size_t>((w + 3) / 4) : 0;
+  }
+
+  // The partial file of a cache being written (or parked): renamed to the cache path only once
+  // every row is in it, so a reader never replays a half-written picture, and a checkpointed
+  // decode (see park()/resume()) can leave it on the card and append to it later.
+  static std::string partPathFor(const std::string& cachePath) { return cachePath + ".part"; }
+
+  // Set up geometry and the band buffer for a w x h cache whose tallest decode block is
+  // maxBlockDstRows output rows. Shared by begin() and resume().
+  bool setUp(int w, int h, int ox, int oy, int maxBlockDstRows) {
+    dropBuffer();  // a retry after a refused resume() sets up the same cache again
+    coarse = false;
     width = w;
     height = h;
     originX = ox;
@@ -98,13 +142,7 @@ struct PixelCache {
 
     bytesPerRow = (w + 3) / 4;  // 2 bits per pixel, 4 pixels per byte
 
-    int wantRows = maxBlockDstRows + 2;
-    if (wantRows < MIN_BAND_ROWS) wantRows = MIN_BAND_ROWS;
-    if (wantRows > h) wantRows = h;
-
-    size_t maxRowsByMem = MAX_BAND_BYTES / (size_t)bytesPerRow;
-    if (maxRowsByMem < 1) maxRowsByMem = 1;
-    if ((size_t)wantRows > maxRowsByMem) wantRows = (int)maxRowsByMem;
+    const int wantRows = bandRowsFor(w, h, maxBlockDstRows);
 
     // A single decode block must fit inside the band, otherwise streaming would
     // drop rows. This only fails for pathological upscales that could not be
@@ -124,14 +162,27 @@ struct PixelCache {
     }
     memset(buffer, FILL_BYTE, bufSize);
     fillRow = buffer + (size_t)bandRows * bytesPerRow;
+    return true;
+  }
 
-    if (!Storage.openFileForWrite("IMG", cachePath, file)) {
-      LOG_ERR("IMG", "Failed to open cache file for writing: %s", cachePath.c_str());
-      free(buffer);
-      buffer = nullptr;
+  void dropBuffer() {
+    free(buffer);
+    buffer = nullptr;
+    fillRow = nullptr;
+  }
+
+  // Open the cache file, write the header, and allocate a band buffer big enough
+  // to hold the tallest single decode block (maxBlockDstRows output rows).
+  bool begin(const std::string& cachePath, int w, int h, int ox, int oy, int maxBlockDstRows) {
+    if (!setUp(w, h, ox, oy, maxBlockDstRows)) return false;
+    const std::string partPath = partPathFor(cachePath);
+    if (!Storage.openFileForWrite("IMG", partPath, file)) {
+      LOG_ERR("IMG", "Failed to open cache file for writing: %s", partPath.c_str());
+      dropBuffer();
       return false;
     }
     cachePathStr = cachePath;
+    partPathStr = partPath;
 
     const uint16_t magic = PXC_MAGIC;
     uint16_t w16 = (uint16_t)w;
@@ -200,6 +251,53 @@ struct PixelCache {
     return flushThrough(newTopRow);
   }
 
+  // Stop a decode that will be resumed later (JpegToFramebufferConverter's checkpoint): write every
+  // row below `finalRows` -- rows the decode will never touch again -- and close the partial file,
+  // leaving it on the card for resume(). The band must hold nothing at or past `finalRows`, which
+  // holds between two decode blocks. False (partial file dropped) when a write fails.
+  bool park(int finalRows) {
+    if (!ok) return false;
+    if (finalRows > height) finalRows = height;
+    if (finalRows < flushedRows || !flushThrough(finalRows)) {
+      abort();
+      return false;
+    }
+    file.close();
+    ok = false;  // parked: the destructor leaves the partial file alone
+    return true;
+  }
+
+  // Take up a parked cache: `rowsDone` rows are already in the partial file, and the decode goes
+  // on from there. False when the partial file is missing or does not hold exactly those rows --
+  // the caller then starts the whole decode over.
+  bool resume(const std::string& cachePath, int w, int h, int ox, int oy, int maxBlockDstRows, int rowsDone,
+              bool wasCoarse) {
+    if (rowsDone < 0 || rowsDone > h) return false;
+    if (!setUp(w, h, ox, oy, maxBlockDstRows)) return false;
+    const std::string partPath = partPathFor(cachePath);
+    if (!Storage.openFileForUpdate("IMG", partPath, file)) {
+      dropBuffer();
+      return false;
+    }
+    uint16_t header[3] = {};
+    const size_t expected = PXC_HEADER_BYTES + static_cast<size_t>(bytesPerRow) * static_cast<size_t>(rowsDone);
+    if (file.size() != expected || file.read(header, sizeof(header)) != static_cast<int>(sizeof(header)) ||
+        header[0] != PXC_MAGIC || header[1] != static_cast<uint16_t>(w) || header[2] != static_cast<uint16_t>(h) ||
+        !file.seekSet(expected)) {
+      LOG_ERR("IMG", "Parked cache does not match its checkpoint: %s", partPath.c_str());
+      file.close();
+      dropBuffer();
+      return false;
+    }
+    cachePathStr = cachePath;
+    partPathStr = partPath;
+    flushedRows = rowsDone;
+    bandStart = rowsDone;
+    coarse = wasCoarse;
+    ok = true;
+    return true;
+  }
+
   // Flush the final band and fill any rows never covered (image clipped by the
   // screen, or a decode that produced fewer rows than the box), then close the file.
   bool finalize() {
@@ -211,9 +309,35 @@ struct PixelCache {
       abort();
       return false;
     }
+    if (coarse) {
+      const uint16_t magic = PXC_MAGIC_COARSE;
+      if (!file.seekSet(0) || file.write(reinterpret_cast<const uint8_t*>(&magic), 2) != 2) {
+        LOG_ERR("IMG", "Failed to stamp coarse pixel cache: %s", cachePathStr.c_str());
+        abort();
+        return false;
+      }
+    }
     file.close();
-    LOG_DBG("IMG", "Cache written: %s (%dx%d, %d bytes)", cachePathStr.c_str(), width, height,
-            (int)PXC_HEADER_BYTES + bytesPerRow * height);
+    // Publish. FAT rename does not overwrite, so a stale cache of the same name (a coarse one being
+    // replaced) is removed first -- a readable file only: anything else at that path is not ours.
+    if (!Storage.rename(partPathStr.c_str(), cachePathStr.c_str())) {
+      bool staleFile = false;
+      FsFile existing;
+      if (Storage.openFileForRead("IMG", cachePathStr, existing)) {
+        uint8_t probe = 0;
+        staleFile = existing.read(&probe, 1) == 1;
+        existing.close();
+      }
+      if (!staleFile || !Storage.remove(cachePathStr.c_str()) ||
+          !Storage.rename(partPathStr.c_str(), cachePathStr.c_str())) {
+        LOG_ERR("IMG", "Failed to publish pixel cache: %s", cachePathStr.c_str());
+        Storage.remove(partPathStr.c_str());
+        ok = false;
+        return false;
+      }
+    }
+    LOG_DBG("IMG", "Cache written: %s (%dx%d, %d bytes%s)", cachePathStr.c_str(), width, height,
+            (int)PXC_HEADER_BYTES + bytesPerRow * height, coarse ? ", coarse" : "");
     ok = false;  // file handed off; nothing left to clean up
     return true;
   }
@@ -221,8 +345,8 @@ struct PixelCache {
   // Drop a partial/failed cache so a later decode re-creates it cleanly.
   void abort() {
     if (file.isOpen()) file.close();
-    if (!cachePathStr.empty()) {
-      Storage.remove(cachePathStr.c_str());
+    if (!partPathStr.empty()) {
+      Storage.remove(partPathStr.c_str());
     }
     ok = false;
   }

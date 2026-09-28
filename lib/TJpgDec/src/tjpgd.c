@@ -1095,37 +1095,55 @@ JRESULT jd_prepare(JDEC* jd,                                  /* Blank decompres
 /* Start to decompress the JPEG picture                                  */
 /*-----------------------------------------------------------------------*/
 
-JD_FASTPATH JRESULT jd_decomp(JDEC* jd,                             /* Initialized decompression object */
-                              int (*outfunc)(JDEC*, void*, JRECT*), /* RGB output function */
-                              uint8_t scale                         /* Output de-scaling factor (0 to 3) */
+JD_FASTPATH JRESULT jd_decomp_rows(JDEC* jd,                             /* Initialized decompression object */
+                                   int (*outfunc)(JDEC*, void*, JRECT*), /* RGB output function */
+                                   uint8_t scale,     /* Output de-scaling factor (0 to 3) */
+                                   JDCURSOR* cursor,  /* Where the decode stands (zeroed to start) */
+                                   unsigned int mcuRows /* Rows of MCUs to output in this call */
 ) {
-  unsigned int x, y, mx, my;
-  uint16_t rst, rsc;
+  unsigned int x, y, mx, my, rows;
   JRESULT rc;
 
   if (scale > (JD_USE_SCALE ? 3 : 0)) return JDR_PAR;
-  jd->scale = scale;
+  if (!cursor->started) {
+    jd->scale = scale;
+    jd->dcv[2] = jd->dcv[1] = jd->dcv[0] = 0; /* Initialize DC values */
+    cursor->y = 0;
+    cursor->rst = cursor->rsc = 0;
+    cursor->started = 1;
+    cursor->done = 0;
+  } else if (scale != jd->scale) {
+    return JDR_PAR;
+  }
+  if (cursor->done) return JDR_OK;
 
   mx = jd->msx * 8;
   my = jd->msy * 8; /* Size of the MCU (pixel) */
 
-  jd->dcv[2] = jd->dcv[1] = jd->dcv[0] = 0; /* Initialize DC values */
-  rst = rsc = 0;
-
   rc = JDR_OK;
-  for (y = 0; y < jd->height; y += my) {   /* Vertical loop of MCUs */
-    for (x = 0; x < jd->width; x += mx) {  /* Horizontal loop of MCUs */
-      if (jd->nrst && rst++ == jd->nrst) { /* Process restart interval if enabled */
-        rc = restart(jd, rsc++);
+  for (rows = 0, y = cursor->y; y < jd->height && rows < mcuRows; y += my, rows++) { /* Vertical loop of MCUs */
+    for (x = 0; x < jd->width; x += mx) { /* Horizontal loop of MCUs */
+      if (jd->nrst && cursor->rst++ == jd->nrst) { /* Process restart interval if enabled */
+        rc = restart(jd, cursor->rsc++);
         if (rc != JDR_OK) return rc;
-        rst = 1;
+        cursor->rst = 1;
       }
       rc = mcu_load(jd); /* Load an MCU (decompress huffman coded stream, dequantize and apply IDCT) */
       if (rc != JDR_OK) return rc;
       rc = mcu_output(jd, outfunc, x, y); /* Output the MCU (YCbCr to RGB, scaling and output) */
       if (rc != JDR_OK) return rc;
     }
+    cursor->y = y + my;
   }
+  if (cursor->y >= jd->height) cursor->done = 1;
 
   return rc;
+}
+
+JRESULT jd_decomp(JDEC* jd,                             /* Initialized decompression object */
+                  int (*outfunc)(JDEC*, void*, JRECT*), /* RGB output function */
+                  uint8_t scale                         /* Output de-scaling factor (0 to 3) */
+) {
+  JDCURSOR cursor = {0, 0, 0, 0, 0};
+  return jd_decomp_rows(jd, outfunc, scale, &cursor, (unsigned int)-1);
 }

@@ -1,12 +1,14 @@
 #pragma once
 
 #include <BufferedFileIO.h>
+#include <BuildArena.h>
 #include <HalStorage.h>
 #include <Print.h>
 #include <SaxParser/SaxParser.h>
 
 #include <array>
 #include <climits>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -48,13 +50,21 @@ class Epub;
 // Erring low is cheap here because MAX_RESERVED_PAGES bounds the whole downside: even a spine
 // that saturates it reserves only 2 KB (Section's u32 LUT) and 4 KB (the 8-byte paragraph LUT).
 // Past the cap the vector grows normally.
+//
+// 512 bytes of XHTML per rendered page, not 1024: Strange Pictures' Chapter 3 is 114,201 bytes
+// and lays out to 180 pages (634 B/page), so the old estimate (111 pages) had both LUTs doubling
+// at page 112 -- a 1.8 KB and a 0.9 KB allocation mid-parse, on a heap that a borrowed build
+// runs down to ~4 KB contiguous by then (device run 10). Overestimating costs 4 B + 8 B per
+// unused entry; underestimating costs a doubling while the heap is at its lowest.
 inline constexpr size_t estimatePagesForSpine(const size_t inflatedSize) {
-  constexpr size_t XHTML_BYTES_PER_PAGE = 1024;
+  constexpr size_t XHTML_BYTES_PER_PAGE = 512;
   constexpr size_t MAX_RESERVED_PAGES = 512;
   const size_t pages = inflatedSize / XHTML_BYTES_PER_PAGE;
   if (pages > MAX_RESERVED_PAGES) return MAX_RESERVED_PAGES;
   return pages;
 }
+
+class BuildArena;  // lib/Memory -- see setBuildArena
 
 class ChapterHtmlSlimParser final : public Print {
   std::shared_ptr<Epub> epub;
@@ -287,15 +297,24 @@ class ChapterHtmlSlimParser final : public Print {
     bool suppressMarker = false;  // true when list-style-type: none
   };
   std::vector<ListEntry> listStack;
+  // The open <li>'s marker ("•", "3."), held back until the item has content: the item's block
+  // stays empty, so a <p> opening the item merges into it and the marker leads that paragraph's
+  // first line instead of a line of its own. Empty when no marker is waiting.
+  char pendingListMarker_[16] = {};
+  void emitPendingListMarker();
 
   // Ancestor block widths set via an explicit CSS `width` (e.g. a
   // <div style="width:100px"> wrapper). A percentage image width resolves against the
   // innermost such width, so a width:100% image inside a narrow box stays small
   // (matches KOReader) instead of filling the viewport. depth = parser depth at push
   // (pre-increment); popped in endElement when that scope closes.
+  // fixedWidth: the innermost absolute (px/em/pt) width at or above this entry, 0 if every
+  // wrapper up the chain is a percentage. That is the column a block image falls back to
+  // when a percentage wrapper would shrink it below its native size (see the image path).
   struct ContainerWidthEntry {
     int depth;
     int16_t width;
+    int16_t fixedWidth;
   };
   std::vector<ContainerWidthEntry> containerWidthStack_;
 
@@ -319,6 +338,24 @@ class ChapterHtmlSlimParser final : public Print {
   // Fold the insets of every enclosing block-level element into `style`, capping each side at
   // MAX_HORIZONTAL_INSET_EM so deep nesting cannot squeeze the text column away.
   void addAncestorInsets(BlockStyle& style, float emSize) const;
+
+  // Bottom spacing (margin-bottom, padding-bottom) of the block-level elements currently open. A
+  // block element's style starts only its FIRST text block -- child blocks and <br> lines follow
+  // it, and through startNewTextBlock's empty-block merge a wrapper's style becomes its first
+  // child's -- so spacing left on that style landed under the first child instead of after the
+  // element. It is held here instead and applied at the end tag to whichever block is current.
+  // depth = parser depth at push (pre-increment); popped in endElement when that scope closes.
+  struct HeldBottomSpacing {
+    int depth;
+    int16_t marginBottom;
+    int16_t paddingBottom;
+  };
+  // Deeper nesting keeps its spacing on the style, as before: only elements with spacing are
+  // pushed, so eight levels of them open at once is already pathological.
+  static constexpr size_t kMaxHeldBottomSpacingDepth = 8;
+  std::vector<HeldBottomSpacing> heldBottomSpacing_;
+  void holdBottomSpacing(BlockStyle& style, bool floated);
+  void applyHeldBottomSpacing(const HeldBottomSpacing& held);
 
   // Anchor-to-page mapping: tracks which page each HTML id attribute lands on
   int completedPageCount = 0;
@@ -366,14 +403,23 @@ class ChapterHtmlSlimParser final : public Print {
   // matches one of these, it records the label as if the element were an inline
   // doc-pagebreak marker. Anchors already labeled this way are not re-recorded if the
   // same element also carries an inline pagebreak attribute.
-  std::vector<std::pair<std::string, std::string>> externalPageBreakAnchors;
+  //
+  // Packed: each entry is "id\0label\0", back to back (memory audit 2026-09, build inventory: the
+  // vector of std::string pairs this replaces held ~3.5 KB of heap for the whole build on a
+  // 72-anchor chapter; the same entries are ~0.9 KB here). Scanned linearly, as the vector was.
+  std::string externalPageBreakAnchorPool;
+  uint16_t externalPageBreakAnchorCount = 0;
+  size_t externalPageBreakLabelBytes = 0;  // sum of label lengths + NULs, to size pageBreakLabelPool
   // Optional label for the start of this XHTML file (NCX entries with no fragment).
   std::string topOfFilePageLabel;
   bool topOfFilePageLabelEmitted = false;
 
   // Page break label mapping: stores the printed page label from EPUB pagebreak markers
-  // and the section page index where that printed page begins.
-  std::vector<std::pair<uint16_t, std::string>> pageBreakLabels;
+  // and the section page index where that printed page begins. Packed like the anchors above:
+  // the page indices in one vector, the labels NUL-separated in one string, in the same order
+  // (was a vector of {uint16_t, std::string}, 28 B per entry on the device before any text).
+  std::vector<uint16_t> pageBreakLabelPages;
+  std::string pageBreakLabelPool;
 
   // Paragraph index tracking for XPath-to-page lookup table.
   // Counts <p> sibling indices (1-based, matching XPath convention) during page building.
@@ -403,6 +449,14 @@ class ChapterHtmlSlimParser final : public Print {
   // image breaks) can call saxParser_.byteOffset() without threading the parser through
   // every call site.
   SaxParser saxParser_;
+  BuildArena* buildArena_ = nullptr;  // see setBuildArena
+  // The page under construction's block in buildArena_: every line's TextBlock bytes are
+  // bump-allocated in it (ParsedText::lineArena_) and it is rewound once the page has been
+  // serialised, so a page's lines cost the heap nothing. Opened by the before-line hook, which
+  // is also where the page-fit test runs so the block is always the landing page's. Nested
+  // above the section's feed-chunk block and below nothing that outlives the page (a mid-build
+  // draw's font-slot scope opens and closes between two slices): strictly LIFO.
+  BuildArena::Block pageBlock_;
 
   // Streaming state for the Print-derived parsing API.
   size_t totalStreamSize = 0;
@@ -413,6 +467,15 @@ class ChapterHtmlSlimParser final : public Print {
   bool streamFailed = false;
   // Set when the heap gate refused an image-header read (see imageHeaderDegraded()).
   bool imageHeaderSkippedForHeap = false;
+  // Set when any table row was demoted to paragraphs (degradeRow), for any reason: the pages
+  // are usable but the cache holds a layout the heap chose, not the book. See tableRowDegraded().
+  bool tableRowDegradedAny_ = false;
+  // Fixed-capacity limits this parse ran into that changed its output (memory audit 2026-09,
+  // R4). Each is logged at ERR once per parse and the union is latched into the section status
+  // byte (Section::isSimplified) -- a deterministic condition, so nothing rebuilds on it; the
+  // reader can say "chapter simplified" instead of showing less than the book without a word.
+  uint8_t capOverflowFlags_ = 0;
+  void noteCapOverflow(uint8_t flag, const char* what);
   // Latches the one-shot font-cache release that recoverHeapForImageHeader() spends.
   bool fontCachesReleasedForImageHeader = false;
   uint32_t streamStartTimeMs = 0;
@@ -445,9 +508,17 @@ class ChapterHtmlSlimParser final : public Print {
   // element -- ~120 KB on a 66 KB chapter of Deckhand, 70% of the build's peak, against ~29 KB
   // of contiguous heap while reading on the C3. The node cost is the key string plus the
   // CssStyle payload, so it does not shrink on a 32-bit target.
+  //
+  // On an arena build the cap is much lower. Two full memos are up to 32 KB of heap held for the
+  // whole chapter, and a borrowed build has ~40 KB to begin with: the Roosevelt appendix (many
+  // class combinations and per-cell inline styles) went from 38 KB free after extraction to
+  // 12 KB at its first table row with nothing else growing (device run 13). The memo buys little
+  // there anyway -- the ruleset is arena-resident and a resolve is an in-RAM hash lookup -- so
+  // eight entries keep the common keys hot and bound the heap at a few KB.
   static constexpr size_t kStyleMemoMaxEntries = 64;
+  static constexpr size_t kStyleMemoMaxEntriesArena = 8;
   bool styleMemoHasRoom(const std::unordered_map<std::string, CssStyle>& memo) const {
-    return memo.size() < kStyleMemoMaxEntries;
+    return memo.size() < (buildArena_ != nullptr ? kStyleMemoMaxEntriesArena : kStyleMemoMaxEntries);
   }
   // parseInlineStyle(styleAttr), memoised while there is room. Returned by value: CssStyle is a
   // flat struct with no heap members, and a reference into the memo would dangle on the
@@ -476,7 +547,10 @@ class ChapterHtmlSlimParser final : public Print {
   void initializeFontSizeBaseline();
   void observeFontSizeBaseline(const char* tagName, const CssStyle& cssStyle);
   CssStyle normalizeFontSizeForElement(const char* tagName, const CssStyle& cssStyle) const;
-  bool ensureHeapForTextLayout(const char* phase);
+  // `block` is the ParsedText about to be laid out (null when there is none): a block whose word
+  // vectors could not grow (ParsedText::wordGrowthRefused) aborts the parse here, on the same
+  // partial-cache path as the heap floors, instead of laying out a truncated paragraph.
+  bool ensureHeapForTextLayout(const char* phase, const ParsedText* block);
   // Whether the heap can afford the ~32 KB inflate ring a ZIP image-header read needs. Checked at
   // the call site, never latched: the heap recovers between pages, and a single dip must not
   // disable images for the rest of the chapter (that result gets baked into the section cache).
@@ -484,7 +558,9 @@ class ChapterHtmlSlimParser final : public Print {
   // Gate for the streaming header walk of a deferred image: walkBytes is what the walk will
   // allocate (EpubImageManifest::deferredWalkBytes — one contiguous inflate ring of up to 32 KB
   // plus its read chunk), so contiguous heap is the hard bar.
-  bool heapAllowsImageWalk(size_t walkBytes) const;
+  // Contiguous heap a deferred image's walk may take right now (never 0: 0 would mean "no
+  // limit" to the manifest). See EpubImageManifest::resolveDeferredNow.
+  size_t imageWalkBudget() const;
   // Last resort before an image degrades to alt text: drop the rebuildable SD-font
   // glyph caches, which are usually what is holding the contiguous space the header
   // read needs. One shot per parse — once they are gone there is nothing left to
@@ -493,6 +569,10 @@ class ChapterHtmlSlimParser final : public Print {
   bool recoverHeapForImageHeader();
   void startNewTextBlock(const BlockStyle& blockStyle);
   void clearSpentBlockHeadingStyle();
+  // Depth of the header/block element whose start tag set up the current text block, or -1 once
+  // that element has closed. A <br> inside it splits the element into more blocks, which keep its
+  // font size; after it has closed, what it leaves behind must not lend that size to a sibling.
+  int currentBlockOwnerDepth_ = -1;
   bool heapAllowsTableRowLayout() const;
   bool flushPartWordBuffer();
   void makePages();
@@ -610,6 +690,22 @@ class ChapterHtmlSlimParser final : public Print {
   // are usable but incomplete, and the caller must not keep them: see the latch site in
   // startElement's image branch.
   [[nodiscard]] bool imageHeaderDegraded() const { return imageHeaderSkippedForHeap; }
+  // True when at least one table row was emitted as paragraphs instead of a grid (heap gate,
+  // row byte budget, an open-cell overflow). Latched into the section status byte so the
+  // reader can rebuild the chapter once when memory allows, instead of keeping the demoted
+  // layout for good (memory audit 2026-09, F3/R3).
+  [[nodiscard]] bool tableRowDegraded() const { return tableRowDegradedAny_; }
+  enum CapOverflow : uint8_t {
+    kCapFootnotesPerPage = 1u << 0,   // Page::MAX_FOOTNOTES_PER_PAGE: later links on the page dropped
+    kCapAnchorsPerChapter = 1u << 1,  // MAX_ANCHORS_PER_CHAPTER: later ids not recorded
+    kCapPageElements = 1u << 2,       // Page::MAX_ELEMENTS: a page's tail elements not written
+    kCapPageLabels = 1u << 3,         // 65535 printed-page labels: later ones not recorded
+    kCapFootnoteHref = 1u << 4,       // FOOTNOTE_HREF_LEN: a link too long to navigate, kept as text
+    kCapSaxDepth = 1u << 5,           // SaxParser kMaxDepth: nesting flattened past 64
+    kCapPagesPerSection = 1u << 6,    // Page::MAX_PAGES_PER_SECTION: parse stopped (truncated cache)
+  };
+  // Union of the CapOverflow bits this parse hit; 0 when every structure fit.
+  [[nodiscard]] uint8_t capOverflowFlags() const { return capOverflowFlags_; }
   void setInlineFootnotePreviews(FootnotePreviews::Lookup* lookup) { inlineFootnotePreviews = lookup; }
 
   // Print interface — fed by Epub::readItemContentsToStream.
@@ -622,6 +718,14 @@ class ChapterHtmlSlimParser final : public Print {
   // setAnchorSpillPath. Non-empty only when the spill could not be opened, in which case these
   // are all the anchors there are and the finalizer writes them itself.
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
+  // Mid-build lookup of an anchor this parse has already recorded: the spill's buffered tail is
+  // flushed and the file scanned through a read handle (or the resident fallback vector when
+  // there is no spill). False while the anchor has not been reached -- the caller asks again
+  // after the next slice. This is what lets a chapter-list jump (a TOC entry with a fragment) or
+  // a link into an unbuilt spine show its page as soon as it exists, instead of waiting for the
+  // whole build (device run 14: 7.6 s behind the popup for a heading page that existed after
+  // 50 ms).
+  bool lookupAnchorInActiveBuild(const std::string& id, uint16_t& page);
   // Total anchors recorded, spilled and resident together. This is the count the section
   // cache's anchor map is written with.
   uint16_t getAnchorCount() const { return anchorCount; }
@@ -639,13 +743,49 @@ class ChapterHtmlSlimParser final : public Print {
   // Streaming makes the cost O(1) in the number of anchors. The bytes written here are exactly
   // the section cache's anchor-map encoding, so the finalizer copies them in verbatim.
   void setAnchorSpillPath(std::string path) { anchorSpillPath = std::move(path); }
+  // The build's arena, when the caller has one worth the space (the borrowed secondary
+  // framebuffer): setup() places the SAX parser's ~10 KB state in it instead of the heap. A
+  // background build runs with ~46 KB of heap, and this state plus the build's other
+  // long-lived buffers left ~16 KB for layout, which fragmented to a low-heap abort mid-chapter
+  // (X3 2026-09-25, page 67 of 180).
+  //
+  // Taken in setup(), i.e. at the start of phase (b), and not here at wiring time: wiring
+  // happens before extraction, and 10 KB taken then leaves the region too small for the
+  // inflate ring plus its grow buffer on a big chapter, which pushes a 33 KB ring onto the
+  // heap (host census: arena high-water 45,872 -> 28,576 with the ring evicted). The state is
+  // a plain allocation inside the feed-chunk block's scope, so the section must release that
+  // block only after finalize() -- Section::runBuildParse does, and its BuildState tears the
+  // parser down before the block (memory audit 2026-09, F2a).
+  void setBuildArena(BuildArena* arena) { buildArena_ = arena; }
+  // The section is about to yield this slice of an incremental build: a mid-build page draw
+  // may run before the next feed. See ParsedText::releaseLayoutScratch.
+  void onSliceYield() {
+    if (currentTextBlock) currentTextBlock->releaseLayoutScratch();
+  }
   const std::string& getAnchorSpillPath() const { return anchorSpillPath; }
-  const std::vector<std::pair<uint16_t, std::string>>& getPageBreakLabels() const { return pageBreakLabels; }
+  size_t pageBreakLabelCount() const { return pageBreakLabelPages.size(); }
+  // Heap held by the label record (for the SCT heap trace).
+  size_t pageBreakLabelHeapBytes() const {
+    return pageBreakLabelPages.capacity() * sizeof(uint16_t) + pageBreakLabelPool.capacity();
+  }
+  // Calls f(pageIndex, label, labelLength) for every recorded printed-page label, in document order.
+  template <typename F>
+  void forEachPageBreakLabel(F&& f) const {
+    const char* label = pageBreakLabelPool.c_str();
+    for (const uint16_t page : pageBreakLabelPages) {
+      const size_t len = std::strlen(label);
+      f(page, label, len);
+      label += len + 1;
+    }
+  }
   const std::vector<ParagraphLutEntry>& getParagraphLutPerPage() const { return paragraphLutPerPage; }
 
   // Supplies printed-page labels from NCX <pageList> for this chapter. `anchors` maps
   // HTML id -> label; an entry with an empty id applies to the first page of this file.
-  void setExternalPageBreakAnchors(std::vector<std::pair<std::string, std::string>> anchors);
+  // Filled entry by entry (no intermediate container): begin, one add per anchor, end.
+  void beginExternalPageBreakAnchors();
+  void addExternalPageBreakAnchor(const std::string& id, const std::string& label);
+  void endExternalPageBreakAnchors();
 
   // Supplies the body font's sibling-size ladder (see FontSizeLadder). Blocks whose
   // effective font size differs from the body resolve to the nearest real font on it.
@@ -664,4 +804,9 @@ class ChapterHtmlSlimParser final : public Print {
   // or the body-font scale path. Centralizes the layout-time sizing. Defined in the .cpp
   // because it dereferences GfxRenderer, which is only forward-declared here.
   int effectiveLineHeight(const BlockStyle& bs) const;
+  // See pageBlock_. wireTextBlock hands currentTextBlock the arena and the hook.
+  void wireTextBlock();
+  void beforeLineHook(uint8_t maxSizePct);
+  void ensurePageBlock();
+  void releasePageBlock();
 };

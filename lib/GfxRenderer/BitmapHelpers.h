@@ -160,6 +160,12 @@ class Atkinson1BitDitherer {
     memset(errorRow2, 0, (width + 4) * sizeof(int16_t));
   }
 
+  // The error it carries, for a decode that is checkpointed and resumed (JpegToFramebufferConverter):
+  // rows 0 (current), 1 and 2, stateRowLength() entries each; 0 when the rows were never allocated.
+  size_t stateRowLength() const { return errorRows ? static_cast<size_t>(width + 4) : 0; }
+  int16_t* stateRow(const int i) { return i == 0 ? errorRow0 : i == 1 ? errorRow1 : errorRow2; }
+  const int16_t* stateRow(const int i) const { return i == 0 ? errorRow0 : i == 1 ? errorRow1 : errorRow2; }
+
  private:
   int width;
   int16_t* errorRows{nullptr};

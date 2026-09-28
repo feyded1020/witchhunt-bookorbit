@@ -4,12 +4,13 @@
 // text dump of the resulting layout: per page, every element's position, every
 // word's text/x-position/style. Two runs over the same book with the same
 // profile must produce byte-identical dumps (determinism), and any layout
-// refactor must keep the dump unchanged (golden equivalence). See
-// docs/compiled-book-pipeline-plan.md Phase 0.
+// refactor must keep the dump unchanged (golden equivalence).
 #include <cstdint>
 #include <functional>
 #include <ostream>
 #include <string>
+
+class BuildArena;
 
 namespace pipeline_harness {
 
@@ -28,7 +29,20 @@ struct Profile {
   bool bionicReadingEnabled = false;
   bool inlineFootnotePreviews = true;
   uint8_t imageRendering = 0;
+  // When non-zero, every section build is lent a heap-backed BuildArena of this many bytes, the
+  // way the reader lends the borrowed secondary framebuffer to a background build. The heap
+  // census then shows what such a build keeps on the heap; the arena's own use is reported per
+  // spine (ARENA lines) when `arenaStat` is set.
+  size_t lentArenaBytes = 0;
 };
+
+using ArenaStatFn = std::function<void(int spineIndex, size_t highWater, size_t capacity)>;
+
+// Called around each spine's section build (createSectionFile only, not the harness read-back):
+// begin=true right before it, false right after. `lentArena` is the region lent to the build, or
+// nullptr in heap-only mode. The epub_build_inventory tool opens its measurement window here.
+using BuildBracketFn = std::function<void(int spineIndex, bool begin, ::BuildArena* lentArena)>;
+void setBuildBracket(BuildBracketFn fn);
 
 // Called after each spine item's build+dump with its wall-clock cost.
 // pages/elapsedUs cover the section build AND the page-by-page dump read-back.
@@ -36,9 +50,10 @@ using SpineStatFn = std::function<void(int spineIndex, uint16_t pages, int64_t e
 
 // Compile `epubPath` into `cacheDir` under `profile` and stream the canonical
 // dump to `out`. Returns false on any pipeline failure (already-logged).
-// `cacheDir` should be empty/fresh for a cold run; a second call over the same
-// cacheDir exercises the warm (cache-hit) path and must dump identically.
+// `cacheDir` should be empty/fresh for a cold run. A second call over the same
+// cacheDir still rebuilds every section, but from the book-level caches the first
+// left behind (book.bin, CSS index, image manifest, banked XHTML, footnote store).
 bool runAndDump(const std::string& epubPath, const std::string& cacheDir, const Profile& profile, std::ostream& out,
-                const SpineStatFn& spineStat = {});
+                const SpineStatFn& spineStat = {}, const ArenaStatFn& arenaStat = {});
 
 }  // namespace pipeline_harness

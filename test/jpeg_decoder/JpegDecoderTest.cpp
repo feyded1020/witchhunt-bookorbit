@@ -18,13 +18,16 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
 #include "BitmapHelpers.h"
+#include "BuildArena.h"
 #include "HalStorage.h"  // FsFile (stdio-backed shim)
 #include "JpegToBmpConverter.h"
 #include "Print.h"
+#include "ProgressiveJpeg.h"
 #include "ProgressiveJpegDc.h"
 
 #ifndef FIXTURE_DIR
@@ -368,6 +371,59 @@ TEST(JpegToBmpConverter, EvenDimensionThumbnailDecodesAllRows) {
   EXPECT_EQ(le32(out.buf, 22), -26);
 }
 
+// Unpack a 2-bit BMP the converter wrote into levels 0..3, top row first.
+static std::vector<uint8_t> unpack2BitBmp(const std::vector<uint8_t>& bmp, int& w, int& h) {
+  w = le32(bmp, 18);
+  h = -le32(bmp, 22);  // top-down BMPs carry a negative height
+  const uint32_t offset = static_cast<uint32_t>(le32(bmp, 10));
+  const int bytesPerRow = (w * 2 + 31) / 32 * 4;
+  std::vector<uint8_t> px(static_cast<size_t>(w) * h);
+  for (int y = 0; y < h; ++y) {
+    const uint8_t* row = bmp.data() + offset + static_cast<size_t>(y) * bytesPerRow;
+    for (int x = 0; x < w; ++x) px[static_cast<size_t>(y) * w + x] = (row[x / 4] >> (6 - 2 * (x % 4))) & 3;
+  }
+  return px;
+}
+
+// A progressive cover used to be shown from its DC scan: 1/8 resolution, upscaled -- a 221x324
+// cover became a 27x40 smear. It is now decoded in full, so the same picture encoded progressive
+// and baseline must come out of the converter alike (only IDCT rounding and the dither's
+// response to it may differ).
+TEST(JpegToBmpConverter, ProgressiveThumbnailMatchesItsBaselineTwin) {
+  auto convert = [](const char* name) {
+    FsFile file;
+    EXPECT_TRUE(file.openForRead(fixture(name)));
+    MemoryPrint out;
+    EXPECT_TRUE(JpegToBmpConverter::jpegFileToBmpStreamWithSize(file, out, 203, 141));
+    file.close();
+    return out.buf;
+  };
+  int w1 = 0, h1 = 0, w2 = 0, h2 = 0;
+  const auto prog = unpack2BitBmp(convert("prog_full_420.jpg"), w1, h1);
+  const auto base = unpack2BitBmp(convert("prog_full_420_base.jpg"), w2, h2);
+  ASSERT_EQ(w1, 203);
+  ASSERT_EQ(h1, 141);
+  ASSERT_EQ(w2, w1);
+  ASSERT_EQ(h2, h1);
+
+  size_t same = 0;
+  long diff = 0;
+  for (size_t i = 0; i < prog.size(); ++i) {
+    const int d = std::abs(static_cast<int>(prog[i]) - static_cast<int>(base[i]));
+    same += d == 0;
+    diff += d;
+  }
+  const double identical = static_cast<double>(same) / prog.size();
+  const double meanDiff = static_cast<double>(diff) / prog.size();
+  // Measured: full decode 0.877 identical / 0.125 mean level difference (the dither reacts to
+  // +-1 gray differences on a noisy picture); the DC preview scored 0.586 / 0.521.
+  EXPECT_GT(identical, 0.80);
+  EXPECT_LT(meanDiff, 0.20);
+}
+
+// progressive_420.jpg is a left-half gradient beside a black upper-right and a white lower-right
+// quadrant (fixtures/generate_fixtures.py), so every row down to the last one has to carry the
+// picture, not just the header announce it.
 TEST(JpegToBmpConverter, ProgressiveThumbnailDecodesAllRows) {
   FsFile file;
   ASSERT_TRUE(file.openForRead(fixture("progressive_420.jpg")));
@@ -380,6 +436,21 @@ TEST(JpegToBmpConverter, ProgressiveThumbnailDecodesAllRows) {
   ASSERT_GE(out.buf.size(), 70u);
   EXPECT_EQ(le32(out.buf, 18), 40);
   EXPECT_EQ(le32(out.buf, 22), -26);
+  const int bytesPerRow = (40 * 2 + 31) / 32 * 4;
+  ASSERT_EQ(out.buf.size(), static_cast<size_t>(le32(out.buf, 10)) + 26u * bytesPerRow) << "every row written";
+
+  int w = 0, h = 0;
+  const auto px = unpack2BitBmp(out.buf, w, h);
+  const auto at = [&](const int x, const int y) { return px[static_cast<size_t>(y) * w + x]; };
+  // Right half, clear of the quadrant edge (row 13) and the gradient's end (column ~20).
+  for (int x = 24; x < w; ++x) {
+    for (int y = 0; y < 12; ++y) EXPECT_EQ(at(x, y), 0) << "black quadrant at " << x << "," << y;
+    for (int y = 14; y < h; ++y) EXPECT_EQ(at(x, y), 3) << "white quadrant at " << x << "," << y;
+  }
+  // Left half: dark to light, on the first row and the last.
+  for (const int y : {0, h - 1}) {
+    EXPECT_LT(at(1, y) + at(2, y), at(17, y) + at(18, y)) << "gradient on row " << y;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -421,4 +492,316 @@ TEST(JpegToBmpConverter, CropModeEmitsExactTargetHeightOverfill) {
   ASSERT_GE(out.buf.size(), 62u);
   EXPECT_EQ(le32(out.buf, 18), 30);
   EXPECT_EQ(le32(out.buf, 22), -10);
+}
+
+// ---------------------------------------------------------------------------
+// One decode, two thumbnails (memory audit 2026-09, R9 item 2): the Lyra carousel needs a 340x540
+// and a 200x390 thumb of every cover, and each used to be a separate full decode of the JPEG. The
+// multi-target entry decodes once, at the DCT scale the LARGEST target needs, and feeds every
+// target its own resampler and ditherer from the same source rows.
+//  - The largest target's BMP must be byte-identical to a single conversion of that size: same
+//    decode scale, same resampling, same dither.
+//  - A smaller target resamples from the larger one's finer source rows (a single conversion
+//    would have picked a coarser DCT scale), so its bits differ; it must still be a complete BMP
+//    of exactly its box, and the same picture: compared on 4x4 block darkness, not per pixel,
+//    because error diffusion reacts to +-1 gray differences.
+// ---------------------------------------------------------------------------
+namespace {
+
+// Unpacks a top-down 1-bit BMP into one byte per pixel (0/1).
+std::vector<uint8_t> unpack1BitBmp(const std::vector<uint8_t>& bmp, int& width, int& height) {
+  width = le32(bmp, 18);
+  height = std::abs(le32(bmp, 22));
+  const uint32_t dataOffset = static_cast<uint32_t>(le32(bmp, 10));
+  const int stride = ((width + 31) / 32) * 4;
+  std::vector<uint8_t> px(static_cast<size_t>(width) * height);
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const size_t byte = dataOffset + static_cast<size_t>(y) * stride + x / 8;
+      if (byte >= bmp.size()) return {};
+      px[static_cast<size_t>(y) * width + x] = (bmp[byte] >> (7 - (x % 8))) & 1;
+    }
+  }
+  return px;
+}
+
+std::vector<uint8_t> convertSingle1Bit(const char* name, const int w, const int h) {
+  FsFile file;
+  EXPECT_TRUE(file.openForRead(fixture(name)));
+  MemoryPrint out;
+  EXPECT_TRUE(JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(file, out, w, h));
+  file.close();
+  return out.buf;
+}
+
+// Mean absolute difference of 4x4 block means, in [0, 1].
+double blockMeanDifference(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, const int w, const int h) {
+  double total = 0;
+  int blocks = 0;
+  for (int by = 0; by + 4 <= h; by += 4) {
+    for (int bx = 0; bx + 4 <= w; bx += 4) {
+      int sa = 0, sb = 0;
+      for (int y = by; y < by + 4; ++y) {
+        for (int x = bx; x < bx + 4; ++x) {
+          sa += a[static_cast<size_t>(y) * w + x];
+          sb += b[static_cast<size_t>(y) * w + x];
+        }
+      }
+      total += std::abs(sa - sb) / 16.0;
+      ++blocks;
+    }
+  }
+  return blocks > 0 ? total / blocks : 1.0;
+}
+
+void expectTwoTargetsFromOneDecode(const char* name) {
+  SCOPED_TRACE(name);
+  constexpr int kLargeW = 90, kLargeH = 60;  // needs the 1/2 DCT scale on a 203x141 source
+  constexpr int kSmallW = 40, kSmallH = 28;  // alone it would take 1/4
+
+  FsFile file;
+  ASSERT_TRUE(file.openForRead(fixture(name)));
+  MemoryPrint large;
+  MemoryPrint small;
+  const JpegToBmpConverter::BmpTarget targets[2] = {{&large, kLargeW, kLargeH}, {&small, kSmallW, kSmallH}};
+  ASSERT_TRUE(JpegToBmpConverter::jpegFileTo1BitBmpStreamsWithSizes(file, targets, 2));
+  file.close();
+
+  EXPECT_EQ(large.buf, convertSingle1Bit(name, kLargeW, kLargeH)) << "largest target must match a lone conversion";
+
+  int w = 0, h = 0, sw = 0, sh = 0;
+  const auto smallPx = unpack1BitBmp(small.buf, w, h);
+  const auto soloPx = unpack1BitBmp(convertSingle1Bit(name, kSmallW, kSmallH), sw, sh);
+  ASSERT_EQ(w, kSmallW);
+  ASSERT_EQ(h, kSmallH);
+  ASSERT_EQ(sw, w);
+  ASSERT_EQ(sh, h);
+  ASSERT_EQ(smallPx.size(), static_cast<size_t>(w) * h);  // every row present
+  EXPECT_LT(blockMeanDifference(smallPx, soloPx, w, h), 0.15);
+}
+
+}  // namespace
+
+TEST(JpegToBmpConverter, TwoTargetsFromOneBaselineDecode) { expectTwoTargetsFromOneDecode("prog_full_420_base.jpg"); }
+
+TEST(JpegToBmpConverter, TwoTargetsFromOneProgressiveDecode) { expectTwoTargetsFromOneDecode("prog_full_420.jpg"); }
+
+// The order of the targets does not matter: the decode scale follows the largest wherever it sits.
+TEST(JpegToBmpConverter, TwoTargetsSmallFirstStillDecodesAtTheLargestScale) {
+  FsFile file;
+  ASSERT_TRUE(file.openForRead(fixture("prog_full_420.jpg")));
+  MemoryPrint small;
+  MemoryPrint large;
+  const JpegToBmpConverter::BmpTarget targets[2] = {{&small, 40, 28}, {&large, 90, 60}};
+  ASSERT_TRUE(JpegToBmpConverter::jpegFileTo1BitBmpStreamsWithSizes(file, targets, 2));
+  file.close();
+  EXPECT_EQ(large.buf, convertSingle1Bit("prog_full_420.jpg", 90, 60));
+}
+
+TEST(JpegToBmpConverter, TwoTargetsRejectsBadArguments) {
+  FsFile file;
+  ASSERT_TRUE(file.openForRead(fixture("prog_full_420.jpg")));
+  MemoryPrint out;
+  const JpegToBmpConverter::BmpTarget three[3] = {{&out, 10, 10}, {&out, 10, 10}, {&out, 10, 10}};
+  EXPECT_FALSE(JpegToBmpConverter::jpegFileTo1BitBmpStreamsWithSizes(file, three, 3));
+  EXPECT_FALSE(JpegToBmpConverter::jpegFileTo1BitBmpStreamsWithSizes(file, nullptr, 1));
+  const JpegToBmpConverter::BmpTarget noSink[1] = {{nullptr, 10, 10}};
+  EXPECT_FALSE(JpegToBmpConverter::jpegFileTo1BitBmpStreamsWithSizes(file, noSink, 1));
+  file.close();
+}
+
+// ---------------------------------------------------------------------------
+// JpegThumbSession (memory audit 2026-09, R9 item 3): Home's cover pass converts a cover a few
+// units at a time and checks for input in between. However the work is sliced, and whatever the
+// caller does with the file between slices, the BMPs must be the one-shot conversion's.
+// ---------------------------------------------------------------------------
+namespace {
+
+struct SessionRun {
+  std::vector<uint8_t> large;
+  std::vector<uint8_t> small;
+  int calls = 0;
+  JpegThumbSession::Status status = JpegThumbSession::Status::Error;
+  bool started = false;
+  bool progressive = false;
+};
+
+SessionRun runSession(const char* name, const uint16_t units, BuildArena* scratch = nullptr) {
+  SessionRun run;
+  FsFile file;
+  EXPECT_TRUE(file.openForRead(fixture(name)));
+  MemoryPrint large;
+  MemoryPrint small;
+  const JpegToBmpConverter::BmpTarget targets[2] = {{&large, 90, 60}, {&small, 40, 28}};
+  {
+    auto session = JpegThumbSession::begin(file, targets, 2, scratch);
+    run.started = session != nullptr;
+    if (!session) return run;
+    run.progressive = session->progressive();
+    do {
+      run.status = session->continueSteps(units);
+      ++run.calls;
+      uint8_t junk[5];  // the caller reads elsewhere in the file between slices
+      file.seek(1);
+      file.read(junk, sizeof(junk));
+    } while (run.status == JpegThumbSession::Status::Running && run.calls < 100000);
+  }
+  file.close();
+  run.large = large.buf;
+  run.small = small.buf;
+  return run;
+}
+
+std::pair<std::vector<uint8_t>, std::vector<uint8_t>> convertTwoOneShot(const char* name) {
+  FsFile file;
+  EXPECT_TRUE(file.openForRead(fixture(name)));
+  MemoryPrint large;
+  MemoryPrint small;
+  const JpegToBmpConverter::BmpTarget targets[2] = {{&large, 90, 60}, {&small, 40, 28}};
+  EXPECT_TRUE(JpegToBmpConverter::jpegFileTo1BitBmpStreamsWithSizes(file, targets, 2));
+  file.close();
+  return {large.buf, small.buf};
+}
+
+void expectSessionMatchesOneShot(const char* name, const bool progressive) {
+  SCOPED_TRACE(name);
+  const auto oneShot = convertTwoOneShot(name);
+  ASSERT_FALSE(oneShot.first.empty());
+  for (const uint16_t units : {uint16_t{1}, uint16_t{7}, uint16_t{UINT16_MAX}}) {
+    const SessionRun run = runSession(name, units);
+    ASSERT_TRUE(run.started) << "units=" << units;
+    EXPECT_EQ(run.progressive, progressive);
+    EXPECT_EQ(run.status, JpegThumbSession::Status::Done) << "units=" << units;
+    EXPECT_EQ(run.large, oneShot.first) << "units=" << units;
+    EXPECT_EQ(run.small, oneShot.second) << "units=" << units;
+    if (units == 1) {
+      EXPECT_GT(run.calls, 4) << "one unit must not finish the image";
+    }
+  }
+}
+
+}  // namespace
+
+TEST(JpegThumbSession, BaselineSlicesMatchTheOneShotConversion) {
+  expectSessionMatchesOneShot("prog_full_420_base.jpg", false);
+}
+
+TEST(JpegThumbSession, ProgressiveSlicesMatchTheOneShotConversion) {
+  expectSessionMatchesOneShot("prog_full_420.jpg", true);
+}
+
+TEST(JpegThumbSession, OddDimensionBaselineCompletes) {
+  const auto oneShot = convertTwoOneShot("odd_420.jpg");
+  const SessionRun run = runSession("odd_420.jpg", 1);
+  ASSERT_TRUE(run.started);
+  EXPECT_EQ(run.status, JpegThumbSession::Status::Done);
+  EXPECT_EQ(run.large, oneShot.first);
+  EXPECT_EQ(run.small, oneShot.second);
+}
+
+// In a lent region the session holds its blocks across slices and gives every byte back when it
+// goes -- Home returns the region to the display right after.
+TEST(JpegThumbSession, HoldsItsRegionBlocksUntilItGoes) {
+  for (const char* name : {"prog_full_420_base.jpg", "prog_full_420.jpg"}) {
+    SCOPED_TRACE(name);
+    const auto oneShot = convertTwoOneShot(name);
+    BuildArena arena(64 * 1024);
+    ASSERT_TRUE(arena.valid());
+    FsFile file;
+    ASSERT_TRUE(file.openForRead(fixture(name)));
+    MemoryPrint large;
+    MemoryPrint small;
+    const JpegToBmpConverter::BmpTarget targets[2] = {{&large, 90, 60}, {&small, 40, 28}};
+    {
+      auto session = JpegThumbSession::begin(file, targets, 2, &arena);
+      ASSERT_NE(session, nullptr);
+      EXPECT_GT(arena.used(), 0u) << "decoder memory and row pipeline come from the region";
+      const size_t held = arena.used();
+      auto status = JpegThumbSession::Status::Running;
+      while (status == JpegThumbSession::Status::Running) {
+        status = session->continueSteps(2);
+        EXPECT_EQ(arena.used(), held) << "nothing is taken or given back between slices";
+      }
+      EXPECT_EQ(status, JpegThumbSession::Status::Done);
+      EXPECT_EQ(session->continueSteps(1), JpegThumbSession::Status::Done) << "a finished session stays finished";
+    }
+    EXPECT_EQ(arena.used(), 0u);
+    file.close();
+    EXPECT_EQ(large.buf, oneShot.first);
+    EXPECT_EQ(small.buf, oneShot.second);
+  }
+}
+
+// Home leaves mid-cover (a book is opened): the session goes unfinished and must leave the
+// region empty so it can go back to the display.
+TEST(JpegThumbSession, AbandonedMidDecodeReleasesEverything) {
+  for (const char* name : {"prog_full_420_base.jpg", "prog_full_420.jpg"}) {
+    SCOPED_TRACE(name);
+    BuildArena arena(64 * 1024);
+    FsFile file;
+    ASSERT_TRUE(file.openForRead(fixture(name)));
+    MemoryPrint large;
+    MemoryPrint small;
+    const JpegToBmpConverter::BmpTarget targets[2] = {{&large, 90, 60}, {&small, 40, 28}};
+    {
+      auto session = JpegThumbSession::begin(file, targets, 2, &arena);
+      ASSERT_NE(session, nullptr);
+      for (int i = 0; i < 3; ++i) EXPECT_EQ(session->continueSteps(1), JpegThumbSession::Status::Running);
+    }
+    EXPECT_EQ(arena.used(), 0u);
+    file.close();
+  }
+}
+
+// Restores the stubbed free heap even when an ASSERT_* returns early, so the pressure cannot leak
+// into the tests that run after this one.
+class FreeHeapScope {
+ public:
+  explicit FreeHeapScope(const uint32_t bytes) : saved_(ESP.getFreeHeap()) { ESP.setFreeHeap(bytes); }
+  ~FreeHeapScope() { ESP.setFreeHeap(saved_); }
+  FreeHeapScope(const FreeHeapScope&) = delete;
+  FreeHeapScope& operator=(const FreeHeapScope&) = delete;
+
+ private:
+  const uint32_t saved_;
+};
+
+// A progressive image only the DC preview takes is not sliced; the caller converts it one-shot.
+// The host heap stub fits every scale's workspace, so the refusal only happens with the heap one
+// byte short of the smallest (1/8) workspace plus the 16 KB the row pipeline is owed.
+TEST(JpegThumbSession, RefusesWhatOnlyTheDcPreviewTakes) {
+  FsFile file;
+  ASSERT_TRUE(file.openForRead(fixture("progressive_420.jpg")));
+  ProgressiveJpeg::ImageInfo info;
+  ASSERT_EQ(ProgressiveJpeg::probe(file, info), ProgressiveJpeg::Result::Ok) << "the full decoder takes it";
+  MemoryPrint out;
+  const JpegToBmpConverter::BmpTarget target[1] = {{&out, 40, 28}};
+  {
+    FreeHeapScope squeezed(static_cast<uint32_t>(ProgressiveJpeg::workspaceBytes(info, 3) + 16 * 1024 - 1));
+    EXPECT_EQ(JpegThumbSession::begin(file, target, 1), nullptr);
+    // ...and the one-shot conversion the caller falls back to still makes the thumbnail.
+    ASSERT_TRUE(file.seek(0));
+    ASSERT_TRUE(JpegToBmpConverter::jpegFileTo1BitBmpStreamsWithSizes(file, target, 1));
+    ASSERT_GE(out.buf.size(), 26u);
+    EXPECT_EQ(le32(out.buf, 18), 40);
+    EXPECT_EQ(le32(out.buf, 22), -28);
+  }
+  // Control: with the heap back, the same image is sliced.
+  ASSERT_TRUE(file.seek(0));
+  MemoryPrint roomy;
+  const JpegToBmpConverter::BmpTarget roomyTarget[1] = {{&roomy, 40, 28}};
+  EXPECT_NE(JpegThumbSession::begin(file, roomyTarget, 1), nullptr);
+  file.close();
+}
+
+TEST(JpegThumbSession, RejectsBadArguments) {
+  FsFile file;
+  ASSERT_TRUE(file.openForRead(fixture("prog_full_420.jpg")));
+  MemoryPrint out;
+  const JpegToBmpConverter::BmpTarget three[3] = {{&out, 10, 10}, {&out, 10, 10}, {&out, 10, 10}};
+  EXPECT_EQ(JpegThumbSession::begin(file, three, 3), nullptr);
+  EXPECT_EQ(JpegThumbSession::begin(file, nullptr, 1), nullptr);
+  const JpegToBmpConverter::BmpTarget noSink[1] = {{nullptr, 10, 10}};
+  EXPECT_EQ(JpegThumbSession::begin(file, noSink, 1), nullptr);
+  file.close();
 }

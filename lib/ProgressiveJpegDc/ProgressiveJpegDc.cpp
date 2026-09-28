@@ -449,12 +449,12 @@ class RowScaler {
 
 namespace ProgressiveJpegDc {
 
-Result probe(FsFile& file, ImageInfo& info) {
+Result probe(FsFile& file, ImageInfo& info, const uint32_t base) {
   info = {};
-  if (!file || !file.seek(0)) return Result::InvalidData;
+  if (!file || !file.seek(base)) return Result::InvalidData;
 
   auto finish = [&](Result result) {
-    file.seek(0);
+    file.seek(base);
     return result;
   };
   uint8_t signature[2] = {};
@@ -500,7 +500,8 @@ Result probe(FsFile& file, ImageInfo& info) {
 }
 
 Result decode(FsFile& file, const DecodeOptions& options, RowCallback rowCallback, void* rowUser) {
-  if (!file || options.outputWidth == 0 || options.outputHeight == 0 || rowCallback == nullptr || !file.seek(0)) {
+  if (!file || options.outputWidth == 0 || options.outputHeight == 0 || rowCallback == nullptr ||
+      !file.seek(options.base)) {
     return Result::InvalidData;
   }
 

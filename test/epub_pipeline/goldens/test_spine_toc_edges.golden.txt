@@ -3,7 +3,7 @@ SPINE 0 href=OEBPS/cover.xhtml pages=1 truncated=0 cssFallback=0
  PAGE 0 elements=1 footnotes=0
   IMG y=0 x=0 w=460 h=686 src=<cache>/epub_<hash>/img_91f282312742c715.jpg
 SPINE 1 href=OEBPS/toc.xhtml pages=1 truncated=0 cssFallback=0
- PAGE 0 elements=21 footnotes=16
+ PAGE 0 elements=21 footnotes=20
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=3
    W x=128 s=1 z=100 t=Spine
    W x=211 s=1 z=100 t=&
@@ -135,6 +135,10 @@ SPINE 1 href=OEBPS/toc.xhtml pages=1 truncated=0 cssFallback=0
   FN n=The Whirlpool Narrows href=chapter5.xhtml#whirlpool-narrows
   FN n=Appendix A – Knot Types href=appendix.xhtml#appendix-a
   FN n=Appendix B – Signal Flags href=appendix.xhtml#appendix-b
+  FN n=Appendix C – Tidal Observatio href=appendix.xhtml#appendix-c
+  FN n=Appendix D – Errata href=appendix.xhtml#appendix-d
+  FN n=Appendix E – Acknowledgments href=appendix.xhtml#appendix-e
+  FN n=Colophon href=backmatter.xhtml#colophon
 SPINE 2 href=OEBPS/frontmatter.xhtml pages=3 truncated=0 cssFallback=0
  PAGE 0 elements=4 footnotes=0
   LINE y=27 x=0 align=2 mult=1.150 hfid=0 words=1
@@ -325,10 +329,10 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=2
    W x=164 s=1 z=100 t=Chapter
    W x=284 s=1 z=100 t=1
-  LINE y=63 x=0 align=2 mult=1.000 hfid=0 words=2
-   W x=167 s=1 z=100 t=Setting
-   W x=249 s=1 z=100 t=Sail
-  LINE y=91 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=36 x=0 align=2 mult=1.500 hfid=0 words=2
+   W x=136 s=1 z=100 t=Setting
+   W x=259 s=1 z=100 t=Sail
+  LINE y=99 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=27 s=0 z=100 t=Anchora
    W x=115 s=0 z=100 t=had
    W x=165 s=0 z=100 t=packed
@@ -336,7 +340,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=299 s=0 z=100 t=things
    W x=376 s=0 z=100 t=for
    W x=424 s=0 z=100 t=the
-  LINE y=115 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=123 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=voyage:
    W x=92 s=0 z=100 t=a
    W x=124 s=0 z=100 t=sextant
@@ -345,7 +349,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=298 s=0 z=100 t=cracked
    W x=377 s=0 z=100 t=lens,
    W x=443 s=0 z=100 t=a
-  LINE y=139 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=147 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=notebook
    W x=94 s=0 z=100 t=whose
    W x=156 s=0 z=100 t=pages
@@ -353,7 +357,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=263 s=0 z=100 t=already
    W x=343 s=0 z=100 t=curling
    W x=420 s=0 z=100 t=from
-  LINE y=163 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=171 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=salt
    W x=54 s=0 z=100 t=air,
    W x=102 s=0 z=100 t=and
@@ -361,14 +365,14 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=184 s=0 z=100 t=unshakeable
    W x=306 s=0 z=100 t=conviction
    W x=414 s=0 z=100 t=that
-  LINE y=187 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=195 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=every
    W x=52 s=0 z=100 t=archipelago
    W x=162 s=0 z=100 t=deserved
    W x=240 s=0 z=100 t=a
    W x=258 s=0 z=100 t=proper
    W x=313 s=0 z=100 t=atlas.
-  LINE y=215 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=223 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=27 s=0 z=100 t=The
    W x=64 s=0 z=100 t=sextant
    W x=142 s=0 z=100 t=had
@@ -376,7 +380,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=269 s=0 z=100 t=to
    W x=301 s=0 z=100 t=her
    W x=340 s=0 z=100 t=grandmother,
-  LINE y=239 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=247 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=a
    W x=29 s=0 z=100 t=woman
    W x=97 s=0 z=100 t=who
@@ -385,7 +389,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=276 s=0 z=100 t=the
    W x=324 s=0 z=100 t=entire
    W x=394 s=0 z=100 t=Leeward
-  LINE y=263 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=271 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=Passage
    W x=86 s=0 z=100 t=in
    W x=118 s=0 z=100 t=an
@@ -394,7 +398,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=280 s=0 z=100 t=using
    W x=343 s=0 z=100 t=nothing
    W x=431 s=0 z=100 t=but
-  LINE y=287 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=295 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=dead
    W x=52 s=0 z=100 t=reckoning
    W x=150 s=0 z=100 t=and
@@ -402,7 +406,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=223 s=0 z=100 t=vocabulary
    W x=335 s=0 z=100 t=of
    W x=372 s=0 z=100 t=profanity
-  LINE y=311 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=319 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=that
    W x=57 s=0 z=100 t=could
    W x=117 s=0 z=100 t=strip
@@ -411,7 +415,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=300 s=0 z=100 t=forty
    W x=361 s=0 z=100 t=paces.
    W x=427 s=0 z=100 t=The
-  LINE y=335 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=343 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=crack
    W x=51 s=0 z=100 t=in
    W x=77 s=0 z=100 t=the
@@ -422,7 +426,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=305 s=0 z=100 t=of
    W x=336 s=0 z=100 t=an
    W x=368 s=0 z=100 t=encounter
-  LINE y=359 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=367 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=with
    W x=53 s=0 z=100 t=a
    W x=84 s=0 z=100 t=boom
@@ -432,14 +436,14 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=365 s=0 z=100 t=jibe
    W x=399 s=0 z=100 t=—
    W x=425 s=0 z=100 t=not
-  LINE y=383 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=391 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=Anchora’s
    W x=105 s=0 z=100 t=grandmother’s
    W x=251 s=0 z=100 t=boom,
    W x=313 s=0 z=100 t=but
    W x=354 s=0 z=100 t=rather
    W x=427 s=0 z=100 t=the
-  LINE y=407 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=415 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=boom
    W x=55 s=0 z=100 t=of
    W x=92 s=0 z=100 t=a
@@ -449,7 +453,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=312 s=0 z=100 t=had
    W x=359 s=0 z=100 t=cut
    W x=402 s=0 z=100 t=across
-  LINE y=431 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=439 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=her
    W x=40 s=0 z=100 t=bow
    W x=75 s=0 z=100 t=in
@@ -460,17 +464,17 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=351 s=0 z=100 t=a
    W x=374 s=0 z=100 t=speed
    W x=426 s=0 z=100 t=the
-  LINE y=455 x=0 align=0 mult=1.000 hfid=0 words=5
+  LINE y=463 x=0 align=0 mult=1.000 hfid=0 words=5
    W x=0 s=0 z=100 t=grandmother
    W x=131 s=0 z=100 t=had
    W x=183 s=0 z=100 t=described,
    W x=281 s=0 z=100 t=with
    W x=335 s=0 z=100 t=characteristic
-  LINE y=479 x=0 align=0 mult=1.000 hfid=0 words=3
+  LINE y=487 x=0 align=0 mult=1.000 hfid=0 words=3
    W x=0 s=0 z=100 t=understatement,
    W x=151 s=0 z=100 t=as
    W x=178 s=0 z=100 t=“imprudent.”
-  LINE y=507 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=515 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=27 s=0 z=100 t=The
    W x=60 s=0 z=100 t=notebook
    W x=146 s=0 z=100 t=was
@@ -479,7 +483,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=307 s=0 z=100 t=from
    W x=353 s=0 z=100 t=a
    W x=371 s=0 z=100 t=stationer
-  LINE y=531 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=539 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=in
    W x=33 s=0 z=100 t=the
    W x=80 s=0 z=100 t=port
@@ -489,7 +493,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=339 s=0 z=100 t=in
    W x=372 s=0 z=100 t=paper
    W x=429 s=0 z=100 t=for
-  LINE y=555 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=563 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=maritime
    W x=80 s=0 z=100 t=use.
    W x=128 s=0 z=100 t=It
@@ -499,7 +503,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=275 s=0 z=100 t=oilskin
    W x=345 s=0 z=100 t=and
    W x=385 s=0 z=100 t=stitched
-  LINE y=579 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=587 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=with
    W x=47 s=0 z=100 t=waxed
    W x=102 s=0 z=100 t=thread,
@@ -509,7 +513,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=330 s=0 z=100 t=were
    W x=375 s=0 z=100 t=a
    W x=400 s=0 z=100 t=heavy
-  LINE y=603 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=611 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=cream
    W x=62 s=0 z=100 t=stock
    W x=124 s=0 z=100 t=that
@@ -517,7 +521,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=231 s=0 z=100 t=stationer
    W x=334 s=0 z=100 t=claimed
    W x=411 s=0 z=100 t=would
-  LINE y=627 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=635 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=resist
    W x=64 s=0 z=100 t=salt
    W x=117 s=0 z=100 t=spray,
@@ -526,14 +530,14 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=320 s=0 z=100 t=and
    W x=364 s=0 z=100 t=the
    W x=408 s=0 z=100 t=tears
-  LINE y=651 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=659 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=of
    W x=42 s=0 z=100 t=frustrated
    W x=157 s=0 z=100 t=navigators
    W x=280 s=0 z=100 t=in
    W x=317 s=0 z=100 t=roughly
    W x=408 s=0 z=100 t=equal
-  LINE y=675 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=683 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=measure.
    W x=98 s=0 z=100 t=Anchora
    W x=188 s=0 z=100 t=had
@@ -541,7 +545,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=315 s=0 z=100 t=the
    W x=366 s=0 z=100 t=first
    W x=429 s=0 z=100 t=two
-  LINE y=699 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=707 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=claims.
    W x=69 s=0 z=100 t=She
    W x=108 s=0 z=100 t=hoped
@@ -550,7 +554,7 @@ SPINE 3 href=OEBPS/chapter1.xhtml pages=7 truncated=0 cssFallback=0
    W x=228 s=0 z=100 t=test
    W x=272 s=0 z=100 t=the
    W x=309 s=0 z=100 t=third.
-  LINE y=727 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=735 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=27 s=0 z=100 t=“The
    W x=82 s=0 z=100 t=trouble
    W x=167 s=0 z=100 t=with
@@ -2000,11 +2004,11 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=2
    W x=164 s=1 z=100 t=Chapter
    W x=284 s=1 z=100 t=2
-  LINE y=63 x=0 align=2 mult=1.000 hfid=0 words=3
-   W x=157 s=1 z=100 t=The
-   W x=193 s=1 z=100 t=Twin
-   W x=232 s=1 z=100 t=Harbors
-  LINE y=87 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=36 x=0 align=2 mult=1.500 hfid=0 words=3
+   W x=121 s=1 z=100 t=The
+   W x=175 s=1 z=100 t=Twin
+   W x=234 s=1 z=100 t=Harbors
+  LINE y=99 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=27 s=0 z=100 t=The
    W x=65 s=0 z=100 t=first
    W x=119 s=0 z=100 t=landmark
@@ -2013,7 +2017,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=344 s=0 z=100 t=route
    W x=405 s=0 z=100 t=was
    W x=443 s=0 z=100 t=a
-  LINE y=111 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=123 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=pair
    W x=46 s=0 z=100 t=of
    W x=82 s=0 z=100 t=harbors
@@ -2022,7 +2026,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=258 s=0 z=100 t=together
    W x=353 s=0 z=100 t=that
    W x=411 s=0 z=100 t=early
-  LINE y=135 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=147 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=cartographers
    W x=141 s=0 z=100 t=had
    W x=190 s=0 z=100 t=drawn
@@ -2030,14 +2034,14 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=310 s=0 z=100 t=as
    W x=348 s=0 z=100 t=one.
    W x=407 s=0 z=100 t=Later
-  LINE y=159 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=171 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=cartographers,
    W x=145 s=0 z=100 t=attempting
    W x=253 s=0 z=100 t=to
    W x=288 s=0 z=100 t=correct
    W x=362 s=0 z=100 t=the
    W x=406 s=0 z=100 t=error,
-  LINE y=183 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=195 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=had
    W x=47 s=0 z=100 t=split
    W x=102 s=0 z=100 t=the
@@ -2048,7 +2052,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=297 s=0 z=100 t=but
    W x=339 s=0 z=100 t=neglected
    W x=437 s=0 z=100 t=to
-  LINE y=207 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=219 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=update
    W x=65 s=0 z=100 t=the
    W x=105 s=0 z=100 t=name
@@ -2058,7 +2062,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=293 s=0 z=100 t=sheet.
    W x=361 s=0 z=100 t=The
    W x=397 s=0 z=100 t=result
-  LINE y=231 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=243 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=was
    W x=43 s=0 z=100 t=a
    W x=71 s=0 z=100 t=pair
@@ -2068,7 +2072,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=300 s=0 z=100 t=existed
    W x=374 s=0 z=100 t=on
    W x=413 s=0 z=100 t=some
-  LINE y=255 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=267 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=charts
    W x=68 s=0 z=100 t=as
    W x=99 s=0 z=100 t=a
@@ -2079,7 +2083,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=324 s=0 z=100 t=others
    W x=394 s=0 z=100 t=as
    W x=425 s=0 z=100 t=two
-  LINE y=279 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=291 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=separate
    W x=86 s=0 z=100 t=places
    W x=149 s=0 z=100 t=with
@@ -2088,7 +2092,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=287 s=0 z=100 t=name,
    W x=348 s=0 z=100 t=separated
    W x=442 s=0 z=100 t=by
-  LINE y=303 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=315 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=a
    W x=22 s=0 z=100 t=narrow
    W x=89 s=0 z=100 t=cut
@@ -2099,7 +2103,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=305 s=0 z=100 t=either
    W x=369 s=0 z=100 t=an
    W x=402 s=0 z=100 t=inlet,
-  LINE y=327 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=339 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=a
    W x=23 s=0 z=100 t=channel,
    W x=113 s=0 z=100 t=or
@@ -2109,12 +2113,12 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=255 s=0 z=100 t=the
    W x=297 s=0 z=100 t=middle,”
    W x=375 s=0 z=100 t=depending
-  LINE y=351 x=0 align=0 mult=1.000 hfid=0 words=4
+  LINE y=363 x=0 align=0 mult=1.000 hfid=0 words=4
    W x=0 s=0 z=100 t=on
    W x=29 s=0 z=100 t=whom
    W x=75 s=0 z=100 t=you
    W x=112 s=0 z=100 t=asked.
-  LINE y=379 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=391 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=27 s=0 z=100 t=Anchora
    W x=108 s=0 z=100 t=first
    W x=162 s=0 z=100 t=spotted
@@ -2122,7 +2126,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=279 s=0 z=100 t=harbors
    W x=357 s=0 z=100 t=from
    W x=408 s=0 z=100 t=three
-  LINE y=403 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=415 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=miles
    W x=56 s=0 z=100 t=out.
    W x=112 s=0 z=100 t=They
@@ -2131,7 +2135,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=363 s=0 z=100 t=as
    W x=397 s=0 z=100 t=a
    W x=422 s=0 z=100 t=low,
-  LINE y=427 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=439 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=dark
    W x=47 s=0 z=100 t=line
    W x=93 s=0 z=100 t=of
@@ -2139,7 +2143,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=205 s=0 z=100 t=and
    W x=247 s=0 z=100 t=warehouses,
    W x=363 s=0 z=100 t=punctuated
-  LINE y=451 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=463 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=by
    W x=34 s=0 z=100 t=the
    W x=85 s=0 z=100 t=vertical
@@ -2147,7 +2151,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=263 s=0 z=100 t=of
    W x=305 s=0 z=100 t=mast-heads
    W x=425 s=0 z=100 t=and
-  LINE y=475 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=487 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=the
    W x=52 s=0 z=100 t=occasional
    W x=170 s=0 z=100 t=plume
@@ -2155,14 +2159,14 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=279 s=0 z=100 t=woodsmoke
    W x=386 s=0 z=100 t=from
    W x=447 s=0 z=100 t=a
-  LINE y=499 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=511 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=chandler’s
    W x=113 s=0 z=100 t=stove.
    W x=191 s=0 z=100 t=Behind
    W x=262 s=0 z=100 t=the
    W x=309 s=0 z=100 t=waterfront,
    W x=429 s=0 z=100 t=the
-  LINE y=523 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=535 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=town
    W x=54 s=0 z=100 t=rose
    W x=107 s=0 z=100 t=in
@@ -2170,7 +2174,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=234 s=0 z=100 t=whitewashed
    W x=348 s=0 z=100 t=houses
    W x=425 s=0 z=100 t=with
-  LINE y=547 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=559 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=terracotta
    W x=116 s=0 z=100 t=roofs,
    W x=193 s=0 z=100 t=a
@@ -2178,7 +2182,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=298 s=0 z=100 t=tower,
    W x=369 s=0 z=100 t=and
    W x=418 s=0 z=100 t=what
-  LINE y=571 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=583 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=appeared
    W x=84 s=0 z=100 t=to
    W x=120 s=0 z=100 t=be
@@ -2188,10 +2192,10 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=358 s=0 z=100 t=or
    W x=392 s=0 z=100 t=a
    W x=418 s=0 z=100 t=very
-  LINE y=595 x=0 align=0 mult=1.000 hfid=0 words=2
+  LINE y=607 x=0 align=0 mult=1.000 hfid=0 words=2
    W x=0 s=0 z=100 t=ambitious
    W x=88 s=0 z=100 t=chimney.
-  LINE y=623 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=635 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=27 s=0 z=100 t=She
    W x=75 s=0 z=100 t=consulted
    W x=176 s=0 z=100 t=her
@@ -2199,7 +2203,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=294 s=0 z=100 t=According
    W x=387 s=0 z=100 t=to
    W x=424 s=0 z=100 t=the
-  LINE y=647 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=659 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=Admiralty
    W x=90 s=0 z=100 t=edition,
    W x=171 s=0 z=100 t=this
@@ -2209,7 +2213,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=362 s=0 z=100 t=—
    W x=380 s=0 z=100 t=a
    W x=403 s=0 z=100 t=single
-  LINE y=671 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=683 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=harbor
    W x=77 s=0 z=100 t=with
    W x=130 s=0 z=100 t=a
@@ -2217,7 +2221,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=235 s=0 z=100 t=entrance.
    W x=341 s=0 z=100 t=According
    W x=438 s=0 z=100 t=to
-  LINE y=695 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=707 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=the
    W x=47 s=0 z=100 t=pilot
    W x=106 s=0 z=100 t=book,
@@ -2227,7 +2231,7 @@ SPINE 4 href=OEBPS/chapter2_part1.xhtml pages=5 truncated=0 cssFallback=0
    W x=302 s=0 z=100 t=Harbor
    W x=372 s=0 z=100 t=and
    W x=419 s=0 z=100 t=West
-  LINE y=719 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=731 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=Harbor,
    W x=76 s=0 z=100 t=two
    W x=118 s=0 z=100 t=separate
@@ -3950,18 +3954,18 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=2
    W x=163 s=1 z=100 t=Chapter
    W x=283 s=1 z=100 t=3
-  LINE y=63 x=0 align=2 mult=1.000 hfid=0 words=3
-   W x=131 s=1 z=100 t=Charting
-   W x=225 s=1 z=100 t=the
-   W x=265 s=1 z=100 t=Depths
-  LINE y=91 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=36 x=0 align=2 mult=1.500 hfid=0 words=3
+   W x=82 s=1 z=100 t=Charting
+   W x=223 s=1 z=100 t=the
+   W x=283 s=1 z=100 t=Depths
+  LINE y=99 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=27 s=0 z=100 t=Beyond
    W x=105 s=0 z=100 t=the
    W x=157 s=0 z=100 t=Twin
    W x=207 s=0 z=100 t=Harbors,
    W x=299 s=0 z=100 t=the
    W x=351 s=0 z=100 t=continental
-  LINE y=115 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=123 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=shelf
    W x=66 s=0 z=100 t=dropped
    W x=140 s=0 z=100 t=away
@@ -3969,14 +3973,14 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=229 s=0 z=100 t=three
    W x=294 s=0 z=100 t=distinct
    W x=378 s=0 z=100 t=terraces.
-  LINE y=139 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=147 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=Anchora’s
    W x=106 s=0 z=100 t=fathom-line,
    W x=239 s=0 z=100 t=weighted
    W x=325 s=0 z=100 t=with
    W x=374 s=0 z=100 t=lead
    W x=427 s=0 z=100 t=and
-  LINE y=163 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=171 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=tallow,
    W x=79 s=0 z=100 t=told
    W x=131 s=0 z=100 t=the
@@ -3985,7 +3989,7 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=265 s=0 z=100 t=numbers:
    W x=350 s=0 z=100 t=ten,
    W x=401 s=0 z=100 t=forty,
-  LINE y=187 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=195 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=two
    W x=39 s=0 z=100 t=hundred.
    W x=127 s=0 z=100 t=Each
@@ -3993,7 +3997,7 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=247 s=0 z=100 t=represented
    W x=354 s=0 z=100 t=a
    W x=377 s=0 z=100 t=different
-  LINE y=211 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=219 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=world
    W x=49 s=0 z=100 t=—
    W x=77 s=0 z=100 t=a
@@ -4001,7 +4005,7 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=212 s=0 z=100 t=temperature,
    W x=343 s=0 z=100 t=a
    W x=376 s=0 z=100 t=different
-  LINE y=235 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=243 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=colour,
    W x=82 s=0 z=100 t=a
    W x=109 s=0 z=100 t=different
@@ -4011,13 +4015,13 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=361 s=0 z=100 t=—
    W x=383 s=0 z=100 t=and
    W x=429 s=0 z=100 t=she
-  LINE y=259 x=0 align=0 mult=1.000 hfid=0 words=5
+  LINE y=267 x=0 align=0 mult=1.000 hfid=0 words=5
    W x=0 s=0 z=100 t=intended
    W x=78 s=0 z=100 t=to
    W x=106 s=0 z=100 t=chart
    W x=161 s=0 z=100 t=them
    W x=208 s=0 z=100 t=all.
-  LINE y=287 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=295 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=27 s=0 z=100 t=She
    W x=71 s=0 z=100 t=had
    W x=114 s=0 z=100 t=sailed
@@ -4027,7 +4031,7 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=297 s=0 z=100 t=second
    W x=364 s=0 z=100 t=harbor
    W x=433 s=0 z=100 t=at
-  LINE y=311 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=319 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=dawn,
    W x=61 s=0 z=100 t=motoring
    W x=157 s=0 z=100 t=through
@@ -4036,7 +4040,7 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=340 s=0 z=100 t=in
    W x=373 s=0 z=100 t=the
    W x=420 s=0 z=100 t=grey
-  LINE y=335 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=343 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=half-light
    W x=116 s=0 z=100 t=while
    W x=174 s=0 z=100 t=the
@@ -4044,7 +4048,7 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=302 s=0 z=100 t=boats
    W x=367 s=0 z=100 t=were
    W x=415 s=0 z=100 t=still
-  LINE y=359 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=367 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=sorting
    W x=81 s=0 z=100 t=their
    W x=140 s=0 z=100 t=nets.
@@ -4052,14 +4056,14 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=308 s=0 z=100 t=had
    W x=354 s=0 z=100 t=waved
    W x=415 s=0 z=100 t=from
-  LINE y=383 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=391 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=the
    W x=47 s=0 z=100 t=harbourmaster’s
    W x=211 s=0 z=100 t=office
    W x=281 s=0 z=100 t=window.
    W x=356 s=0 z=100 t=Rufus
    W x=424 s=0 z=100 t=had
-  LINE y=407 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=415 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=been
    W x=45 s=0 z=100 t=asleep
    W x=109 s=0 z=100 t=on
@@ -4070,10 +4074,10 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=323 s=0 z=100 t=had
    W x=365 s=0 z=100 t=not
    W x=408 s=0 z=100 t=waved
-  LINE y=431 x=0 align=0 mult=1.000 hfid=0 words=2
+  LINE y=439 x=0 align=0 mult=1.000 hfid=0 words=2
    W x=0 s=0 z=100 t=at
    W x=28 s=0 z=100 t=all.
-  LINE y=459 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=467 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=27 s=0 z=100 t=Each
    W x=83 s=0 z=100 t=terrace
    W x=159 s=0 z=100 t=had
@@ -4082,7 +4086,7 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=284 s=0 z=100 t=character,
    W x=390 s=0 z=100 t=its
    W x=428 s=0 z=100 t=own
-  LINE y=483 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=491 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=light,
    W x=68 s=0 z=100 t=its
    W x=105 s=0 z=100 t=own
@@ -4092,7 +4096,7 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=339 s=0 z=100 t=each
    W x=391 s=0 z=100 t=a
    W x=415 s=0 z=100 t=name
-  LINE y=507 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=515 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=and
    W x=37 s=0 z=100 t=—
    W x=54 s=0 z=100 t=because
@@ -4102,7 +4106,7 @@ SPINE 6 href=OEBPS/chapter3.xhtml pages=10 truncated=0 cssFallback=0
    W x=273 s=0 z=100 t=all,
    W x=321 s=0 z=100 t=a
    W x=343 s=0 z=100 t=cartographer
-  LINE y=531 x=0 align=0 mult=1.000 hfid=0 words=3
+  LINE y=539 x=0 align=0 mult=1.000 hfid=0 words=3
    W x=0 s=0 z=100 t=—
    W x=13 s=0 z=100 t=a
    W x=31 s=0 z=100 t=sub-heading.
@@ -7393,16 +7397,16 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=2
    W x=162 s=1 z=100 t=Chapter
    W x=282 s=1 z=100 t=4
-  LINE y=63 x=0 align=2 mult=1.000 hfid=0 words=3
-   W x=151 s=1 z=100 t=The
-   W x=187 s=1 z=100 t=Long
-   W x=243 s=1 z=100 t=Voyage
-  LINE y=114 x=0 align=2 mult=1.150 hfid=0 words=4
+  LINE y=36 x=0 align=2 mult=1.500 hfid=0 words=3
+   W x=111 s=1 z=100 t=The
+   W x=165 s=1 z=100 t=Long
+   W x=249 s=1 z=100 t=Voyage
+  LINE y=99 x=0 align=2 mult=1.150 hfid=0 words=4
    W x=124 s=1 z=100 t=Day
    W x=170 s=1 z=100 t=One
    W x=213 s=1 z=100 t=—
    W x=229 s=1 z=100 t=Departure
-  LINE y=151 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=136 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=27 s=0 z=100 t=The
    W x=65 s=0 z=100 t=passage
    W x=144 s=0 z=100 t=to
@@ -7411,7 +7415,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=280 s=0 z=100 t=archipelago
    W x=395 s=0 z=100 t=was,
    W x=441 s=0 z=100 t=by
-  LINE y=175 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=160 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=all
    W x=45 s=0 z=100 t=accounts,
    W x=147 s=0 z=100 t=a
@@ -7419,7 +7423,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=274 s=0 z=100 t=sail.
    W x=335 s=0 z=100 t=This
    W x=383 s=0 z=100 t=estimate
-  LINE y=199 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=184 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=came
    W x=57 s=0 z=100 t=from
    W x=116 s=0 z=100 t=Rufus
@@ -7428,7 +7432,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=307 s=0 z=100 t=who
    W x=356 s=0 z=100 t=had
    W x=407 s=0 z=100 t=never
-  LINE y=223 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=208 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=made
    W x=56 s=0 z=100 t=the
    W x=104 s=0 z=100 t=passage
@@ -7437,7 +7441,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=315 s=0 z=100 t=had
    W x=364 s=0 z=100 t=spoken
    W x=436 s=0 z=100 t=to
-  LINE y=247 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=232 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=several
    W x=79 s=0 z=100 t=people
    W x=141 s=0 z=100 t=who
@@ -7446,7 +7450,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=275 s=0 z=100 t=from
    W x=326 s=0 z=100 t=Constance
    W x=428 s=0 z=100 t=the
-  LINE y=271 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=256 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=harbourmaster,
    W x=152 s=0 z=100 t=who
    W x=199 s=0 z=100 t=had
@@ -7454,7 +7458,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=304 s=0 z=100 t=it
    W x=337 s=0 z=100 t=once,
    W x=401 s=0 z=100 t=thirty
-  LINE y=295 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=280 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=years
    W x=59 s=0 z=100 t=ago,
    W x=115 s=0 z=100 t=in
@@ -7463,27 +7467,27 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=223 s=0 z=100 t=considerably
    W x=341 s=0 z=100 t=faster
    W x=412 s=0 z=100 t=than
-  LINE y=319 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=304 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=the
    W x=53 s=2 z=100 t=Pagination
    W x=175 s=0 z=100 t=and
    W x=228 s=0 z=100 t=in
    W x=267 s=0 z=100 t=weather
    W x=355 s=0 z=100 t=considerably
-  LINE y=343 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=328 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=better
    W x=58 s=0 z=100 t=than
    W x=109 s=0 z=100 t=the
    W x=146 s=0 z=100 t=forecast
    W x=229 s=0 z=100 t=was
    W x=262 s=0 z=100 t=promising.
-  LINE y=371 x=0 align=0 mult=1.000 hfid=0 words=5
+  LINE y=356 x=0 align=0 mult=1.000 hfid=0 words=5
    W x=27 s=0 z=100 t=Anchora
    W x=115 s=0 z=100 t=provisioned
    W x=232 s=0 z=100 t=accordingly:
    W x=357 s=0 z=100 t=three
    W x=423 s=0 z=100 t=days
-  LINE y=395 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=380 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=of
    W x=39 s=0 z=100 t=hard-tack,
    W x=150 s=0 z=100 t=three
@@ -7491,7 +7495,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=269 s=0 z=100 t=of
    W x=308 s=0 z=100 t=tinned
    W x=380 s=0 z=100 t=sardines,
-  LINE y=419 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=404 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=and
    W x=44 s=0 z=100 t=three
    W x=105 s=0 z=100 t=days
@@ -7501,7 +7505,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=286 s=0 z=100 t=of
    W x=321 s=0 z=100 t=instant
    W x=403 s=0 z=100 t=coffee
-  LINE y=443 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=428 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=that
    W x=58 s=0 z=100 t=dissolves
    W x=155 s=0 z=100 t=under
@@ -7509,7 +7513,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=304 s=0 z=100 t=She
    W x=351 s=0 z=100 t=also
    W x=407 s=0 z=100 t=packed
-  LINE y=467 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=452 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=a
    W x=22 s=0 z=100 t=fourth
    W x=95 s=0 z=100 t=day’s
@@ -7518,13 +7522,13 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=310 s=0 z=100 t=she
    W x=350 s=0 z=100 t=had
    W x=392 s=0 z=100 t=learned
-  LINE y=491 x=0 align=0 mult=1.000 hfid=0 words=5
+  LINE y=476 x=0 align=0 mult=1.000 hfid=0 words=5
    W x=0 s=0 z=100 t=through
    W x=100 s=0 z=100 t=experience
    W x=205 s=0 z=100 t=that
    W x=273 s=0 z=100 t=three-day
    W x=382 s=0 z=100 t=passages
-  LINE y=515 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=500 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=have
    W x=57 s=0 z=100 t=a
    W x=81 s=0 z=100 t=way
@@ -7533,7 +7537,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=237 s=0 z=100 t=four-day
    W x=327 s=0 z=100 t=passages,
    W x=424 s=0 z=100 t=and
-  LINE y=539 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=524 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=a
    W x=22 s=0 z=100 t=sailor
    W x=88 s=0 z=100 t=without
@@ -7544,10 +7548,10 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=354 s=0 z=100 t=is
    W x=379 s=0 z=100 t=a
    W x=401 s=0 z=100 t=sailor
-  LINE y=563 x=0 align=0 mult=1.000 hfid=0 words=2
+  LINE y=548 x=0 align=0 mult=1.000 hfid=0 words=2
    W x=0 s=0 z=100 t=without
    W x=73 s=0 z=100 t=hope.
-  LINE y=591 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=576 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=27 s=0 z=100 t=She
    W x=72 s=0 z=100 t=reviewed
    W x=151 s=0 z=100 t=her
@@ -7556,7 +7560,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=306 s=0 z=100 t=more
    W x=357 s=0 z=100 t=time
    W x=404 s=0 z=100 t=before
-  LINE y=615 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=600 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=casting
    W x=80 s=0 z=100 t=off.
    W x=136 s=0 z=100 t=The
@@ -7564,7 +7568,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=241 s=0 z=100 t=archipelago
    W x=359 s=0 z=100 t=was
    W x=400 s=0 z=100 t=marked
-  LINE y=639 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=624 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=on
    W x=36 s=0 z=100 t=the
    W x=80 s=0 z=100 t=Admiralty
@@ -7574,14 +7578,14 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=293 s=0 z=100 t=cluster
    W x=369 s=0 z=100 t=of
    W x=404 s=0 z=100 t=small
-  LINE y=663 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=648 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=islands
    W x=87 s=0 z=100 t=approximately
    W x=225 s=0 z=100 t=seventy
    W x=316 s=0 z=100 t=miles
    W x=382 s=0 z=100 t=to
    W x=427 s=0 z=100 t=the
-  LINE y=687 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=672 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=southeast
    W x=100 s=0 z=100 t=—
    W x=124 s=0 z=100 t=close
@@ -7590,7 +7594,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=309 s=0 z=100 t=reach
    W x=374 s=0 z=100 t=in
    W x=408 s=0 z=100 t=three
-  LINE y=711 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=696 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=days
    W x=47 s=0 z=100 t=of
    W x=79 s=0 z=100 t=moderate
@@ -7599,7 +7603,7 @@ SPINE 8 href=OEBPS/chapter4_part1.xhtml pages=4 truncated=0 cssFallback=0
    W x=289 s=0 z=100 t=enough
    W x=365 s=0 z=100 t=to
    W x=397 s=0 z=100 t=require
-  LINE y=735 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=720 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=planning,
    W x=97 s=0 z=100 t=provisioning,
    W x=227 s=0 z=100 t=and
@@ -10635,18 +10639,18 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=2
    W x=161 s=1 z=100 t=Chapter
    W x=281 s=1 z=100 t=5
-  LINE y=63 x=0 align=2 mult=1.000 hfid=0 words=3
-   W x=120 s=1 z=100 t=Archipelago
-   W x=237 s=1 z=100 t=of
-   W x=267 s=1 z=100 t=Wonders
-  LINE y=91 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=36 x=0 align=2 mult=1.500 hfid=0 words=3
+   W x=64 s=1 z=100 t=Archipelago
+   W x=240 s=1 z=100 t=of
+   W x=285 s=1 z=100 t=Wonders
+  LINE y=99 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=27 s=0 z=100 t=The
    W x=65 s=0 z=100 t=outer
    W x=126 s=0 z=100 t=archipelago
    W x=241 s=0 z=100 t=comprised
    W x=327 s=0 z=100 t=seven
    W x=388 s=0 z=100 t=islands,
-  LINE y=115 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=123 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=but
    W x=39 s=0 z=100 t=Anchora
    W x=121 s=0 z=100 t=quickly
@@ -10655,7 +10659,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=323 s=0 z=100 t=three
    W x=383 s=0 z=100 t=of
    W x=417 s=0 z=100 t=them
-  LINE y=139 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=147 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=demanded
    W x=85 s=0 z=100 t=most
    W x=136 s=0 z=100 t=of
@@ -10664,7 +10668,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=318 s=0 z=100 t=The
    W x=355 s=0 z=100 t=other
    W x=416 s=0 z=100 t=four
-  LINE y=163 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=171 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=were
    W x=47 s=0 z=100 t=low,
    W x=97 s=0 z=100 t=sandy,
@@ -10672,7 +10676,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=214 s=0 z=100 t=profoundly
    W x=324 s=0 z=100 t=uninteresting
    W x=452 s=0 z=100 t=—
-  LINE y=187 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=195 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=the
    W x=42 s=0 z=100 t=kind
    W x=86 s=0 z=100 t=of
@@ -10682,7 +10686,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=301 s=0 z=100 t=primarily
    W x=385 s=0 z=100 t=to
    W x=418 s=0 z=100 t=give
-  LINE y=211 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=219 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=seabirds
    W x=80 s=0 z=100 t=somewhere
    W x=177 s=0 z=100 t=to
@@ -10690,7 +10694,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=286 s=0 z=100 t=She
    W x=332 s=0 z=100 t=surveyed
    W x=419 s=0 z=100 t=them
-  LINE y=235 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=243 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=anyway,
    W x=82 s=0 z=100 t=because
    W x=162 s=0 z=100 t=a
@@ -10698,7 +10702,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=323 s=0 z=100 t=who
    W x=370 s=0 z=100 t=skips
    W x=425 s=0 z=100 t=the
-  LINE y=259 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=267 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=boring
    W x=67 s=0 z=100 t=bits
    W x=111 s=0 z=100 t=produces
@@ -10708,7 +10712,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=342 s=0 z=100 t=holes
    W x=406 s=0 z=100 t=in
    W x=436 s=0 z=100 t=it,
-  LINE y=283 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=291 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=and
    W x=41 s=0 z=100 t=an
    W x=74 s=0 z=100 t=atlas
@@ -10719,13 +10723,13 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=313 s=0 z=100 t=a
    W x=335 s=0 z=100 t=collection
    W x=437 s=0 z=100 t=of
-  LINE y=307 x=0 align=0 mult=1.000 hfid=0 words=5
+  LINE y=315 x=0 align=0 mult=1.000 hfid=0 words=5
    W x=0 s=0 z=100 t=maps
    W x=43 s=0 z=100 t=pretending
    W x=138 s=0 z=100 t=to
    W x=166 s=0 z=100 t=be
    W x=187 s=0 z=100 t=complete.
-  LINE y=335 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=343 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=27 s=0 z=100 t=The
    W x=62 s=0 z=100 t=four
    W x=111 s=0 z=100 t=minor
@@ -10735,14 +10739,14 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=324 s=0 z=100 t=days
    W x=369 s=0 z=100 t=to
    W x=399 s=0 z=100 t=chart.
-  LINE y=359 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=367 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=They
    W x=60 s=0 z=100 t=were,
    W x=125 s=0 z=100 t=as
    W x=171 s=0 z=100 t=expected,
    W x=269 s=0 z=100 t=unremarkable:
    W x=415 s=0 z=100 t=flat
-  LINE y=383 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=391 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=coral
    W x=68 s=0 z=100 t=platforms,
    W x=182 s=0 z=100 t=none
@@ -10750,7 +10754,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=304 s=0 z=100 t=than
    W x=369 s=0 z=100 t=ten
    W x=419 s=0 z=100 t=feet
-  LINE y=407 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=415 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=above
    W x=65 s=0 z=100 t=sea
    W x=109 s=0 z=100 t=level,
@@ -10759,7 +10763,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=289 s=0 z=100 t=coarse
    W x=360 s=0 z=100 t=grass
    W x=423 s=0 z=100 t=and
-  LINE y=431 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=439 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=nesting
    W x=87 s=0 z=100 t=terns.
    W x=164 s=0 z=100 t=Each
@@ -10767,7 +10771,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=302 s=0 z=100 t=had
    W x=354 s=0 z=100 t=a
    W x=386 s=0 z=100 t=fringing
-  LINE y=455 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=463 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=reef,
    W x=57 s=0 z=100 t=a
    W x=82 s=0 z=100 t=scattering
@@ -10777,7 +10781,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=332 s=0 z=100 t=a
    W x=357 s=0 z=100 t=beach
    W x=416 s=0 z=100 t=that
-  LINE y=479 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=487 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=was
    W x=41 s=0 z=100 t=pleasant
    W x=133 s=0 z=100 t=enough
@@ -10786,7 +10790,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=317 s=0 z=100 t=but
    W x=358 s=0 z=100 t=occupied
    W x=438 s=0 z=100 t=in
-  LINE y=503 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=511 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=practice
    W x=78 s=0 z=100 t=by
    W x=105 s=0 z=100 t=large
@@ -10794,17 +10798,17 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=244 s=0 z=100 t=of
    W x=279 s=0 z=100 t=territorial
    W x=390 s=0 z=100 t=seabirds
-  LINE y=527 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=535 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=that
    W x=60 s=0 z=100 t=regarded
    W x=149 s=0 z=100 t=Anchora’s
    W x=256 s=0 z=100 t=survey
    W x=329 s=0 z=100 t=equipment
    W x=424 s=0 z=100 t=with
-  LINE y=551 x=0 align=0 mult=1.000 hfid=0 words=2
+  LINE y=559 x=0 align=0 mult=1.000 hfid=0 words=2
    W x=0 s=0 z=100 t=undisguised
    W x=105 s=0 z=100 t=hostility.
-  LINE y=579 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=587 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=27 s=0 z=100 t=She
    W x=67 s=0 z=100 t=drew
    W x=105 s=0 z=100 t=them
@@ -10815,7 +10819,7 @@ SPINE 11 href=OEBPS/chapter5.xhtml pages=10 truncated=0 cssFallback=0
    W x=342 s=0 z=100 t=to
    W x=371 s=0 z=100 t=the
    W x=409 s=0 z=100 t=three
-  LINE y=603 x=0 align=0 mult=1.000 hfid=0 words=3
+  LINE y=611 x=0 align=0 mult=1.000 hfid=0 words=3
    W x=0 s=0 z=100 t=islands
    W x=70 s=0 z=100 t=that
    W x=120 s=0 z=100 t=mattered.
@@ -12896,11 +12900,11 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=2
    W x=166 s=1 z=100 t=Appendix
    W x=279 s=1 z=100 t=A
-  LINE y=63 x=0 align=2 mult=1.000 hfid=0 words=3
-   W x=137 s=1 z=100 t=Knot
-   W x=191 s=1 z=100 t=Types
-   W x=240 s=1 z=100 t=Employed
-  LINE y=91 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=36 x=0 align=2 mult=1.500 hfid=0 words=3
+   W x=91 s=1 z=100 t=Knot
+   W x=172 s=1 z=100 t=Types
+   W x=246 s=1 z=100 t=Employed
+  LINE y=99 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=27 s=0 z=100 t=The
    W x=72 s=0 z=100 t=following
    W x=176 s=0 z=100 t=knots
@@ -12908,7 +12912,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=294 s=0 z=100 t=tied
    W x=345 s=0 z=100 t=at
    W x=385 s=0 z=100 t=various
-  LINE y=115 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=123 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=points
    W x=72 s=0 z=100 t=during
    W x=145 s=0 z=100 t=the
@@ -12916,7 +12920,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=276 s=0 z=100 t=and
    W x=325 s=0 z=100 t=are
    W x=372 s=0 z=100 t=reproduced
-  LINE y=139 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=147 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=here
    W x=52 s=0 z=100 t=for
    W x=96 s=0 z=100 t=the
@@ -12925,7 +12929,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=288 s=0 z=100 t=the
    W x=333 s=0 z=100 t=reader.
    W x=411 s=0 z=100 t=Each
-  LINE y=163 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=171 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=knot
    W x=55 s=0 z=100 t=is
    W x=84 s=0 z=100 t=described
@@ -12934,28 +12938,28 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=259 s=0 z=100 t=of
    W x=295 s=0 z=100 t=its
    W x=334 s=0 z=100 t=construction,
-  LINE y=187 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=195 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=its
    W x=60 s=0 z=100 t=application
    W x=192 s=0 z=100 t=aboard
    W x=285 s=0 z=100 t=the
    W x=351 s=2 z=100 t=Pagination
    W x=451 s=0 z=100 t=,
-  LINE y=211 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=219 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=and
    W x=54 s=0 z=100 t=Anchora’s
    W x=168 s=0 z=100 t=personal
    W x=267 s=0 z=100 t=assessment
    W x=387 s=0 z=100 t=of
    W x=432 s=0 z=100 t=its
-  LINE y=235 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=243 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=character,
    W x=110 s=0 z=100 t=because
    W x=190 s=0 z=100 t=all
    W x=237 s=0 z=100 t=knots
    W x=304 s=0 z=100 t=have
    W x=366 s=0 z=100 t=character,
-  LINE y=259 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=267 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=and
    W x=43 s=0 z=100 t=some
    W x=95 s=0 z=100 t=have
@@ -12964,10 +12968,10 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=300 s=0 z=100 t=than
    W x=357 s=0 z=100 t=their
    W x=414 s=0 z=100 t=tyers
-  LINE y=283 x=0 align=0 mult=1.000 hfid=0 words=2
+  LINE y=291 x=0 align=0 mult=1.000 hfid=0 words=2
    W x=0 s=0 z=100 t=would
    W x=52 s=0 z=100 t=prefer.
-  LINE y=311 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=319 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=27 s=1 z=100 t=Bowline.
    W x=115 s=0 z=100 t=The
    W x=150 s=0 z=100 t=king
@@ -12977,7 +12981,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=333 s=0 z=100 t=to
    W x=363 s=0 z=100 t=secure
    W x=424 s=0 z=100 t=the
-  LINE y=335 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=343 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=2 z=100 t=Pagination
    W x=119 s=0 z=100 t=to
    W x=160 s=0 z=100 t=docks,
@@ -12985,14 +12989,14 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=331 s=0 z=100 t=and
    W x=381 s=0 z=100 t=on
    W x=423 s=0 z=100 t=one
-  LINE y=359 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=367 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=occasion
    W x=94 s=0 z=100 t=a
    W x=124 s=0 z=100 t=surprisingly
    W x=244 s=0 z=100 t=cooperative
    W x=365 s=0 z=100 t=palm
    W x=420 s=0 z=100 t=tree
-  LINE y=383 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=391 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=on
    W x=33 s=0 z=100 t=the
    W x=74 s=0 z=100 t=Isle
@@ -13003,7 +13007,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=339 s=0 z=100 t=forms
    W x=398 s=0 z=100 t=a
    W x=420 s=0 z=100 t=fixed
-  LINE y=407 x=0 align=0 mult=1.000 hfid=0 words=11
+  LINE y=415 x=0 align=0 mult=1.000 hfid=0 words=11
    W x=0 s=0 z=100 t=loop
    W x=52 s=0 z=100 t=at
    W x=87 s=0 z=100 t=the
@@ -13015,7 +13019,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=337 s=0 z=100 t=will
    W x=380 s=0 z=100 t=not
    W x=426 s=0 z=100 t=slip
-  LINE y=431 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=439 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=under
    W x=60 s=0 z=100 t=load
    W x=114 s=0 z=100 t=and
@@ -13026,7 +13030,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=340 s=0 z=100 t=you
    W x=384 s=0 z=100 t=want
    W x=436 s=0 z=100 t=to
-  LINE y=455 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=463 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=untie
    W x=57 s=0 z=100 t=it,
    W x=91 s=0 z=100 t=which
@@ -13036,7 +13040,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=304 s=0 z=100 t=of
    W x=336 s=0 z=100 t=virtues
    W x=411 s=0 z=100 t=that
-  LINE y=479 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=487 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=very
    W x=50 s=0 z=100 t=few
    W x=88 s=0 z=100 t=knots
@@ -13045,7 +13049,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=261 s=0 z=100 t=Anchora
    W x=344 s=0 z=100 t=tied
    W x=390 s=0 z=100 t=bowlines
-  LINE y=503 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=511 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=instinctively;
    W x=136 s=0 z=100 t=her
    W x=178 s=0 z=100 t=fingers
@@ -13053,7 +13057,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=314 s=0 z=100 t=form
    W x=367 s=0 z=100 t=the
    W x=411 s=0 z=100 t=loop,
-  LINE y=527 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=535 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=pass
    W x=51 s=0 z=100 t=the
    W x=97 s=0 z=100 t=tail
@@ -13062,7 +13066,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=272 s=0 z=100 t=standing
    W x=365 s=0 z=100 t=part,
    W x=424 s=0 z=100 t=and
-  LINE y=551 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=559 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=thread
    W x=74 s=0 z=100 t=it
    W x=105 s=0 z=100 t=back
@@ -13072,7 +13076,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=344 s=0 z=100 t=in
    W x=376 s=0 z=100 t=a
    W x=403 s=0 z=100 t=single
-  LINE y=575 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=583 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=fluid
    W x=55 s=0 z=100 t=motion
    W x=127 s=0 z=100 t=that
@@ -13081,7 +13085,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=361 s=0 z=100 t=one
    W x=404 s=0 z=100 t=and
    W x=446 s=0 z=100 t=a
-  LINE y=599 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=607 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=half
    W x=54 s=0 z=100 t=seconds.
    W x=140 s=0 z=100 t=She
@@ -13090,7 +13094,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=277 s=0 z=100 t=won
    W x=317 s=0 z=100 t=a
    W x=340 s=0 z=100 t=bowline-tying
-  LINE y=623 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=631 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=competition
    W x=115 s=0 z=100 t=at
    W x=153 s=0 z=100 t=a
@@ -13099,7 +13103,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=310 s=0 z=100 t=in
    W x=343 s=0 z=100 t=the
    W x=390 s=0 z=100 t=Leeward
-  LINE y=647 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=655 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=Islands,
    W x=89 s=0 z=100 t=beating
    W x=168 s=0 z=100 t=a
@@ -13107,7 +13111,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=292 s=0 z=100 t=with
    W x=340 s=0 z=100 t=forty
    W x=402 s=0 z=100 t=years’
-  LINE y=671 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=679 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=experience
    W x=95 s=0 z=100 t=and
    W x=140 s=0 z=100 t=very
@@ -13115,7 +13119,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=254 s=0 z=100 t=hands.
    W x=330 s=0 z=100 t=The
    W x=371 s=0 z=100 t=boatswain
-  LINE y=695 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=703 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=had
    W x=40 s=0 z=100 t=been
    W x=83 s=0 z=100 t=gracious
@@ -13126,7 +13130,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=337 s=0 z=100 t=bought
    W x=407 s=0 z=100 t=her
    W x=444 s=0 z=100 t=a
-  LINE y=719 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=727 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=rum,
    W x=45 s=0 z=100 t=which
    W x=96 s=0 z=100 t=is
@@ -13800,31 +13804,31 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=2
    W x=166 s=1 z=100 t=Appendix
    W x=279 s=1 z=100 t=B
-  LINE y=63 x=0 align=2 mult=1.000 hfid=0 words=3
-   W x=126 s=1 z=100 t=Signal
-   W x=199 s=1 z=100 t=Flags
-   W x=257 s=1 z=100 t=Observed
-  LINE y=91 x=0 align=0 mult=1.000 hfid=0 words=5
+  LINE y=36 x=0 align=2 mult=1.500 hfid=0 words=3
+   W x=73 s=1 z=100 t=Signal
+   W x=183 s=1 z=100 t=Flags
+   W x=270 s=1 z=100 t=Observed
+  LINE y=99 x=0 align=0 mult=1.000 hfid=0 words=5
    W x=27 s=0 z=100 t=During
    W x=123 s=0 z=100 t=the
    W x=192 s=0 z=100 t=voyage,
    W x=302 s=0 z=100 t=the
    W x=371 s=0 z=100 t=following
-  LINE y=115 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=123 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=International
    W x=153 s=0 z=100 t=Code
    W x=215 s=0 z=100 t=of
    W x=260 s=0 z=100 t=Signals
    W x=353 s=0 z=100 t=flags
    W x=427 s=0 z=100 t=were
-  LINE y=139 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=147 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=observed
    W x=100 s=0 z=100 t=flying
    W x=182 s=0 z=100 t=from
    W x=249 s=0 z=100 t=other
    W x=327 s=0 z=100 t=vessels.
    W x=430 s=0 z=100 t=The
-  LINE y=163 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=171 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=International
    W x=141 s=0 z=100 t=Code
    W x=191 s=0 z=100 t=is
@@ -13833,7 +13837,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=306 s=0 z=100 t=of
    W x=339 s=0 z=100 t=flag
    W x=392 s=0 z=100 t=signals
-  LINE y=187 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=195 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=that
    W x=55 s=0 z=100 t=allows
    W x=123 s=0 z=100 t=ships
@@ -13841,14 +13845,14 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=209 s=0 z=100 t=different
    W x=301 s=0 z=100 t=nationalities
    W x=435 s=0 z=100 t=to
-  LINE y=211 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=219 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=communicate
    W x=120 s=0 z=100 t=without
    W x=202 s=0 z=100 t=a
    W x=229 s=0 z=100 t=common
    W x=306 s=0 z=100 t=language,
    W x=415 s=0 z=100 t=which
-  LINE y=235 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=243 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=is
    W x=27 s=0 z=100 t=an
    W x=62 s=0 z=100 t=admirable
@@ -13856,7 +13860,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=239 s=0 z=100 t=that
    W x=295 s=0 z=100 t=works
    W x=350 s=0 z=100 t=considerably
-  LINE y=259 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=267 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=better
    W x=66 s=0 z=100 t=in
    W x=97 s=0 z=100 t=theory
@@ -13865,7 +13869,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=260 s=0 z=100 t=practice,
    W x=347 s=0 z=100 t=because
    W x=424 s=0 z=100 t=the
-  LINE y=283 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=291 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=system
    W x=72 s=0 z=100 t=assumes
    W x=158 s=0 z=100 t=that
@@ -13873,7 +13877,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=266 s=0 z=100 t=parties
    W x=343 s=0 z=100 t=can
    W x=390 s=0 z=100 t=identify
-  LINE y=307 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=315 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=forty
    W x=60 s=0 z=100 t=flags
    W x=123 s=0 z=100 t=at
@@ -13882,7 +13886,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=265 s=0 z=100 t=and
    W x=308 s=0 z=100 t=under
    W x=367 s=0 z=100 t=conditions
-  LINE y=331 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=339 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=that
    W x=65 s=0 z=100 t=typically
    W x=161 s=0 z=100 t=include
@@ -13890,10 +13894,10 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=315 s=0 z=100 t=glare,
    W x=393 s=0 z=100 t=and
    W x=445 s=0 z=100 t=a
-  LINE y=355 x=0 align=0 mult=1.000 hfid=0 words=2
+  LINE y=363 x=0 align=0 mult=1.000 hfid=0 words=2
    W x=0 s=0 z=100 t=rolling
    W x=72 s=0 z=100 t=deck.
-  LINE y=383 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=391 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=27 s=1 z=100 t=Alpha.
    W x=102 s=0 z=100 t=A
    W x=122 s=0 z=100 t=white
@@ -13902,7 +13906,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=267 s=0 z=100 t=swallowtail
    W x=379 s=0 z=100 t=flag.
    W x=443 s=0 z=100 t=“I
-  LINE y=407 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=415 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=have
    W x=54 s=0 z=100 t=a
    W x=75 s=0 z=100 t=diver
@@ -13913,7 +13917,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=319 s=0 z=100 t=at
    W x=350 s=0 z=100 t=slow
    W x=395 s=0 z=100 t=speed.”
-  LINE y=431 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=439 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=Observed
    W x=82 s=0 z=100 t=near
    W x=135 s=0 z=100 t=the
@@ -13922,14 +13926,14 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=304 s=0 z=100 t=from
    W x=357 s=0 z=100 t=a
    W x=382 s=0 z=100 t=battered
-  LINE y=455 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=463 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=workboat
    W x=90 s=0 z=100 t=whose
    W x=154 s=0 z=100 t=diver
    W x=213 s=0 z=100 t=was,
    W x=264 s=0 z=100 t=presumably,
    W x=376 s=0 z=100 t=somewhere
-  LINE y=479 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=487 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=below,
    W x=60 s=0 z=100 t=doing
    W x=118 s=0 z=100 t=whatever
@@ -13940,7 +13944,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=373 s=0 z=100 t=do
    W x=403 s=0 z=100 t=in
    W x=430 s=0 z=100 t=two
-  LINE y=503 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=511 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=metres
    W x=66 s=0 z=100 t=of
    W x=99 s=0 z=100 t=water
@@ -13950,7 +13954,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=289 s=0 z=100 t=reef.
    W x=346 s=0 z=100 t=Anchora
    W x=427 s=0 z=100 t=kept
-  LINE y=527 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=535 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=well
    W x=46 s=0 z=100 t=clear,
    W x=112 s=0 z=100 t=as
@@ -13960,7 +13964,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=352 s=0 z=100 t=a
    W x=377 s=0 z=100 t=note
    W x=432 s=0 z=100 t=of
-  LINE y=551 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=559 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=the
    W x=44 s=0 z=100 t=workboat’s
    W x=152 s=0 z=100 t=position
@@ -13969,7 +13973,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=328 s=0 z=100 t=she
    W x=371 s=0 z=100 t=could
    W x=431 s=0 z=100 t=add
-  LINE y=575 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=583 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=a
    W x=24 s=0 z=100 t=“diving
    W x=98 s=0 z=100 t=operations”
@@ -13977,7 +13981,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=333 s=0 z=100 t=to
    W x=367 s=0 z=100 t=her
    W x=408 s=0 z=100 t=chart
-  LINE y=599 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=607 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=of
    W x=32 s=0 z=100 t=the
    W x=73 s=0 z=100 t=reef.
@@ -13986,7 +13990,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=230 s=0 z=100 t=removed
    W x=308 s=0 z=100 t=the
    W x=349 s=0 z=100 t=annotation
-  LINE y=623 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=631 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=on
    W x=36 s=0 z=100 t=the
    W x=80 s=0 z=100 t=grounds
@@ -13995,7 +13999,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=264 s=0 z=100 t=diving
    W x=331 s=0 z=100 t=was
    W x=371 s=0 z=100 t=presumably
-  LINE y=647 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=655 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=temporary,
    W x=103 s=0 z=100 t=whereas
    W x=180 s=0 z=100 t=the
@@ -14004,7 +14008,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=323 s=0 z=100 t=intended
    W x=407 s=0 z=100 t=to
    W x=441 s=0 z=100 t=be
-  LINE y=671 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=679 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=permanent,
    W x=101 s=0 z=100 t=or
    W x=128 s=0 z=100 t=at
@@ -14015,7 +14019,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=362 s=0 z=100 t=a
    W x=381 s=0 z=100 t=chart
    W x=437 s=0 z=100 t=of
-  LINE y=695 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=703 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=a
    W x=18 s=0 z=100 t=reef
    W x=60 s=0 z=100 t=can
@@ -14026,7 +14030,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=240 s=0 z=100 t=is
    W x=261 s=0 z=100 t=still
    W x=310 s=0 z=100 t=growing.
-  LINE y=723 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=731 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=27 s=1 z=100 t=Bravo.
    W x=103 s=0 z=100 t=A
    W x=118 s=0 z=100 t=red
@@ -14497,10 +14501,10 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=2
    W x=165 s=1 z=100 t=Appendix
    W x=278 s=1 z=100 t=C
-  LINE y=63 x=0 align=2 mult=1.000 hfid=0 words=2
-   W x=142 s=1 z=100 t=Tidal
-   W x=194 s=1 z=100 t=Observations
-  LINE y=91 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=36 x=0 align=2 mult=1.500 hfid=0 words=2
+   W x=98 s=1 z=100 t=Tidal
+   W x=176 s=1 z=100 t=Observations
+  LINE y=99 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=27 s=0 z=100 t=Tidal
    W x=85 s=0 z=100 t=data
    W x=144 s=0 z=100 t=collected
@@ -14508,7 +14512,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=313 s=0 z=100 t=the
    W x=361 s=0 z=100 t=voyage
    W x=442 s=0 z=100 t=is
-  LINE y=115 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=123 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=summarized
    W x=105 s=0 z=100 t=below.
    W x=170 s=0 z=100 t=All
@@ -14516,7 +14520,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=266 s=0 z=100 t=are
    W x=308 s=0 z=100 t=approximate,
    W x=427 s=0 z=100 t=all
-  LINE y=139 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=147 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=heights
    W x=86 s=0 z=100 t=are
    W x=132 s=0 z=100 t=measured
@@ -14524,7 +14528,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=282 s=0 z=100 t=chart
    W x=348 s=0 z=100 t=datum,
    W x=424 s=0 z=100 t=and
-  LINE y=163 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=171 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=all
    W x=43 s=0 z=100 t=predictions
    W x=148 s=0 z=100 t=should
@@ -14533,7 +14537,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=329 s=0 z=100 t=with
    W x=376 s=0 z=100 t=the
    W x=420 s=0 z=100 t=same
-  LINE y=187 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=195 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=confidence
    W x=104 s=0 z=100 t=one
    W x=150 s=0 z=100 t=extends
@@ -14542,7 +14546,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=289 s=0 z=100 t=weather
    W x=369 s=0 z=100 t=forecast
    W x=452 s=0 z=100 t=—
-  LINE y=211 x=0 align=0 mult=1.000 hfid=0 words=10
+  LINE y=219 x=0 align=0 mult=1.000 hfid=0 words=10
    W x=0 s=0 z=100 t=which
    W x=52 s=0 z=100 t=is
    W x=76 s=0 z=100 t=to
@@ -14553,7 +14557,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=315 s=0 z=100 t=correct,
    W x=393 s=0 z=100 t=but
    W x=429 s=0 z=100 t=you
-  LINE y=235 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=243 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=should
    W x=67 s=0 z=100 t=not
    W x=106 s=0 z=100 t=bet
@@ -14561,14 +14565,14 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=182 s=0 z=100 t=keel
    W x=223 s=0 z=100 t=on
    W x=252 s=0 z=100 t=it.
-  LINE y=263 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=271 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=27 s=0 z=100 t=Tides
    W x=93 s=0 z=100 t=in
    W x=138 s=0 z=100 t=the
    W x=197 s=0 z=100 t=region
    W x=282 s=0 z=100 t=are
    W x=339 s=0 z=100 t=predominantly
-  LINE y=287 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=295 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=semi-diurnal,
    W x=137 s=0 z=100 t=with
    W x=192 s=0 z=100 t=two
@@ -14576,7 +14580,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=303 s=0 z=100 t=waters
    W x=378 s=0 z=100 t=and
    W x=430 s=0 z=100 t=two
-  LINE y=311 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=319 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=low
    W x=40 s=0 z=100 t=waters
    W x=107 s=0 z=100 t=in
@@ -14586,7 +14590,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=305 s=0 z=100 t=The
    W x=345 s=0 z=100 t=tidal
    W x=403 s=0 z=100 t=range
-  LINE y=335 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=343 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=varies
    W x=71 s=0 z=100 t=with
    W x=120 s=0 z=100 t=the
@@ -14595,7 +14599,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=266 s=0 z=100 t=the
    W x=312 s=0 z=100 t=moon:
    W x=380 s=0 z=100 t=greatest
-  LINE y=359 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=367 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=at
    W x=32 s=0 z=100 t=springs
    W x=102 s=0 z=100 t=(when
@@ -14605,7 +14609,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=284 s=0 z=100 t=moon
    W x=339 s=0 z=100 t=are
    W x=378 s=0 z=100 t=aligned)
-  LINE y=383 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=391 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=and
    W x=43 s=0 z=100 t=smallest
    W x=132 s=0 z=100 t=at
@@ -14615,13 +14619,13 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=337 s=0 z=100 t=are
    W x=378 s=0 z=100 t=at
    W x=412 s=0 z=100 t=right
-  LINE y=407 x=0 align=0 mult=1.000 hfid=0 words=5
+  LINE y=415 x=0 align=0 mult=1.000 hfid=0 words=5
    W x=0 s=0 z=100 t=angles).
    W x=102 s=0 z=100 t=Anchora
    W x=191 s=0 z=100 t=recorded
    W x=279 s=0 z=100 t=tidal
    W x=343 s=0 z=100 t=observations
-  LINE y=431 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=439 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=at
    W x=37 s=0 z=100 t=every
    W x=98 s=0 z=100 t=anchorage,
@@ -14629,7 +14633,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=278 s=0 z=100 t=a
    W x=305 s=0 z=100 t=graduated
    W x=409 s=0 z=100 t=staff
-  LINE y=455 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=463 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=driven
    W x=68 s=0 z=100 t=into
    W x=121 s=0 z=100 t=the
@@ -14638,7 +14642,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=269 s=0 z=100 t=the
    W x=314 s=0 z=100 t=waterline,
    W x=416 s=0 z=100 t=which
-  LINE y=479 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=487 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=she
    W x=43 s=0 z=100 t=read
    W x=93 s=0 z=100 t=at
@@ -14647,7 +14651,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=300 s=0 z=100 t=whenever
    W x=389 s=0 z=100 t=she
    W x=432 s=0 z=100 t=was
-  LINE y=503 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=511 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=aboard
    W x=68 s=0 z=100 t=and
    W x=109 s=0 z=100 t=awake,
@@ -14656,18 +14660,18 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=247 s=0 z=100 t=less
    W x=293 s=0 z=100 t=regular
    W x=371 s=0 z=100 t=intervals
-  LINE y=527 x=0 align=0 mult=1.000 hfid=0 words=4
+  LINE y=535 x=0 align=0 mult=1.000 hfid=0 words=4
    W x=0 s=0 z=100 t=when
    W x=44 s=0 z=100 t=she
    W x=80 s=0 z=100 t=was
    W x=113 s=0 z=100 t=not.
-  LINE y=555 x=0 align=0 mult=1.000 hfid=0 words=5
+  LINE y=563 x=0 align=0 mult=1.000 hfid=0 words=5
    W x=27 s=1 z=100 t=Twin
    W x=83 s=1 z=100 t=Harbors.
    W x=187 s=0 z=100 t=Semi-diurnal,
    W x=329 s=0 z=100 t=range
    W x=403 s=0 z=100 t=1.8–2.4
-  LINE y=579 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=587 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=m
    W x=26 s=0 z=100 t=at
    W x=64 s=0 z=100 t=springs,
@@ -14677,14 +14681,14 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=285 s=0 z=100 t=neaps.
    W x=358 s=0 z=100 t=High
    W x=411 s=0 z=100 t=water
-  LINE y=603 x=0 align=0 mult=1.000 hfid=0 words=6
+  LINE y=611 x=0 align=0 mult=1.000 hfid=0 words=6
    W x=0 s=0 z=100 t=approximately
    W x=130 s=0 z=100 t=coincides
    W x=220 s=0 z=100 t=with
    W x=269 s=0 z=100 t=lunar
    W x=335 s=0 z=100 t=transit,
    W x=424 s=0 z=100 t=with
-  LINE y=627 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=635 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=a
    W x=25 s=0 z=100 t=lag
    W x=70 s=0 z=100 t=of
@@ -14693,7 +14697,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=250 s=0 z=100 t=minutes
    W x=329 s=0 z=100 t=that
    W x=386 s=0 z=100 t=Anchora
-  LINE y=651 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=659 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=0 s=0 z=100 t=attributed
    W x=106 s=0 z=100 t=to
    W x=144 s=0 z=100 t=the
@@ -14701,7 +14705,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=316 s=0 z=100 t=of
    W x=354 s=0 z=100 t=the
    W x=401 s=0 z=100 t=harbor
-  LINE y=675 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=683 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=entrance
    W x=89 s=0 z=100 t=and
    W x=132 s=0 z=100 t=the
@@ -14710,7 +14714,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=291 s=0 z=100 t=the
    W x=334 s=0 z=100 t=water
    W x=391 s=0 z=100 t=flowing
-  LINE y=699 x=0 align=0 mult=1.000 hfid=0 words=8
+  LINE y=707 x=0 align=0 mult=1.000 hfid=0 words=8
    W x=0 s=0 z=100 t=over
    W x=53 s=0 z=100 t=the
    W x=96 s=0 z=100 t=shallow
@@ -14719,7 +14723,7 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=249 s=0 z=100 t=the
    W x=292 s=0 z=100 t=approach
    W x=379 s=0 z=100 t=channel.
-  LINE y=723 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=731 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=0 s=0 z=100 t=The
    W x=43 s=0 z=100 t=two
    W x=87 s=0 z=100 t=basins
@@ -15396,9 +15400,9 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=2
    W x=164 s=1 z=100 t=Appendix
    W x=277 s=1 z=100 t=D
-  LINE y=63 x=0 align=2 mult=1.000 hfid=0 words=1
-   W x=196 s=1 z=100 t=Errata
-  LINE y=91 x=0 align=0 mult=1.000 hfid=0 words=9
+  LINE y=36 x=0 align=2 mult=1.500 hfid=0 words=1
+   W x=179 s=1 z=100 t=Errata
+  LINE y=99 x=0 align=0 mult=1.000 hfid=0 words=9
    W x=27 s=0 z=100 t=No
    W x=56 s=0 z=100 t=errors
    W x=120 s=0 z=100 t=have
@@ -15408,15 +15412,15 @@ SPINE 12 href=OEBPS/appendix.xhtml pages=13 truncated=0 cssFallback=0
    W x=335 s=0 z=100 t=is,
    W x=368 s=0 z=100 t=in
    W x=395 s=0 z=100 t=itself,
-  LINE y=115 x=0 align=0 mult=1.000 hfid=0 words=1
+  LINE y=123 x=0 align=0 mult=1.000 hfid=0 words=1
    W x=0 s=0 z=100 t=suspicious.
  PAGE 12 elements=3 footnotes=0
   LINE y=0 x=0 align=2 mult=1.500 hfid=0 words=2
    W x=163 s=1 z=100 t=Appendix
    W x=276 s=1 z=100 t=E
-  LINE y=63 x=0 align=2 mult=1.000 hfid=0 words=1
-   W x=153 s=1 z=100 t=Acknowledgments
-  LINE y=91 x=0 align=0 mult=1.000 hfid=0 words=7
+  LINE y=36 x=0 align=2 mult=1.500 hfid=0 words=1
+   W x=115 s=1 z=100 t=Acknowledgments
+  LINE y=99 x=0 align=0 mult=1.000 hfid=0 words=7
    W x=27 s=0 z=100 t=The
    W x=60 s=0 z=100 t=author
    W x=131 s=0 z=100 t=wishes

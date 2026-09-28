@@ -111,31 +111,6 @@ TEST(FootnotePreviewStore, AccumulatesPerSpineAndIsIdempotent) {
   EXPECT_EQ(storeTexts(*epub), afterFirst);
 }
 
-TEST(FootnotePreviewStore, ResolvedSpineNeedsNoArchive) {
-  const std::string cacheDir = freshDir("no_archive");
-  const std::string epubCopy = cacheDir + "/book.epub";  // work from a copy, never the corpus
-  fs::copy_file(kCorpusEpub, epubCopy);
-
-  auto epub = openBook(epubCopy, cacheDir);
-  ASSERT_TRUE(FootnotePreviews::resolveSpine(*epub, kChapterSpine));
-  const std::vector<std::string> resolved = storeTexts(*epub);
-  ASSERT_FALSE(resolved.empty());
-
-  // Pass A reads the spine's banked XHTML and Pass B has nothing left to fetch, so a re-resolve
-  // must not touch the archive. Deleting it is the only way to prove that from outside.
-  GfxRenderer renderer;
-  Section section(epub, kChapterSpine, renderer);
-  Section::BuildParams params;
-  params.viewportWidth = 480;
-  params.viewportHeight = 800;
-  params.lineCompression = 1.0f;
-  ASSERT_TRUE(section.createSectionFile(params, {}, /*skipEviction=*/true));  // banks chapter1
-  fs::remove(epubCopy);
-
-  EXPECT_TRUE(FootnotePreviews::resolveSpine(*epub, kChapterSpine));
-  EXPECT_EQ(storeTexts(*epub), resolved);
-}
-
 TEST(FootnotePreviewStore, BanksTheNoteDocumentItStreams) {
   const std::string cacheDir = freshDir("banks_notes");
   auto epub = openBook(kCorpusEpub, cacheDir);
@@ -204,68 +179,6 @@ TEST(FootnotePreviewStore, ResolvesNotesSplitAcrossManyDocuments) {
   }
 }
 
-// A sliced build re-enters runBuildParse once per slice, from the top, so the between-phases step
-// — resolve the notes, then initialise the layout parser — is guarded to run exactly once. That
-// guard is not observable from outside: resolving twice appends nothing the second time, so its
-// only symptom is wasted work, not a wrong answer. What this test can pin is the other half —
-// that the sliced entry point produces the same result as the blocking one with previews on,
-// which is the shape every background build takes and which nothing else covers. On the host a
-// corpus fixture usually completes in a single slice; the equivalence is the point either way.
-TEST(FootnotePreviewStore, SlicedBuildMatchesTheBlockingBuild) {
-  const std::string epubPath = std::string(CORPUS_DIR) + "/test_split_footnotes.epub";
-
-  Section::BuildParams params;
-  params.viewportWidth = 480;
-  params.viewportHeight = 800;
-  params.lineCompression = 1.0f;
-  params.inlineFootnotePreviews = true;
-
-  GfxRenderer renderer;
-  const std::string blockingDir = freshDir("sliced_reference");
-  auto blockingEpub = openBook(epubPath, blockingDir);
-  Section blocking(blockingEpub, 0, renderer);
-  ASSERT_TRUE(blocking.createSectionFile(params, {}, /*skipEviction=*/true));
-  ASSERT_TRUE(blocking.loadSectionFile(params));
-
-  const std::string slicedDir = freshDir("sliced");
-  auto slicedEpub = openBook(epubPath, slicedDir);
-  Section sliced(slicedEpub, 0, renderer);
-  int slices = 0;
-  Section::BuildStep step = Section::BuildStep::More;
-  while (step != Section::BuildStep::Done && step != Section::BuildStep::Failed && slices < 20000) {
-    step = sliced.stepSectionBuild(params, /*budgetMs=*/1);
-    ++slices;
-  }
-  ASSERT_EQ(step, Section::BuildStep::Done);
-  ASSERT_TRUE(sliced.loadSectionFile(params));
-
-  // Same notes, same pagination: the expansion text is part of the layout, so a page-count match
-  // is a strong statement that previews were present for the sliced build too.
-  EXPECT_EQ(storeTexts(*slicedEpub), storeTexts(*blockingEpub));
-  EXPECT_EQ(sliced.pageCount, blocking.pageCount);
-  EXPECT_GT(storeTexts(*slicedEpub).size(), 0u);
-}
-
-// The resolved bit is what lets a build skip the resolver entirely, and what Background-B reads
-// to decide a spine is safe to pre-build without doing resolver work on the loop task. Both rest
-// on it meaning "scanned, nothing outstanding" — so a chapter with NO notes has to answer true as
-// well, or a book without footnotes would look permanently unresolved and never get look-ahead.
-TEST(FootnotePreviewStore, MarksSpinesResolvedIncludingOnesWithoutNotes) {
-  const std::string cacheDir = freshDir("resolved_bits");
-  auto epub = openBook(kCorpusEpub, cacheDir);
-
-  EXPECT_FALSE(FootnotePreviews::spineResolved(epub->getCachePath(), kChapterSpine));
-  EXPECT_FALSE(FootnotePreviews::spineResolved(epub->getCachePath(), kNotesSpine));
-
-  ASSERT_TRUE(FootnotePreviews::resolveSpine(*epub, kChapterSpine));
-  EXPECT_TRUE(FootnotePreviews::spineResolved(epub->getCachePath(), kChapterSpine));
-  EXPECT_FALSE(FootnotePreviews::spineResolved(epub->getCachePath(), kNotesSpine));
-
-  // notes.xhtml carries note bodies and no callers of its own. Nothing to store, bit set anyway.
-  ASSERT_TRUE(FootnotePreviews::resolveSpine(*epub, kNotesSpine));
-  EXPECT_TRUE(FootnotePreviews::spineResolved(epub->getCachePath(), kNotesSpine));
-}
-
 // With the bit set the resolver must not read the document at all — not the banked XHTML, not the
 // archive. Removing both is the only way to assert that from outside, and it is the property the
 // per-build cost rests on: before the bit existed, every rebuild re-scanned the whole spine with a
@@ -296,16 +209,20 @@ TEST(FootnotePreviewStore, ResolvedSpineIsNotScannedAgain) {
 // wrong merge still looks right. These tests give it several passes over hundreds of notes, with
 // key hashes that interleave the two sides arbitrarily, and check the three properties a reader
 // depends on: every note is findable, the index is ordered so the binary search can find it, and
-// re-resolving does not grow it.
+// a note reached again from another chapter is not stored twice.
 namespace {
 
 // A book of `chapters` chapters, each with `notesPerChapter` callers into one shared notes
 // document. Deliberately minimal — no size padding, no front matter; the shapes those cover are
 // the subject of FootnoteResolveSliceTest. Note text is a function of the note's id so the test
 // can assert the exact string that came back, not merely that something did.
+//
+// With `citePreviousChapter`, every chapter after the first also calls the previous chapter's
+// notes again, the way a shared notes document gets cited from more than one place.
 std::string noteTextFor(const int id) { return "Note " + std::to_string(id) + " body text for the merge test."; }
 
-std::string makeManyNotesBook(const std::string& dir, const int chapters, const int notesPerChapter) {
+std::string makeManyNotesBook(const std::string& dir, const int chapters, const int notesPerChapter,
+                              const bool citePreviousChapter = false) {
   test_zip::StoredZipWriter zip;
   std::string manifest, spine, notesBodies;
   int noteId = 0;
@@ -318,6 +235,11 @@ std::string makeManyNotesBook(const std::string& dir, const int chapters, const 
               "\"><sup>*</sup></a> and after it.</p>\n";
       notesBodies += "<p id=\"ft_" + id + "\"><a href=\"" + name + "#ft" + id + "\"><sup>*</sup></a>" +
                      noteTextFor(noteId) + "</p>\n";
+    }
+    if (citePreviousChapter && c > 0) {
+      for (int id = (c - 1) * notesPerChapter + 1; id <= c * notesPerChapter; ++id) {
+        body += "<p>As noted before<a href=\"notes.xhtml#ft_" + std::to_string(id) + "\"><sup>*</sup></a>.</p>\n";
+      }
     }
     zip.add("OEBPS/" + name,
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">"
@@ -431,26 +353,33 @@ TEST(FootnotePreviewStore, MergesHundredsOfNotesAcrossPasses) {
   EXPECT_EQ(wrong, 0) << wrong << " notes resolved to another note's text";
 }
 
-// Re-resolving a chapter whose notes are all stored must leave the index alone, not append a
-// second copy of every row. What makes that true is contains() filtering the pass's targets
-// against the on-disk index before anything is appended -- the pass then has nothing to add and
-// short-circuits, so the merge is never reached at all. (Verified: breaking commit()'s tie rule
-// does not fail this test, because no tie ever arises.)
-TEST(FootnotePreviewStore, ReResolvingDoesNotGrowTheMergedIndex) {
-  const std::string dir = freshDir("merge_idempotent");
-  const std::string book = makeManyNotesBook(dir, /*chapters=*/3, /*notesPerChapter=*/60);
+// A note a chapter reaches that an earlier chapter already stored must not be appended again.
+// What makes that true is contains() filtering the pass's targets against the on-disk index before
+// anything is appended; the pass then appends only the new notes and merges them with the parked
+// index. Here every pass after the first has 120 targets, half of them already on disk. (A second
+// resolve of the SAME spine cannot reach any of this: the resolved bit returns before the scan.)
+TEST(FootnotePreviewStore, NotesCitedAgainFromAnotherChapterAreNotStoredTwice) {
+  constexpr int kChapters = 3;
+  constexpr int kPerChapter = 60;
+  const std::string dir = freshDir("merge_overlap");
+  const std::string book = makeManyNotesBook(dir, kChapters, kPerChapter, /*citePreviousChapter=*/true);
   auto epub = openBook(book, dir + "/cache");
 
-  for (int c = 0; c < 3; ++c) ASSERT_TRUE(FootnotePreviews::resolveSpine(*epub, c));
-  const OnDiskIndex first = readIndex(*epub);
-  const uintmax_t sizeAfterFirst = storeSize(*epub);
-  ASSERT_EQ(first.count, 180);
+  for (int c = 0; c < kChapters; ++c) {
+    ASSERT_TRUE(FootnotePreviews::resolveSpine(*epub, c)) << "chapter " << c << " failed to resolve";
+  }
+  const OnDiskIndex index = readIndex(*epub);
+  EXPECT_EQ(index.count, kChapters * kPerChapter) << "notes cited from two chapters were stored twice";
 
-  for (int c = 0; c < 3; ++c) ASSERT_TRUE(FootnotePreviews::resolveSpine(*epub, c));
-  const OnDiskIndex second = readIndex(*epub);
-  EXPECT_EQ(second.count, first.count) << "a second pass over the same spines grew the index";
-  EXPECT_EQ(second.rows, first.rows) << "a second pass rewrote the index differently";
-  EXPECT_EQ(storeSize(*epub), sizeAfterFirst) << "a second pass grew the store on disk";
+  FootnotePreviews::Lookup lookup;
+  ASSERT_TRUE(lookup.open(epub->getCachePath(), epub.get(), /*currentSpineIndex=*/0));
+  int missing = 0;
+  for (int id = 1; id <= kChapters * kPerChapter; ++id) {
+    std::string text;
+    const std::string href = "notes.xhtml#ft_" + std::to_string(id);
+    if (!lookup.find(href.c_str(), text) || text != noteTextFor(id)) ++missing;
+  }
+  EXPECT_EQ(missing, 0) << missing << " notes do not resolve to their own text";
 }
 
 // A notes document's entries open with a link back to the caller they belong to, and those

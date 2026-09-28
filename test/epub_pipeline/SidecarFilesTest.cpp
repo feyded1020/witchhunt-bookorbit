@@ -29,11 +29,17 @@ struct SidecarFilesFixture : testing::Test {
   }
   void TearDown() override { fs::remove_all(work); }
 
-  void touch(const std::string& name) {
+  void touch(const std::string& name) { write(name, "x"); }
+  void write(const std::string& name, const std::string& contents) {
     fs::create_directories(fs::path(work / name).parent_path());
-    std::ofstream(work / name, std::ios::binary) << "x";
+    std::ofstream(work / name, std::ios::binary | std::ios::trunc) << contents;
   }
   std::string p(const std::string& name) const { return (work / name).string(); }
+  // A second name for the same file, as a case-insensitive filesystem answers to. A host that is
+  // case-insensitive itself already does, and would refuse the link.
+  void alias(const std::string& name, const std::string& otherCase) {
+    if (!fs::exists(work / otherCase)) fs::create_hard_link(work / name, work / otherCase);
+  }
 };
 
 TEST_F(SidecarFilesFixture, BasePathStripsTheExtension) {
@@ -99,14 +105,19 @@ TEST_F(SidecarFilesFixture, ExistingExtensionsIgnoresUnrelatedNeighbours) {
 // The tables list every extension in both cases, and the SD card is FAT/exFAT,
 // which answers to either. One file must therefore be reported once - a caller
 // that moves them would otherwise rename it twice, the second failing because
-// the first already moved it. (On a case-sensitive host this passes trivially;
-// it is the case-insensitive platforms, including the device, that need it.)
+// the first already moved it. The host filesystem is case-sensitive, so a hard
+// link gives each file its upper-case name the way FAT would; without it this
+// passes whether or not anything is deduplicated.
 TEST_F(SidecarFilesFixture, OneFileIsReportedOncePerExtension) {
   touch("book.epub");
   touch("book.jpg");
+  touch("book.opf");
+  alias("book.jpg", "book.JPG");
+  alias("book.opf", "book.OPF");
   const auto found = SidecarFiles::existingExtensions(p("book.epub"));
-  ASSERT_EQ(found.size(), 1u) << "a single cover reported under both .jpg and .JPG";
+  ASSERT_EQ(found.size(), 2u) << "a single file reported under both cases of its extension";
   EXPECT_STREQ(found[0], ".jpg");
+  EXPECT_STREQ(found[1], ".opf");
 }
 
 TEST_F(SidecarFilesFixture, ExtensionlessBookHasNoSidecars) {
@@ -114,6 +125,48 @@ TEST_F(SidecarFilesFixture, ExtensionlessBookHasNoSidecars) {
   touch("untitled.opf");
   EXPECT_EQ(SidecarFiles::metadataPath(p("untitled")), "");
   EXPECT_TRUE(SidecarFiles::existingExtensions(p("untitled")).empty());
+}
+
+// metadataStamp() is how the recent-books list notices a sidecar written after
+// the book was opened. It must tell "none" from "present", and see any edit.
+TEST_F(SidecarFilesFixture, MetadataStampIsZeroWithoutASidecar) {
+  touch("book.epub");
+  EXPECT_EQ(SidecarFiles::metadataStamp(p("book.epub")), 0u);
+}
+
+TEST_F(SidecarFilesFixture, MetadataStampIsNonZeroEvenForAnEmptySidecar) {
+  touch("book.epub");
+  write("book.opf", "");
+  EXPECT_NE(SidecarFiles::metadataStamp(p("book.epub")), 0u);
+}
+
+TEST_F(SidecarFilesFixture, MetadataStampIsStableForUnchangedContent) {
+  touch("book.epub");
+  write("book.opf", "<dc:title>Alpha</dc:title>");
+  const uint32_t first = SidecarFiles::metadataStamp(p("book.epub"));
+  write("book.opf", "<dc:title>Alpha</dc:title>");
+  EXPECT_EQ(SidecarFiles::metadataStamp(p("book.epub")), first);
+}
+
+// The case a size or clock-based stamp misses: a device without a set clock
+// dates every write 1980-01-01, and this edit keeps the length.
+TEST_F(SidecarFilesFixture, MetadataStampSeesASameLengthEdit) {
+  touch("book.epub");
+  write("book.opf", "<dc:title>Alpha</dc:title>");
+  const uint32_t before = SidecarFiles::metadataStamp(p("book.epub"));
+  write("book.opf", "<dc:title>Omega</dc:title>");
+  EXPECT_NE(SidecarFiles::metadataStamp(p("book.epub")), before);
+}
+
+// The last byte a reader of the sidecar can take in is still hashed.
+TEST_F(SidecarFilesFixture, MetadataStampCoversTheWholeReadableSidecar) {
+  touch("book.epub");
+  std::string contents(SidecarFiles::kMetadataStampBytes, ' ');
+  write("book.opf", contents);
+  const uint32_t before = SidecarFiles::metadataStamp(p("book.epub"));
+  contents.back() = 'x';
+  write("book.opf", contents);
+  EXPECT_NE(SidecarFiles::metadataStamp(p("book.epub")), before);
 }
 
 }  // namespace

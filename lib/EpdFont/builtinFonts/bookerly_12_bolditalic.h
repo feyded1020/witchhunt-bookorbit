@@ -3,7 +3,7 @@
  * name: bookerly_12_bolditalic
  * size: 12
  * mode: 2-bit  compressed: zopfli
- * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels)
+ * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels; ink re-centred on the unhinted outline)
  * Command used: fontconvert.py bookerly_12_bolditalic 12 ../builtinFonts/source/Bookerly/Bookerly-BoldItalic.ttf --2bit --compress --zopfli
  */
 #pragma once
@@ -2776,7 +2776,7 @@ static const EpdGlyphPacked bookerly_12_bolditalicGlyphs[] = {
     { 16, 13, 400, 4, 15 }, // U+21D4
     { 18, 19, 400, 3, 18 }, // U+2200
     { 13, 21, 249, 1, 20 }, // U+2202
-    { 12, 17, 400, 6, 17 }, // U+2203
+    { 12, 17, 400, 7, 17 }, // U+2203
     { 19, 21, 400, 3, 19 }, // U+2205
     { 16, 18, 273, 0, 18 }, // U+2206
     { 16, 19, 400, 5, 18 }, // U+2207
@@ -2825,10 +2825,10 @@ static const EpdGlyphPacked bookerly_12_bolditalicGlyphs[] = {
     { 17, 23, 400, 4, 20 }, // U+2285
     { 17, 17, 400, 4, 17 }, // U+2286
     { 17, 17, 400, 4, 17 }, // U+2287
-    { 20, 19, 400, 2, 18 }, // U+2295
-    { 19, 19, 400, 3, 18 }, // U+2296
-    { 19, 19, 400, 3, 18 }, // U+2297
-    { 19, 19, 400, 3, 18 }, // U+2298
+    { 20, 19, 400, 3, 18 }, // U+2295
+    { 19, 19, 400, 4, 18 }, // U+2296
+    { 19, 19, 400, 4, 18 }, // U+2297
+    { 19, 19, 400, 4, 18 }, // U+2298
     { 15, 18, 400, 5, 18 }, // U+22A5
     { 5, 4, 249, 5, 9 }, // U+22C5
     { 22, 4, 400, 2, 9 }, // U+22EF

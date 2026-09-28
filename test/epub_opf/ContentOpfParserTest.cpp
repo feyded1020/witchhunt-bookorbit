@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <random>
@@ -8,6 +9,7 @@
 
 #include "../../lib/Epub/Epub/BookMetadataCache.h"
 #include "../../lib/Epub/Epub/parsers/ContentOpfParser.h"
+#include "../../lib/Serialization/BufferedFileIO.h"
 
 namespace {
 
@@ -79,12 +81,27 @@ std::string buildManifestItems(const int count) {
 
 namespace opf_test_hooks {
 extern std::vector<std::string>* g_spineHrefSink;
-}
+extern size_t g_refuseNothrowArraysAbove;
+extern size_t g_refusedNothrowArrays;
+}  // namespace opf_test_hooks
 
 namespace {
 struct ScopedSpineHrefSink {
   explicit ScopedSpineHrefSink(std::vector<std::string>* sink) { opf_test_hooks::g_spineHrefSink = sink; }
   ~ScopedSpineHrefSink() { opf_test_hooks::g_spineHrefSink = nullptr; }
+};
+
+// Makes the heap refuse the manifest index's growth and nothing else. The parser's only other
+// nothrow arrays are the item store's read/write buffers, so refusing anything larger than those
+// fails the index (which doubles past them within a few hundred items) and leaves the store
+// buffered, as it would be on a device that is merely short of a large block.
+struct ScopedIndexGrowthOom {
+  ScopedIndexGrowthOom() {
+    opf_test_hooks::g_refusedNothrowArrays = 0;
+    opf_test_hooks::g_refuseNothrowArraysAbove = std::max(serialization::BufferedFileReader::DEFAULT_BUFFER_BYTES,
+                                                          serialization::BufferedFileWriter::DEFAULT_BUFFER_BYTES);
+  }
+  ~ScopedIndexGrowthOom() { opf_test_hooks::g_refuseNothrowArraysAbove = 0; }
 };
 }  // namespace
 
@@ -248,7 +265,7 @@ TEST(ContentOpfParser, ResolvesSpineIdrefsUsingManifestItems) {
   EXPECT_EQ(capturedSpineHrefs[1], "book/OEBPS/text/ch1.xhtml");
 }
 
-TEST(ContentOpfParser, DoesNotHangOnOversizedManifestIdDuringSpineLookup) {
+TEST(ContentOpfParser, OversizedFirstManifestIdNeitherHangsNorBreaksLaterIdrefs) {
   const std::string cacheDir = makeTempDir();
   ASSERT_FALSE(cacheDir.empty());
   TempDirGuard dirGuard(cacheDir);
@@ -256,45 +273,10 @@ TEST(ContentOpfParser, DoesNotHangOnOversizedManifestIdDuringSpineLookup) {
   std::vector<std::string> capturedSpineHrefs;
   ScopedSpineHrefSink sinkGuard(&capturedSpineHrefs);
 
-  // Oversized ID pushes serialization::readString(FsFile, ...) down its
-  // failure path during spine idref lookup in host tests.
-  const std::string oversizedId = repeatedChar('x', 5000);
-  const std::string base = "/book/OEBPS/";
-  const std::string xml =
-      "<?xml version='1.0' encoding='utf-8'?>"
-      "<package xmlns:opf='http://www.idpf.org/2007/opf' xmlns:dc='http://purl.org/dc/elements/1.1/'>"
-      "<metadata><dc:title>T</dc:title></metadata>"
-      "<manifest>"
-      "<item id='" +
-      oversizedId +
-      "' href='text/huge-id.xhtml' media-type='application/xhtml+xml'/>"
-      "<item id='ch1' href='text/ch1.xhtml' media-type='application/xhtml+xml'/>"
-      "</manifest>"
-      "<spine>"
-      "<itemref idref='ch1'/>"
-      "</spine>"
-      "</package>";
-
-  BookMetadataCache cache(cacheDir);
-  ContentOpfParser parser(cacheDir, base, xml.size(), &cache);
-  ASSERT_TRUE(parseOpfXml(parser, xml));
-
-  // The key invariant for this regression is completion without an endless
-  // loop while still resolving valid idrefs.
-  ASSERT_EQ(capturedSpineHrefs.size(), 1u);
-  EXPECT_EQ(capturedSpineHrefs[0], "book/OEBPS/text/ch1.xhtml");
-}
-
-TEST(ContentOpfParser, SkipsMalformedFirstManifestEntryAndResolvesLaterIdrefs) {
-  const std::string cacheDir = makeTempDir();
-  ASSERT_FALSE(cacheDir.empty());
-  TempDirGuard dirGuard(cacheDir);
-
-  std::vector<std::string> capturedSpineHrefs;
-  ScopedSpineHrefSink sinkGuard(&capturedSpineHrefs);
-
-  // First entry is malformed for the temp store read path (oversized id),
-  // while later entries remain valid and should still be resolved.
+  // A 5000-char id on the first manifest item. SaxParserYxml truncates attribute
+  // values to kAttrValueLen (384), so the item store records a 383-char id rather
+  // than one past serialization's MAX_STRING_LENGTH. The spine pass must still
+  // walk past that record: complete without looping, and resolve every later idref.
   const std::string oversizedId = repeatedChar('m', 5000);
   const std::string base = "/book/OEBPS/";
   const std::string xml =
@@ -318,8 +300,6 @@ TEST(ContentOpfParser, SkipsMalformedFirstManifestEntryAndResolvesLaterIdrefs) {
   ContentOpfParser parser(cacheDir, base, xml.size(), &cache);
   ASSERT_TRUE(parseOpfXml(parser, xml));
 
-  // Parser should complete, skip malformed entry safely, and still resolve
-  // later valid idrefs.
   ASSERT_EQ(capturedSpineHrefs.size(), 2u);
   EXPECT_EQ(capturedSpineHrefs[0], "book/OEBPS/text/ok1.xhtml");
   EXPECT_EQ(capturedSpineHrefs[1], "book/OEBPS/text/ok2.xhtml");
@@ -366,7 +346,10 @@ TEST(ContentOpfParser, ResolvesSpineIdrefsUsingIndexedLookupForLargeManifest) {
 // book OPENS and resolves correctly. This is the regression guard for "a huge book crashes the device"
 // (it used to abort building the index on -fno-exceptions) AND for "the fallback is O(N^2) slow" (the
 // index is kept when there's memory, so a big book stays fast).
-TEST(ContentOpfParser, HugeManifestResolvesCorrectly) {
+namespace {
+// Parses a 1500-item manifest whose spine names its last, a middle and its first item plus one
+// unknown id, and checks the three known ones resolve in spine order.
+void expectHugeManifestResolves() {
   const std::string cacheDir = makeTempDir();
   ASSERT_FALSE(cacheDir.empty());
   TempDirGuard dirGuard(cacheDir);
@@ -374,7 +357,7 @@ TEST(ContentOpfParser, HugeManifestResolvesCorrectly) {
   std::vector<std::string> capturedSpineHrefs;
   ScopedSpineHrefSink sinkGuard(&capturedSpineHrefs);
 
-  constexpr int kItemCount = 1500;  // > MAX_INDEX_ENTRIES (1200) → index capped/disabled, linear scan
+  constexpr int kItemCount = 1500;  // well past LARGE_SPINE_THRESHOLD (400)
   const std::string base = "/book/OEBPS/";
   const std::string xml =
       "<?xml version='1.0' encoding='utf-8'?>"
@@ -399,6 +382,21 @@ TEST(ContentOpfParser, HugeManifestResolvesCorrectly) {
   EXPECT_EQ(capturedSpineHrefs[0], "book/OEBPS/text/ch1499.xhtml");
   EXPECT_EQ(capturedSpineHrefs[1], "book/OEBPS/text/ch750.xhtml");
   EXPECT_EQ(capturedSpineHrefs[2], "book/OEBPS/text/ch0.xhtml");
+}
+}  // namespace
+
+TEST(ContentOpfParser, HugeManifestResolvesThroughTheIndex) {
+  // The host heap holds the whole index, so this is the binary-search lookup: the path a big book
+  // takes whenever the device has the memory.
+  expectHugeManifestResolves();
+}
+
+TEST(ContentOpfParser, HugeManifestResolvesThroughLinearScanWhenIndexGrowthFails) {
+  // The index's first refused growth latches indexDisabled_ and frees it, so every idref goes
+  // through the exact linear scan over .items.bin instead.
+  const ScopedIndexGrowthOom oom;
+  expectHugeManifestResolves();
+  EXPECT_GT(opf_test_hooks::g_refusedNothrowArrays, 0u) << "the index never failed to grow; the fallback did not run";
 }
 
 TEST(ContentOpfParser, DisablesHashTrustedIndexOnDuplicateIdsAndStillResolves) {

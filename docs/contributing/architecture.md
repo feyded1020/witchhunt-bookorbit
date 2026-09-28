@@ -157,7 +157,7 @@ Typical persisted areas on SD:
     book.bin
     progress.bin
     cover.bmp
-    sections/*.bin
+    spines/<spine / 32>/*.bin   (per-spine caches, 32 spine items per bucket)
   settings.json
   state.json
 ```

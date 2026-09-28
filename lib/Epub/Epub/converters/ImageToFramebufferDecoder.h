@@ -88,6 +88,13 @@ struct RenderConfig {
   // Honoured by PngToFramebufferConverter. Other decoders ignore it and write only cachePath;
   // callers must treat the companion as best-effort and check before relying on it.
   std::string companionCachePath;
+  // If non-empty, a decode stopped for input (CooperativeAbort) between two rows of blocks parks
+  // here instead of starting over: the rows already done stay in the caches' .part files and this
+  // file holds the decoder's and the pipeline's state. The next decode of the same image with the
+  // same configuration resumes it -- only the rows after the park are then drawn, so a caller that
+  // shows the image renders it from the finished cache. Requires cachePath. Honoured by
+  // JpegToFramebufferConverter (baseline and full progressive); other decoders ignore it.
+  std::string checkpointPath;
   // Native-grayscale sink, for panels that resolve more than four levels
   // (HalDisplay::getGrayLevels() > 4). When set, the decoder stores the
   // tone-mapped 8-bit sample here and writes NEITHER the framebuffer nor any

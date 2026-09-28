@@ -64,6 +64,7 @@ bool Activity::consumeListRowLongPress(int& index) {
   }
 
   const int row = ListTouchBand::hitTest(x, y);
+  // cppcheck-suppress knownConditionTrueFalse ; hitTest() is a -1 stub on boards without touch
   if (row < 0) return false;
 
   // peek + suppress, the contract ActivityManager::dispatchHintStripTap() uses: claimed only

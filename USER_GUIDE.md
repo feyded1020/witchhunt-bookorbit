@@ -107,7 +107,11 @@ Upon turning the device on for the first time, you will be placed on the **[Home
 
 ### 3.1 Home Screen
 
-The Home screen is the main entry point to the firmware. It shows the most recently read book as a cover thumbnail and provides navigation to **[Reading Mode](#4-reading-mode)**, the **[Browse Files](#33-browse-files-screen)** screen, the **[Recent Books](#34-recent-books-screen)** screen, the **[File Transfer](#36-file-transfer-screen)** screen, and **[Settings](#37-settings)**. A weather panel and clock are also accessible from the Home screen when configured.
+The Home screen is the main entry point to the firmware. It shows the most recently read book as a cover thumbnail and provides navigation to **[Reading Mode](#4-reading-mode)**, the **[Browse Files](#33-browse-files-screen)** screen, the **[Recent Books](#34-recent-books-screen)** screen, **Reading Stats**, the **[File Transfer](#36-file-transfer-screen)** screen, and **[Settings](#37-settings)**. Bookmarks, the OPDS browser and a weather panel appear as well once they have something to show.
+
+Under each book's cover is a line of its reading history, such as *Read 3h 18m over 5 days - last 6m ago*. It counts the days you opened the book on, not the number of times you opened it. Each theme shows as much of it as it has room for: where the full line would not fit, as on the X3's Lyra Carousel or at the Large UI font size, a short form such as *3h 18m · 5d* sits in the cover's badge instead. The day count is left out until the device's clock has been set.
+
+**Choosing what is on the Home screen:** **Settings → Display → Home screen** has one switch each for Browse files, Recent books, Reading stats, Bookmarks, OPDS browser, File transfer and Weather. Everything is on by default. Anything you switch off moves behind a **More** row above Settings, so it is still one step away. More only appears when something has been moved there. Settings itself cannot be switched off, because it is where you undo the choice.
 
 ### 3.2 Reading Mode
 
@@ -119,11 +123,27 @@ The Browse Files screen is a full-featured file and folder browser.
 
 * **Navigate List:** Use **Left** (or **Volume Up**), or **Right** (or **Volume Down**) to move the selection cursor up and down through folders and books. Long-pressing these buttons scrolls a full page at a time.
 * **Open Selection:** Press **Confirm** to open a folder or read a selected book.
-* **Context Menu:** Hold and release **Confirm** to open a context menu for the selected item. Actions include: open, mark as read, view book info, set as sleep screen, flash a `.bin` firmware file, and delete.
+* **Options menu:** Hold **Right** (the page-forward button) to open the menu for the selected item. In a folder short enough to fit on one screen, a short press of Right opens it too. On a device without a Confirm key, such as the X4 Pro, **Confirm** opens the menu instead, and a tap on a row opens the item. The button hints always show which button does what.
+  * For a book or file: **Open**, **Mark as read**, **Info**, **Delete Book Cache**, **Remove**, **Set as sleep screen** (images), **Move to folder**, **New Folder**, **Search** and **Search all folders**.
+  * For a folder: **Open**, the sort and visibility options, **Search**, **Search all folders**, **New Folder** and **Remove**, which deletes the folder and everything in it.
 
 #### Sorting
 
-Files and folders can be sorted by **name**, **date**, **size**, or **type**, in either ascending or descending order. The sort order is configurable from the context menu or a dedicated sort button in the browser toolbar.
+Files and folders can be sorted by **name**, **date**, **size**, or **type**, in either ascending or descending order. The sort order is set from the options menu.
+
+#### Organising files
+
+* **New Folder** makes a folder inside the one you are browsing. A name the SD card cannot hold is corrected rather than refused.
+* **Move to folder** opens a folder picker that shows folders only. Browse to where the file should go: the move puts it in the folder you are *browsing*, which the header names in full, not in the row under the highlight. Press **Right** (the page-forward button; labelled **Move**) to move it there, or **Left** (the page-back button; labelled **New**) to make a new folder first. **Back** cancels.
+* A move is instant whatever the size of the file, because nothing is copied. It never overwrites anything: if a file of the same name is already there, or the file is already in that folder, the move is refused and the reason shown.
+* **Remove** on a folder deletes it and everything in it. It sits last in the menu because it cannot be undone.
+
+#### Searching
+
+* **Search** narrows the folder you are in to the names that contain what you type (upper and lower case are treated the same). The search text is shown in the header.
+* **Search all folders** searches this folder and every folder below it, and lists the matches with their path, so two books with the same name can be told apart. Opening a result opens it where it lives. **Go to folder** opens the folder a result is in, with the file selected.
+* **Back** ends a search; so does changing folder. **Clear search** in the folder's menu does the same.
+* The card is searched when you ask rather than indexed in advance, so results always reflect what is on the card, including anything copied over USB. **Show Hidden Files** applies to search as it does to browsing.
 
 #### Large folders
 
@@ -224,11 +244,16 @@ The Settings screen allows you to configure the device's behavior.
   - **Refresh Frequency** - Slider (0 = Never, up to 60) for how often a full refresh runs to clear ghosting
   - **Refresh After Image Pages** - Whether to do an extra refresh after pages containing images
 - **Sunlight Fading Fix**: Software fix for white X4 models that may fade in direct sunlight. "OFF" (default) / "ON".
+
+**User interface**:
 - **UI Theme**: Visual theme for the device UI:
   - "Classic" - The original theme
   - "Lyra" - Rounded elements and menu icons
   - "Lyra Extended" - Lyra with 3 books on the Home Screen
   - "Lyra Carousel" - Lyra with a full cover carousel on the Home Screen
+- **UI Font Size**: Text size for menus, headers and lists: "Normal" (default) / "Large". The reader's own status bar is not affected.
+- **Home screen** (submenu): Which entries sit on the Home screen; the rest move behind **More**. See **[Home Screen](#31-home-screen)**.
+- **Show Busy Indicator**: Shows a small hourglass in the middle of the screen when a button press starts a screen change that takes a second or more, such as opening or leaving a book, so you can tell the press was received. It only appears on devices whose screen refreshes fast enough for it to help, so never on the LilyGo T5 S3. "ON" (default) / "OFF".
 
 #### 3.7.2 Reader
 
@@ -237,14 +262,14 @@ The Settings screen allows you to configure the device's behavior.
 
 **EPUB Font** (submenu):
 - **Font Family**: Font used for EPUB reading. Includes built-in fonts (Bookerly, Noto Sans) plus any fonts installed on the SD card.
-- **Font Size**: "Tiny", "Small", "Medium" (default), "Large", "X Large"
+- **Font Size**: 10pt to 26pt. 10pt to 20pt are typefaces designed at that size; 22, 24 and 26pt are the 20pt face enlarged.
 - **Text Anti-Aliasing**: Smooth grey edges on text. Slows page turns slightly. "ON" / "OFF"
 - **Fast AA** *(X3 only)*: Swaps the slow 53-frame grayscale waveform for a fast 7-frame LUT (~130 ms). Mid-tones appear slightly darker. "ON" / "OFF"
 - **Text Darkness**: Ink density for rendered text: "Normal" (default), "Dark", "Extra Dark", "Max Dark"
 
 **TXT/Markdown Font** (submenu):
 - **Font Family**: Font used when reading `.txt` and `.md` files (independent of the EPUB font).
-- **Font Size**: "Tiny", "Small", "Medium" (default), "Large", "X Large"
+- **Font Size**: 10pt to 26pt, as for EPUB.
 
 **Layout** (submenu):
 - **Paragraph Alignment**: "Justified" (default), "Left", "Center", "Right", "Book Style"
@@ -263,7 +288,7 @@ The Settings screen allows you to configure the device's behavior.
 - **Bionic Reading**: Bold the first half of each word to guide the eye. "ON" / "OFF"
 - **Guide Dots**: Draw a small dot centered in the space between words to guide the eye along the line (idea borrowed from [CrossInk](https://github.com/uxjulia/CrossInk)). "ON" / "OFF"
 - **Synthetic TOC Fallback**: Generate a table of contents from headings when the EPUB has an invalid or missing TOC. "ON" / "OFF"
-- **Customise Status Bar**: Opens a submenu to configure every element of the reading status bar individually: upper and lower progress bars (Book / Chapter / Hidden, with thickness), status item position (Top / Bottom), chapter page count, book progress percentage, title display (Book / Chapter / Hidden), battery, and clock.
+- **Customise Status Bar**: Opens a submenu to configure every element of the reading status bar individually: upper and lower progress bars (Book / Chapter / Hidden, with thickness), status item position (Top / Bottom), chapter page count, book progress percentage, title display (Book / Chapter / Hidden), battery, and clock. The chapter page count and the Chapter progress bar cover the whole chapter as the table of contents lists it, even when the book splits that chapter into several files (many light novels start a new file at every illustration). A `~` before the total means part of it is still an estimate; it firms up as the rest of the chapter is laid out.
 
 #### 3.7.3 Controls
 
@@ -287,7 +312,9 @@ The Settings screen allows you to configure the device's behavior.
 - **Show File Extensions**: Show file extensions in the file browser. "ON" / "OFF"
 
 **Network**:
-- **WiFi Networks**: Add, remove, and connect to WiFi networks.
+- **WiFi Networks**: Add, remove, and connect to WiFi networks. If WiFi was switched on here, leaving the screen restarts the device quickly and returns to Settings. That frees the memory WiFi used; every screen that uses WiFi does the same.
+  - Whenever the reader needs WiFi, it first tries the network it last connected to, then any other saved network in range, strongest first. While it does, **Back** cancels and **Confirm** stops it and shows the network list.
+  - To join a network that does not broadcast its name, choose **Add hidden network...** at the end of the list and type its name (SSID). A password saved for that name is reused; otherwise you are asked for one (leave it empty for an open network). While it connects, **Back** abandons the attempt and returns to the list.
 - **KOReader Sync**: Configure and authenticate KOReader progress sync. See [KOReader Sync Quick Setup](#377-koreader-sync-quick-setup).
 - **OPDS Servers**: Manage OPDS libraries. See [OPDS Servers (Multiple Libraries)](#375-opds-servers-multiple-libraries).
 
@@ -295,9 +322,9 @@ The Settings screen allows you to configure the device's behavior.
 - **Clock Settings** (submenu):
   - **Use Clock**: Enable the software clock. "ON" / "OFF"
   - **Clock Format**: "24h" / "12h"
-  - **Timezone**: Select from a list of supported timezones (UTC, CET, EET, MSK, IST, AEST, EST, CST, MST, PST, and more)
+  - **Timezone**: Pick your timezone from a full-screen list of 86: named places and regions that follow their own daylight-saving rules, fixed UTC offsets for anywhere the list misses, and plain UTC.
   - **Detect Timezone**: Auto-detect timezone via IP geolocation (requires WiFi).
-  - **Sync Time**: Sync the clock via NTP (requires WiFi).
+  - **Sync Time**: Sync the clock via NTP (requires WiFi). Afterwards the device restarts quickly and returns to Clock Settings, like every other screen that uses WiFi.
 - **Weather Settings**: Configure the Open-Meteo weather panel shown on the Home Screen.
 
 **System**:
@@ -305,12 +332,12 @@ The Settings screen allows you to configure the device's behavior.
 - **Repair Screen**: Clears ghosting left behind by fast page refreshes, by driving every pixel hard between black and white several times. Takes about 20 seconds and deletes nothing. A maintenance action, not a fix for ghosting while you read.
 - **System Information**: Display device info (firmware version, hardware, memory, SD card).
 - **Boot Diagnostics**: How this boot started, where the last sleep stopped, and the history pairing each sleep with the boot that followed it. One screenful, meant to be photographed into a bug report when the device fails to sleep or fails to wake.
-- **Reading Statistics**: View reading stats (streaks, time read, pages/min, per-book ETA, sparkline history).
+- **Reading Statistics**: View reading stats (streaks, time read, pages/min, per-book ETA, sparkline history). Also on the Home screen as **Reading Stats**.
 
 **Firmware Update**:
 - **Check for Updates**: Check for and download Witch Reader firmware updates over WiFi.
 - **Include Beta Updates**: Whether to include release-candidate builds in update checks. "ON" / "OFF"
-- **SD Firmware Update**: Flash a firmware `.bin` file from the SD card.
+- **SD Firmware Update**: Flash a firmware `.bin` file from the SD card. Press **Confirm** on a file to flash it. The **Options** button hint in the file picker opens a smaller menu than the Browse Files one: the sort and visibility options, **Search**, **Search all folders**, and **Remove** to delete a `.bin` you no longer need.
 - **Switch to USB Drive**: Reboot the device into USB mass-storage mode to access the SD card directly from a computer.
 
 #### 3.7.5 OPDS Servers (Multiple Libraries)
@@ -350,7 +377,7 @@ Behavior notes:
 
 - Passwords are never shown back in the web UI after saving.
 - Leaving Password blank while editing keeps the existing saved password unchanged.
-- The web UI can save hidden-network SSIDs, but connecting to hidden networks still depends on device-side WiFi connection flow.
+- The web UI can save hidden-network SSIDs. On the device, join one through **Add hidden network...** in the network list; its saved password is reused.
 
 #### 3.7.7 KOReader Sync Quick Setup
 
@@ -404,6 +431,20 @@ docker compose up -d
 Press **Confirm** to open the reader menu, then select **Sync Progress**:
 - **Apply Remote** — jump to the progress stored on the server.
 - **Upload Local** — push the current position to the server.
+
+##### Automatic sync
+
+**On Closing a Book** sends your position to the server when you close a book: "Always", only after a session of at least a set number of pages, or "Never".
+
+On the **X4 Pro** and the **LilyGo T5 S3**, sync can also run in the background. That is useful if you read on more than one device and rarely close a book. These options sit in the **Automatic Sync** submenu of the KOReader Sync settings, and all of them are off by default:
+
+- **Receive → On Wake**: Fetch the position from the server when the device wakes.
+- **Send → While Reading**: Send your position every set number of pages, or "Never".
+- **Send → On Sleep**: Send your position when the device goes to sleep.
+- **Send → On Closing a Book**: As above.
+- **Status Bar → Show Sync Indicator**: Show a small indicator in the reader's status bar while a background sync is running.
+
+A background sync leaves WiFi on if the screen you are using needs it. The X3 and X4 do not have enough memory to sync in the background, so they offer **On Closing a Book** only.
 
 ### 3.8 Sleep Screen
 

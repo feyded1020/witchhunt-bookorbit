@@ -3,7 +3,7 @@
  * name: notosans_12_italic
  * size: 12
  * mode: 2-bit  compressed: zopfli
- * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels)
+ * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels; ink re-centred on the unhinted outline)
  * Command used: fontconvert.py notosans_12_italic 12 ../builtinFonts/source/NotoSans/NotoSans-Italic.ttf --2bit --compress --zopfli
  */
 #pragma once

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <BuildArena.h>
 #include <PngToBmpConverter.h>
 
 #include <cstddef>
@@ -12,6 +13,8 @@
 
 #include "../Activity.h"
 #include "./FileBrowserActivity.h"
+#include "Epub/CoverThumbSession.h"
+#include "HomeMenu.h"
 #include "ReadingStats.h"
 #include "activities/reader/ReaderActivity.h"
 #include "components/UITheme.h"
@@ -21,26 +24,6 @@ struct RecentBook;
 struct Rect;
 
 class HomeActivity final : public Activity {
- public:
-  enum class MenuAction {
-    FileBrowser,
-    Recents,
-    ReadingStats,
-    GlobalBookmarks,
-    OpdsBrowser,
-    BookOrbitCatalog,
-    FileTransfer,
-    Weather,
-    Settings,
-  };
-
- private:
-  struct MenuEntry {
-    MenuAction action;
-    StrId label;
-    UIIcon icon;
-  };
-
   ButtonNavigator buttonNavigator;
   int selectorIndex = 0;
   int lastCarouselBookIndex = 0;  // remembered position when leaving carousel row
@@ -50,12 +33,32 @@ class HomeActivity final : public Activity {
   bool hasOpdsServers = false;
   bool coverRendered = false;
   bool coverBufferStored = false;
-  // True while the ~48 KB secondary framebuffer has been released to give the
-  // cold-cache cover decode/extract pipeline headroom (mirrors the reader's pattern).
-  // Restored once all covers are loaded, and on exit. See loadRecentCovers().
-  bool secondaryBufferReleased = false;
+  // True while the ~52 KB secondary framebuffer is LENT to the cold-cache cover pipeline as
+  // its scratch region (coverScratch_): the OPF inflate ring, the cover extraction ring and the
+  // decoders' working memory bump-allocate inside it instead of the heap. It used to be
+  // RELEASED for the same headroom; a task stack or a book-lifetime block landing in the freed
+  // hole then left the realloc short and the device without its buffer (memory audit 2026-09).
+  // The lent block never enters the heap, and the return cannot fail. Returned once all covers
+  // are loaded, and on exit. See loadRecentCovers() / restoreSecondaryBuffer().
+  bool secondaryBufferLent = false;
+  // The lent region itself. During the cover pass it backs coverScratch_; once every cover is
+  // resolved the carousel keeps it as its frame cache (frameCacheInRegion_) instead of handing
+  // it back, and it returns to the display on exit or before a child activity opens.
+  uint8_t* lentRegion_ = nullptr;
+  size_t lentRegionBytes_ = 0;
+  bool frameCacheInRegion_ = false;
+  std::unique_ptr<BuildArena> coverScratch_;
   size_t nextRecentCoverIndex = 0;
   size_t nextThumbSizeIndex = 0;  // which thumb size within the current book is next
+
+  // Phase 0: a JPEG cover's missing carousel sizes, from one decode run in slices (memory audit
+  // 2026-09, R9 item 3). A press pauses it where it stands; it resumes on the next pass instead of
+  // starting over. Holds its decoder state in coverScratch_ between slices (declared after it, so
+  // it goes first) and removes its partial thumbnails if it goes unfinished.
+  std::unique_ptr<CoverThumbSession> thumbSession;
+  size_t thumbSessionSizeIndex = 0;  // the first size it writes (nextThumbSizeIndex when it began)
+  int thumbSessionCovered = 0;       // how many sizes it writes
+  bool thumbSessionFailed = false;   // set on error: the retry for that book runs one-shot
 
   // Phase 1: sliced ZIP extraction of cover.img (only needed for large embedded PNG covers)
   std::unique_ptr<ReaderActivity::CoverExtractSession> extractSession;
@@ -84,7 +87,7 @@ class HomeActivity final : public Activity {
   int coverRectH = 0;
 
   std::vector<RecentBook> recentBooks;
-  std::vector<MenuEntry> menuEntries;
+  std::vector<HomeMenuEntry> menuEntries;
   bool menuEntriesDirty = true;
 
   std::string focusBookPath;
@@ -94,9 +97,10 @@ class HomeActivity final : public Activity {
   // Tap on a cover or a menu entry: opens it. Returns true when the touch was consumed.
   // Inert on non-touch boards. Reads the targets the active theme published.
   bool handleHomeTouch();
-  void dispatchMenuAction(MenuAction action);
+  void dispatchMenuAction(HomeMenuAction action);
 
   void rebuildMenuEntries();
+  bool keepRegionAsFrameCache();
   bool storeCoverBuffer();
   bool restoreCoverBuffer();
   void freeCoverBuffer();
@@ -137,12 +141,16 @@ class HomeActivity final : public Activity {
  public:
   void loop() override;
   void render(RenderLock&&) override;
+  // A child drawn over Home (the touch boards' light drawer) recovers the displayed frame from the
+  // secondary buffer, which does nothing while Home has it lent: hand it back first.
+  void startActivityForResult(std::unique_ptr<Activity>&& activity, ActivityResultHandler resultHandler) override;
   // Covers still resolving (not just mid-pass): loadRecentCovers() clears recentsLoading at
   // every yield point so loop() re-enters it, which briefly makes the activity look idle. If
   // skipLoopDelay went false in that window, the main loop's inactivity governor could drop
   // the CPU to 10 MHz mid-burst and the next decode tick would crawl (observed: a ~1.5 s
   // cover decode taking ~25 s). Hold full speed until every recent cover is resolved.
   bool skipLoopDelay() override {
-    return (firstRenderDone && !recentsLoaded) || recentsLoading || extractSession != nullptr || pngSession != nullptr;
+    return (firstRenderDone && !recentsLoaded) || recentsLoading || extractSession != nullptr ||
+           pngSession != nullptr || thumbSession != nullptr;
   }
 };

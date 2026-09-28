@@ -35,6 +35,14 @@ class SaxParser {
   bool init(void* userData, SaxStartCb startCb, SaxEndCb endCb, SaxCharCb charCb = nullptr,
             SaxDefaultCb defaultCb = nullptr, bool htmlVoidTagRepair = false);
 
+  // Bytes of parser state init() allocates (~10 KB: attribute table, name stack, buffers).
+  static size_t stateBytes();
+  // Storage for the NEXT init() to place its state in instead of the heap -- a bump allocation
+  // from a build arena, for a section build that must keep the heap free. Ignored when smaller
+  // than stateBytes(). Not owned: reset() forgets it and frees nothing; the memory must simply
+  // outlive every feed()/finalize() call. Cleared by init(), so it has to be set before each.
+  void setExternalState(void* storage, size_t bytes);
+
   // Feed a chunk of bytes. Returns false on parse error; errorLine()/errorString()
   // are valid after a false return.
   bool feed(const uint8_t* buf, size_t len);
@@ -62,7 +70,9 @@ class SaxParser {
     kTruncAttrName = 1u << 1,        // attribute name longer than kElemNameLen
     kTruncAttrValue = 1u << 2,       // attribute value longer than kAttrValueLen
     kTruncMaxAttrs = 1u << 3,        // more than kMaxAttrs attributes on one element
-    kTruncMaxDepth = 1u << 4,        // nesting deeper than kMaxDepth
+    kTruncMaxDepth = 1u << 4,        // nesting deeper than kMaxDepth: the excess elements are not
+                                     // reported (start or end); their text flows to the deepest
+                                     // reported ancestor -- the tree is flattened, never shifted
     kVoidTagRepaired = 1u << 5,      // HTML-style unclosed void tag (<br>, <hr>, ...) auto-closed
     kTrailingDataIgnored = 1u << 6,  // bytes after the root element's end tag; parse stopped there
   };
@@ -80,6 +90,9 @@ class SaxParser {
   void reset();  // releases impl_ and zeros all state; safe to call any number of times
 
   void* impl_ = nullptr;
+  bool implExternal_ = false;  // impl_ lives in caller storage: never delete it
+  void* externalState_ = nullptr;
+  size_t externalBytes_ = 0;
   bool stopped_ = false;
   int errorLine_ = 0;
   const char* errorString_ = nullptr;

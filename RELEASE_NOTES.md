@@ -2,6 +2,116 @@
 
 User-facing changes only. Full commit history is in git log.
 
+## 2.35 — 2026-09-27
+
+Everything since 2.31. You can organise and search the library on the device itself, pictures are decoded at their full resolution, and lists and headings are laid out the way the book's stylesheet asks. Underneath all of it, building a chapter takes far less memory than it did.
+
+### Library and home screen
+
+- **New Folder, Move to folder, and deleting a folder**, all from the file browser's options menu. Until now, a card with a few hundred books could only be tidied on a computer. Move opens a folder picker. It moves the file into the folder you are *browsing*, which the header names in full (`Move to folder: /Books/Tolkien`), and you can make a new folder from inside the picker, so a book can go somewhere that does not exist yet. A move is instant whatever the size of the book, since nothing is copied. It never overwrites anything: if a file with that name is already there, the move is refused and the reason shown on screen.
+- **Search**, also in the options menu. **Search** narrows the current folder to names containing what you type. **Search all folders** looks in every folder below this one and lists the matches with their paths, and **Go to folder** opens the folder a result lives in, with that file selected. Back ends a search. The card is searched when you ask rather than indexed in advance: the card cannot report when its contents changed, so an index would go out of date after every USB copy.
+- **Choose what sits on the home screen** (Settings → Display → Home screen). There is one switch each for Browse files, Recent books, Reading stats, Bookmarks, OPDS browser, File transfer and Weather. Anything you switch off moves behind a **More** row above Settings, so nothing becomes unreachable. Everything is on by default. Settings itself has no switch, because it is where you undo the choice.
+- **Reading Stats is on the home menu.** Time per book, streaks and the day-by-day record used to sit three levels down in Settings, where the people they were built for never found them.
+- **Each book's reading history is shown under its cover**, for example "Read 3h 18m over 5 days · last 6m ago". It counts the days a book was opened on rather than the number of times it was opened, since a ten-second glance is not a reading session. Each theme shows as much as it has room for. On the carousel, the line would run into the icon row on the X3's shorter panel or at the Large UI font size, so there a short form goes into the cover's badge instead. If the device's clock has never been set, the day count is left out rather than shown as zero.
+- The History card in Reading Stats now says **Last finished** rather than "Finished". A book you finished and then started again no longer shows "Finished 3d ago" next to "52%".
+- **Loading covers no longer gets in the way** (Lyra Carousel). If you press a button while a cover is being decoded, the decode pauses and later resumes where it stopped, instead of starting again from the beginning. Moving the selection while covers load now redraws in a few milliseconds instead of about a third of a second. Each cover is decoded once for both carousel sizes rather than twice; a 1.3 MB cover used to take two decodes of four and a half seconds each.
+- Fix: on the Classic theme, with all seven home entries showing, the cover showed "Loading..." forever. The layout shrinks the cover tile to make room for the menu, but the tile still asked for a thumbnail at full height, a file that was never written.
+- Fix (X4 Pro): the file browser's menu (Delete, Info, Mark as read, Set as sleep cover and the sort options) could not be opened at all, because it needed a long press of a key the X4 Pro does not have. On devices without a Confirm key, Confirm now opens the menu, and folders get an **Open** row.
+- Fix: the first time you opened a book, the "Indexing" notice could appear over an older screen, such as the boot screen or Settings, instead of over Home.
+
+### Pictures
+
+- **Progressive JPEGs are decoded in full.** Until now they were shown from their first pass only, at an eighth of the resolution enlarged back to size, which is why they looked soft. In one illustrated novel, 77 of the 78 pictures are progressive JPEGs, and the text inside its diagrams could not be read. They are now decoded completely, one band at a time, so a large picture never has to fit in memory at once. The same applies to home-screen thumbnails and sleep covers made from a progressive cover: a 221×324 cover used to become a 27×40 smear stretched to fill the tile.
+- **Percentage widths no longer shrink pictures below their real size.** Publishers wrap figures in boxes such as `width: 60%`, sized for a tablet screen, where 60% still leaves a picture close to its native size. On an e-reader's narrower page the same rule turned diagrams into thumbnails. A percentage box can still enlarge a picture, but it no longer shrinks it below its native width. Fixed-width boxes, pictures the publisher sized directly, and pictures with text flowing around them are unchanged.
+- **Thin lines survive being scaled down.** Shrinking a picture used to keep one pixel from each block and drop the rest, so a one-pixel line disappeared whenever it fell between the kept pixels (35 of the 86 lines in one test drawing). The pixels are now averaged instead.
+- **Pictures on the next few pages are prepared while you read.** Between page turns, the reader decodes the pictures on the next few pages, and on the first pages of the next chapter, and stores them for later, without changing what is on screen. On the X3, turning onto an illustration used to mean waiting 2–6 seconds for it to decode; a picture prepared in advance now appears in well under a second. If you turn the page while a picture is still being prepared, the work is saved to the card and picks up where it stopped next time, instead of starting over. Before, the X3 threw away more of this work than it finished. A "Large image — press Confirm to load" placeholder on the page you are reading now loads by itself after a short pause.
+- **Fix: pictures showed only their alt text, and stayed that way** (#249). Photos exported from Photoshop or Lightroom carry up to 30 KB of camera and colour metadata before the part that gives the picture's size. Reading that far needs 32 KB of memory in one piece, which the reader almost never has while it builds a chapter, and when the memory was refused, the chapter's cache recorded the picture as broken. These headers are now read in stages from a smaller buffer, or later, when the screen's second frame buffer can be borrowed for the job. A chapter laid out without them is rebuilt once their sizes are known.
+- Fix: a large image loaded with Confirm went back to its placeholder every time you returned to the page, because its cache was never saved. The check that decides whether there is enough memory to save it was still asking for far more than saving now needs.
+- Fix: if a reset interrupted a picture while it was being unpacked from the book, that picture stayed blank on every later visit, because the half-written file was treated as complete. A picture is now saved under its real name only once it is complete, and a file of the wrong size is unpacked again.
+
+### Layout
+
+- **Lists are indented the way their stylesheet says.** A list's own margin and padding used to be ignored, and each item got a made-up indent instead. An item with `margin-left: 0` switched that indent off entirely, leaving bullet lists flush with the text, while a list the book had deliberately set to no indent was indented anyway. A list with no padding of its own still gets the usual default indent, as it would in a web browser. Lists also get their spacing above and below now.
+- **A bullet no longer sits alone on its own line** when the item's text is inside a paragraph (`<li><p>…`). This is common: it is what Pandoc produces.
+- **Spacing below an element now comes after the whole element.** When a chapter heading was split across two lines with a line break, the space it asked for below itself landed between its two lines. A box around two paragraphs put its space between them, and a figure put it between the picture and its caption. The space now goes after the element's last line.
+- **The second line of a split heading is at heading size.** In `Chapter 1<br/>Setting Sail`, a very common way to write a chapter heading, the second line came out at body-text size. An empty heading also no longer enlarges the paragraph after it.
+- `<section>`, `<article>`, `<aside>` and `<main>` now get their margins, and text inside an `<aside>` no longer runs on from the end of the paragraph before it. The paragraph before a list or section also keeps its own first-line indent instead of picking up the container's margin.
+- **Books converted from PDF now show their pages properly.** A scanned book converted to EPUB carries its recognised text as an invisible layer over each page image, and that layer was being drawn: one such book came out as 1,206 pages, mostly one word per line, instead of its 154 scanned pages. Text made invisible with a transparent colour, `opacity: 0` or `visibility: hidden` is no longer drawn. Building those chapters also needed 180 KB of memory at its peak, more than an X3 has, because every word carried its own style. It now needs 74 KB.
+- **Portuguese hyphenation.**
+- Fix: a page with more than 16 footnotes left the extra ones out of its footnote list; the limit is now 64. Fix: a book with more than 1,500 stylesheet rules failed to process its styles and reread them all every time it was opened. Fix: in a document nested more than 64 elements deep, formatting could end on the wrong element.
+
+### Reading
+
+- **A chapter chosen from the contents appears as soon as the page you asked for is built**, instead of after the whole chapter is built. The page you asked for is usually ready a fraction of a second into the build: on an illustrated chapter on the X3, the wait behind the "Indexing" notice went from 7.6 seconds to 0.65. Following a link works the same way.
+- **Fix: with auto page turn on, the device could fall asleep in the middle of a book** (#293). Auto page turn now holds off the sleep timeout while it is turning pages, and does nothing else: the processor still slows down and rests between turns, which is where most of an idle device's power saving comes from.
+- **A small hourglass in the middle of the screen now confirms that a press was received** when it starts a slow screen change. Leaving a book, opening one, or moving in and out of settings can take a second or more, and with nothing on screen in the meantime, a press looked ignored and people pressed again. The hourglass is shown only on devices whose screen can draw it quickly. On the T5 S3, where even a quick refresh takes over a second, it did more harm than good, so it stays off there. You can turn it off anywhere with **Settings → Display → Show Busy Indicator**.
+- Fix: jumping ten pages with a double-click during a slow page could save the new page as your place while the old page stayed on screen for several seconds. Jumping to a contents entry inside the current chapter could do the same.
+- Fix: closing the reader menu could leave the menu on screen until the next page turn. The first redraw after the menu closed was treated as preparing the next page in the background, so it drew nothing on screen.
+- Fix: the reader prepares the next chapter in the background while you read, but the once-a-minute clock update threw that work away, so a chapter that took longer than a minute to prepare rarely finished. The clock now waits for it.
+- **Fix (X3): opening a heavily illustrated chapter could restart the device.** Even when it did not restart, every page for the rest of the session could be drawn with the slower refresh and with anti-aliasing off. Building such a chapter temporarily frees the screen's second frame buffer and works in that space, but a few things the build kept afterwards stayed in that space, so the buffer could not be taken back. On top of that, the diagnostic meant to report this kept the processor busy long enough to trip the watchdog and restart the device.
+- **Fix: reading statistics could be wiped.** If the statistics file could not be read because memory was short, it was treated as an empty history, and the end of the next reading session saved that empty history over the real one. Now the file is left alone and read again later. A damaged file is set aside rather than overwritten, and the file is only replaced once a new copy has been written in full, so a power cut during a save keeps the old one. The statistics also have a size limit now; before, they grew with every book ever opened.
+
+### The screen
+
+- **Fix (X3): the sleep cover showed the outline of the last page read.** After a page drawn with anti-aliasing, the grey edges of the letters stay on the screen even after the display controller's memory has been reset to black and white. The cover was drawn only where it differed from that memory, so those grey pixels were never refreshed. After an anti-aliased page, the sleep cover now does one short clearing refresh first. Reading is unaffected.
+- **Fix (T5 S3): ghosting built up over a long reading session.** The clean-up that runs after a grey page reset the panel's reference image from a buffer that had been lent to background work, which held an image that was never on screen. Each such clean-up made the next refresh update the wrong pixels.
+- On the T5 S3, background work can now run while a page turn waits for the panel, so the next chapter is built while you read.
+- Fix: on the T5 S3, and with 2-bit XTC books, leaving a TXT, Markdown or XTC book left its last page showing on top of the home screen until the next refresh.
+- Fix: in lists whose rows wrap onto two lines (settings submenus, the language and option pickers, the reader menu), the list jumped by a row on every press near the bottom.
+- **At the Large UI font size, text now stays inside its boxes.** Button hint labels ran out of both ends of their boxes into the neighbouring ones. They now switch to a smaller size before anything is cut off, because a whole word in a smaller size is still readable. The weather screen's text no longer piles up on top of itself.
+- The clock and battery now sit in the same place on every screen. Recent Books, the file browser and its menu, Bookmarks and Starred Pages used to draw them further in from the edge.
+
+### Clock
+
+- **The timezone is now picked from a list of 86** (Settings → System → Clock Settings → Timezone). There are 49 named places with their own daylight-saving rules (among them Cairo, Tehran, Karachi, Dhaka, Kathmandu, Johannesburg, Nairobi, Perth, Brisbane, Phoenix, Mexico City, Bogotá, Santiago and St. John's, none of which could be chosen before), 37 fixed offsets for anywhere the list misses, and a plain UTC, which did not exist before.
+- **Fix: Atlantic Canada, Australia Central and Alaska were reset to UTC on every restart**, even after Detect Timezone had set them. The screen that offered these zones and the check that validates a saved setting disagreed about how many zones there were.
+- **Fix: "UTC" was actually UK time.** It followed British Summer Time, so a device that detected UTC ran an hour fast every summer. Lisbon and Dublin were detected as Central European time and were an hour out all year.
+
+### Wi-Fi and sync
+
+- **KOReader Automatic Sync** (X4 Pro and T5 S3). The device can fetch your reading position when it wakes, and send it every so many pages, when it sleeps, or when you close the book. This is for people who read on more than one device and rarely close a book. The options have their own **Automatic Sync** submenu in the KOReader settings, along with an optional sync indicator in the status bar, and everything is off by default. A background sync leaves Wi-Fi on if the screen you are using needs it. The X3 and X4 do not have enough memory for background sync, so they keep syncing only when you close a book.
+- **Joining a hidden network.** The network list now ends with **Add hidden network...**. It asks for the network's name, then uses a saved password for that name if there is one, or asks for a password (leave it empty for an open network).
+- **You can interrupt the automatic connection to a saved network.** Back cancels it and Confirm shows the network list, so you no longer have to wait for it to time out. Back during a manual connection also returns to the list; before, a mistyped hidden network name left "Connecting..." on screen for fifteen seconds.
+- Leaving **Settings → Network → WiFi Networks**, a city search in the weather settings, or **Sync Time** now ends in a quick restart back to the same screen, as leaving every other Wi-Fi screen already did. Before, Wi-Fi stayed on until the device next went to sleep. That meant no idle power saving in the meantime, and the memory Wi-Fi uses was still taken when you opened the next book.
+
+### More memory to work with
+
+Most of this is invisible, but it is why much of the above works on an X3 at all. Building a chapter used to take its working memory piece by piece from the same pool everything else uses, while the screen's second frame buffer, 48–52 KB set aside for it, sat mostly unused. Building a chapter now works inside that buffer wherever there is room at the time, and hands it back afterwards instead of freeing it and hoping to get it back later.
+
+- Building a chapter makes about a third as many memory allocations as before. The last round of this work alone cut the memory needed to build one illustrated chapter on the X3 from 32 KB to 21 KB.
+- An illustrated chapter is built in one pass instead of two.
+- On the X3, the home screen now keeps about 50 KB of memory free once the covers have loaded, up from 28 KB.
+- Fonts on the SD card with wide character coverage, such as CJK fonts, no longer keep a separate identical copy of their character table for every style. That saves up to 48 KB per extra style, which was reloaded at every chapter change.
+
+### With thanks to
+
+Where the code here is someone else's, it is credited in the source file it lives in. Where the idea is theirs and the code is ours, the source says that too.
+
+- **feyded1020**: organising the library on the device, with New Folder, Move to folder and deleting folders (#288), and search in a folder or across the card (#302); the reading-history line under each cover (#296) and Reading Stats on the home menu (#298); opening the file menu on the X4 Pro (#286); keeping text inside its boxes at the Large UI font size (#285, from their own report #281); putting the status bar in the same place on every screen (#287, #301); the Classic theme's cover stuck on "Loading..." (#295); "Last finished" (#299); catching a timezone mix-up before it reached a release (#289); and the diagnosis and design behind the busy indicator (#282).
+- **Eric Kuck** (@EricKuck): KOReader automatic sync on wake, while reading and on sleep, with its status-bar indicator (#269).
+- **Justin Mitchell** (@itsthisjustin): the timezone table and picker (crosspoint-reader #3562), and the follow-up that kept list scrolling working with touch (#3693).
+- **Mr.Catfood** (@HgGamer): joining hidden networks (crosspoint-reader #2360).
+- **Alexander Hoffer** (@axhoff): interrupting the saved-network auto-connect (#2189).
+- **Zach Nelson** (@znelson): removing duplicate networks from the scan list without extra memory (#2262).
+- **Phạm Bình An** (@brianhuster): lists with wrapped rows jumping near the bottom (#3668).
+- **Julia Nguyen** (@uxjulia): pointing out that Wi-Fi stayed on after leaving the network settings (#3613).
+- **Mauricio Juba** (@type0labs-dev): Portuguese hyphenation (#3643).
+- **Eszter Schuffert** (@eszter007): sharing identical font tables across the styles of an SD-card font (#3616).
+- **Sung-jin Brian Hong** (@serialx) and **Uri Tauber**: pinning the build toolchain so release builds stay reproducible (#3594).
+- The bug reports behind two of the fixes above: **Kevin Palm** (@PiperKev) for #249, together with the book that showed it, which is how the cause was found, and **vntraam** for #293. Thanks also to the Discord report comparing one illustrated novel's pictures with another reader's, which led to the full progressive-JPEG decoder.
+- The X3 sleep-cover fix and two display-driver fixes found along the way have been offered back to the `freeink-sdk` this firmware is built on (Free-Ink/freeink-sdk #114, #117, #118).
+
+### Upgrade notes
+
+- **Every book re-indexes its chapters once, the first time you open them**, because lists, spacing, split headings and picture sizes are all laid out differently. Your place in every book is kept. Each book's compiled stylesheet is also rebuilt once, which takes a fraction of a second.
+- **Each picture is decoded again the first time you see it**, because pictures are now decoded at full resolution and their stored copies use a new format.
+- **Home-screen thumbnails that were already made from a progressive-JPEG cover stay blurry** until they are made again. **Settings → System → Clear Reading Cache** remakes them, and also re-indexes every book.
+- **Your timezone is carried over** and keeps exactly the same rules. If you never set a timezone, the device now shows London: it has been running on UK time all along, just labelled UTC. Pick your own zone, or the new plain UTC.
+- **Reading statistics now keep the 100 most recently read books**, and each book's day-by-day record covers its last 60 reading days. Overall totals and your longest streak are kept. A statistics file that cannot be read is set aside as `reading-stats.corrupt.json` rather than overwritten.
+- KOReader Automatic Sync is only available on the X4 Pro and the T5 S3.
+- If you read in a language other than English, the first start after this update takes about a second longer while that language is unpacked into flash, as after 2.31. It happens once.
+- The new labels are translated in German, French, Spanish, Italian, Dutch, Portuguese (PT and BR), Polish, Russian, Ukrainian, Belarusian, Slovenian and Swedish, and "Finished" in the reading statistics now reads "Last finished" in each of them. The Wi-Fi labels are also translated in the other languages, except that Danish, Finnish and Romanian show the three auto-connect labels in English. Otherwise Turkish, Vietnamese and the eight partly-translated languages show the new labels in English until a native speaker fills them in. The relative times on the reading-history line ("6m ago") stay in English in every language, as they already do on the Reading Stats screens.
+
 ## 2.31 — 2026-09-20
 
 Everything since 2.30. Four larger reading sizes, a text size for the menus, and a firmware that came out smaller than 2.30 despite gaining both.

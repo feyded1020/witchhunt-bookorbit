@@ -14,13 +14,14 @@ FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedIn
                                                  CrossPointSettings::FILE_SORT_MODE sortMode,
                                                  CrossPointSettings::FILE_SORT_DIRECTION sortDirection,
                                                  const bool offerDirectoryActions, const bool searchActive,
-                                                 const bool offerGoToFolder)
+                                                 const bool offerGoToFolder, const bool offerFileManagement)
     : MenuListActivity("FileContextMenu", renderer, mappedInput),
       filePath(filePath),
       isBrowserMode(filePath.empty()),
       offerDirectoryActions(offerDirectoryActions),
       searchActive(searchActive),
       offerGoToFolder(offerGoToFolder),
+      offerFileManagement(offerFileManagement),
       sortMode(static_cast<uint8_t>(sortMode)),
       sortDirection(static_cast<uint8_t>(sortDirection)),
       showHiddenFiles(SETTINGS.showHiddenFiles),
@@ -80,9 +81,11 @@ void FileContextMenuActivity::buildMenuItems() {
     if (searchActive) {
       menuItems.push_back(SettingInfo::Action(StrId::STR_CLEAR_SEARCH, SettingAction::None));
     }
-    menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
-    if (offerDirectoryActions) {
-      menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
+    if (offerFileManagement) {
+      menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
+      if (offerDirectoryActions) {
+        menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
+      }
     }
     return;
   }
@@ -99,7 +102,8 @@ void FileContextMenuActivity::buildMenuItems() {
   menuItems.push_back(SettingInfo::Separator(StrId::STR_TOOL_UTILITIES));
 
   if (isBin) {
-    menuItems.push_back(SettingInfo::Action(StrId::STR_FLASH_FIRMWARE, SettingAction::None));
+    // Only the firmware picker lists a .bin, and there Select already flashes it. What the picker
+    // cannot do without this menu is get rid of an image that is no longer wanted.
     menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
   } else if (isImage) {
     menuItems.push_back(SettingInfo::Action(StrId::STR_OPEN, SettingAction::None));
@@ -128,8 +132,10 @@ void FileContextMenuActivity::buildMenuItems() {
 
   // Every file can be moved, whatever its type: this is a rename, and rename does not care what
   // the bytes are.
-  menuItems.push_back(SettingInfo::Action(StrId::STR_MOVE_TO_FOLDER, SettingAction::None));
-  menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
+  if (offerFileManagement) {
+    menuItems.push_back(SettingInfo::Action(StrId::STR_MOVE_TO_FOLDER, SettingAction::None));
+    menuItems.push_back(SettingInfo::Action(StrId::STR_NEW_FOLDER, SettingAction::None));
+  }
   // Searching belongs to the folder, not to the row, so it has to be reachable with a file
   // selected as well -- which is most of the time.
   if (offerGoToFolder) {
@@ -175,8 +181,6 @@ void FileContextMenuActivity::onActionSelected(int index) {
     action = Action::DeleteCache;
   } else if (nameId == StrId::STR_SET_SLEEP_SCREEN) {
     action = Action::SetAsSleepCover;
-  } else if (nameId == StrId::STR_FLASH_FIRMWARE) {
-    action = Action::FlashFirmware;
   } else if (nameId == StrId::STR_MOVE_TO_FOLDER) {
     action = Action::MoveTo;
   } else if (nameId == StrId::STR_SEARCH) {

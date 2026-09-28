@@ -3,7 +3,7 @@
 //
 // The golden layout dumps cannot see this table: they compare what dumpPage prints, which is the
 // text of each page and nothing about its anchors. A build that wrote an empty anchor map, or one
-// missing every entry but the last, passes all 41 goldens — so the map needs cover of its own.
+// missing every entry but the last, passes every golden — so the map needs cover of its own.
 //
 // The map is produced by streaming: the parser appends each anchor to a spill file as it finds
 // one and the finalizer copies that file into the cache, so that a chapter with hundreds of

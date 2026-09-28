@@ -260,15 +260,21 @@ void ButtonNavigator::onListPageNav(const Buttons& buttons, const bool forward, 
 
   const int page = effectivePageSize(pageSize);
   const auto jump = [&] {
+    const int from = selectedIndex;
     const int target =
         forward ? nextPageIndex(selectedIndex, totalItems, page) : previousPageIndex(selectedIndex, totalItems, page);
     selectedIndex = target;
     if (selectablePredicate && !selectablePredicate(selectedIndex)) {
       // The page boundary can land on a separator row (settings sections). Walk on in the
       // direction of travel — except at the top of the list, where walking further back wraps to
-      // the far end, which is the opposite of what Left should ever do.
+      // the far end, which is the opposite of what Left should ever do: settle on the first row
+      // under the header instead. Unless that row is where the press started. A list that fits
+      // one screen pages by a single step, and from its first row that step wraps to the bottom
+      // like Up does; settling back on the start swallowed the press, so a list opening with a
+      // header (System Update) could never wrap from its top (#333).
       const int walked = forward ? nextIndex(selectedIndex) : previousIndex(selectedIndex);
-      selectedIndex = (!forward && walked > selectedIndex) ? nextIndex(selectedIndex) : walked;
+      const int underHeader = nextIndex(selectedIndex);
+      selectedIndex = (!forward && walked > selectedIndex && underHeader != from) ? underHeader : walked;
     }
     onChange();
   };

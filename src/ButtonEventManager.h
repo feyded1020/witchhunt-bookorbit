@@ -78,6 +78,15 @@ class ButtonEventManager {
   // double-click decision window to expire (i.e. a Short is pending).
   bool isShortPending(Button button) const;
 
+  // True while any button is mid-gesture -- held down, or released once and waiting out the
+  // double-click window -- or an emitted event has not been consumed yet. Long uninterruptible
+  // work on the loop task must not start then: the abort hook (CooperativeAbort) fires on NEW
+  // edges, and a gesture whose edges were already drained only becomes an event in a later
+  // update() on this same task, so the work would sit on it until it finished. Seen on the X3:
+  // a page-turn tap drained inside the double-click window was held for a whole 1.5-5 s image
+  // decode ("next turn 18 ms after the decode ended").
+  bool isGestureInFlight() const;
+
   // Returns true if a double-click action is configured for this button.
   // ButtonEventManager queries CrossPointSettings internally. Answers identically for
   // both names of an aliased pair, so one physical button always has one wait policy.

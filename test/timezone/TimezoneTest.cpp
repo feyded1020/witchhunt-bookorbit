@@ -204,10 +204,11 @@ constexpr const char* LEGACY_RULES[] = {
     "AKST9AKDT,M3.2.0/2,M11.1.0/2",      // 18 TZ_AKST_AKDT
 };
 constexpr size_t LEGACY_RULE_COUNT = sizeof(LEGACY_RULES) / sizeof(LEGACY_RULES[0]);
-
-TEST(TimezoneMigration, EveryRetiredValueHasARule) {
-  EXPECT_EQ(LEGACY_RULE_COUNT, static_cast<size_t>(CrossPointSettings::TZ_LEGACY_COUNT));
-}
+// EveryRetiredValueMigratesToTheSameOffsets walks this list, so a retired value missing from it
+// would go unchecked. (That every value has a DESTINATION is Timezones.cpp's own static_assert on
+// LEGACY_TO_TABLE; this only keeps the test's side of the comparison complete.)
+static_assert(LEGACY_RULE_COUNT == static_cast<size_t>(CrossPointSettings::TZ_LEGACY_COUNT),
+              "LEGACY_RULES needs the rule every retired TIMEZONE value applied");
 
 TEST(TimezoneMigration, EveryRetiredValueLandsInsideTheTable) {
   for (uint8_t legacy = 0; legacy < CrossPointSettings::TZ_LEGACY_COUNT; ++legacy) {

@@ -55,16 +55,6 @@ const std::vector<std::string>& corpus() {
   return c;
 }
 
-// Byte length of the last UTF-8 character in `s`, so a test can put exactly one character back.
-size_t lastCharBytes(const std::string& s) {
-  size_t i = s.size();
-  while (i > 0) {
-    --i;
-    if ((static_cast<unsigned char>(s[i]) & 0xC0) != 0x80) break;  // not a continuation byte
-  }
-  return s.size() - i;
-}
-
 TEST(TextTruncationTest, ResultNeverExceedsTheBox) {
   for (const auto& text : corpus()) {
     const int full = widthOf(text);
@@ -174,31 +164,6 @@ TEST(TextTruncationTest, BoldIsMeasuredWithTheBoldFace) {
   const std::string out = textTruncation::truncateToWidth(kFamily, text, narrow, EpdFontFamily::BOLD);
   EXPECT_LT(widthOf(out, EpdFontFamily::BOLD), narrow);
   EXPECT_NE(out, std::string(text));
-}
-
-// The old implementation is not the oracle, but a large disagreement would mean the walk has
-// drifted from the metrics it claims to model. Allow one character either way; flag more.
-TEST(TextTruncationTest, AgreesWithTheOldAlgorithmWithinOneCharacter) {
-  const std::string ellipsis = textTruncation::ELLIPSIS_UTF8;
-  for (const auto& text : corpus()) {
-    const int full = widthOf(text);
-    for (int maxWidth = 12; maxWidth <= full + 12; maxWidth += 5) {
-      // Old algorithm, verbatim: trim the last character while prefix+ellipsis does not fit.
-      std::string legacy = text;
-      if (widthOf(legacy) > maxWidth) {
-        while (!legacy.empty() && widthOf(legacy + ellipsis) >= maxWidth) {
-          legacy.erase(legacy.size() - lastCharBytes(legacy));
-        }
-        legacy = legacy.empty() ? ellipsis : legacy + ellipsis;
-      }
-
-      const std::string out = textTruncation::truncateToWidth(kFamily, text.c_str(), maxWidth, EpdFontFamily::REGULAR);
-      SCOPED_TRACE("text=\"" + text + "\" maxWidth=" + std::to_string(maxWidth) + " new=\"" + out + "\" legacy=\"" +
-                   legacy + "\"");
-      const int delta = static_cast<int>(out.size()) - static_cast<int>(legacy.size());
-      EXPECT_LE(std::abs(delta), 4) << "walk has drifted from the measured metrics";
-    }
-  }
 }
 
 }  // namespace

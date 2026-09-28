@@ -254,6 +254,38 @@ def load_glyph(code_point):
         face_index += 1
     return None
 
+def shipped_level(coverage):
+    """The ink level an 8-bit FreeType coverage value ships as. Mirrors the two quantisers in the
+    glyph loop: the 1-bit threshold, and the 2-bit path's 4-bit downsample (which keeps
+    coverage >> 4) followed by its 4/8/12 cuts."""
+    if not is2Bit:
+        return 1 if coverage >= int(round(threshold * 255)) else 0
+    nibble = coverage >> 4
+    return 3 if nibble >= 12 else 2 if nibble >= 8 else 1 if nibble >= 4 else 0
+
+def ink_centre(slot, level=lambda coverage: coverage):
+    """Horizontal centre of a rendered glyph's ink, in pixels from the pen, each pixel weighted by
+    level(coverage). None when nothing is inked."""
+    bitmap = slot.bitmap
+    pitch = abs(bitmap.pitch)
+    total = moment = 0
+    for y in range(bitmap.rows):
+        for x in range(bitmap.width):
+            weight = level(bitmap.buffer[y * pitch + x])
+            total += weight
+            moment += weight * (x + 0.5)
+    return slot.bitmap_left + moment / total if total else None
+
+def unhinted_ink_centre(code_point):
+    """ink_centre() of the glyph as designed, before the auto-hinter moves it. Picks the face the
+    same way load_glyph() does, and must run BEFORE load_glyph(): both load into the one slot."""
+    for face in font_stack:
+        glyph_index = face.get_char_index(code_point)
+        if glyph_index > 0:
+            face.load_glyph(glyph_index, freetype.FT_LOAD_RENDER | freetype.FT_LOAD_NO_HINTING)
+            return ink_centre(face.glyph)
+    return None
+
 unmerged_intervals = sorted(intervals + add_ints)
 intervals = []
 unvalidated_intervals = []
@@ -284,6 +316,7 @@ for face in font_stack:
 
 total_size = 0
 all_glyphs = []
+recentred_glyphs = 0
 
 for i_start, i_end in intervals:
     for code_point in range(i_start, i_end + 1):
@@ -306,8 +339,25 @@ for i_start, i_end in intervals:
             ), bytes()))
             continue
 
+        designed_centre = unhinted_ink_centre(code_point)
         face = load_glyph(code_point)
         bitmap = face.glyph.bitmap
+
+        # Put the ink back where the design has it. The auto-hinter moves a glyph sideways as
+        # well as snapping its stems -- it rounds the glyph's origin to a whole pixel, reporting
+        # the rounding in lsb_delta/rsb_delta for a renderer to add back, and the stems then snap
+        # on top of that. Our renderer places glyphs on the UNHINTED advance and never sees
+        # those deltas, so the drift stays in the bitmap. Inter 12's "i" landed 0.85 px right
+        # of its design position, which the threshold froze into a whole pixel: a visible gap
+        # before every "i" and none after it. Compare the centre of the ink as it ships with
+        # the centre of the unhinted outline and move `left` by the whole-pixel part of the
+        # difference. Stem snapping is untouched, and so is the advance, so nothing reflows.
+        shipped_centre = ink_centre(face.glyph, shipped_level)
+        ink_shift = 0
+        if designed_centre is not None and shipped_centre is not None:
+            ink_shift = math.floor(shipped_centre - designed_centre + 0.5)
+        if ink_shift:
+            recentred_glyphs += 1
 
         if is2Bit:
             # Build out 4-bit greyscale bitmap
@@ -401,7 +451,7 @@ for i_start, i_end in intervals:
             # We use linearHoriAdvance (16.16 fixed-point, unhinted) instead of
             # advance.x (26.6 fixed-point, grid-fitted to whole pixels by hinter)
             advance_x = fp4_from_ft16_16(face.glyph.linearHoriAdvance),
-            left = face.glyph.bitmap_left,
+            left = face.glyph.bitmap_left - ink_shift,
             top = face.glyph.bitmap_top,
             data_length = len(packed),
             data_offset = total_size,
@@ -424,6 +474,8 @@ for i_start, i_end in intervals:
             sys.exit(1)
 
         all_glyphs.append((glyph, packed))
+
+print(f"ink re-centred: {recentred_glyphs} of {len(all_glyphs)} glyphs moved back by a pixel", file=sys.stderr)
 
 # pipe seems to be a good heuristic for the "real" descender
 face = load_glyph(ord('|'))
@@ -1184,7 +1236,7 @@ print(f"""/**
  * name: {font_name}
  * size: {size}
  * mode: {'2-bit' if is2Bit else '1-bit'}{('  compressed: ' + ('zopfli' if args.zopfli else 'zlib')) if compress else ''}
- * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels)
+ * hinting: auto (FT_LOAD_FORCE_AUTOHINT — grid-fits stems to whole pixels; ink re-centred on the unhinted outline)
  * Command used: {' '.join(sys.argv)}
  */
 #pragma once

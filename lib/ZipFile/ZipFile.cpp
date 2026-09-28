@@ -746,7 +746,8 @@ size_t ZipFile::readBytesFromEntry(const char* filename, uint8_t* outBuf, const 
   return readBytesFromStat(fileStat, outBuf, maxBytes);
 }
 
-size_t ZipFile::readBytesFromStat(const FileStatSlim& fileStat, uint8_t* outBuf, const size_t maxBytes) {
+size_t ZipFile::readBytesFromStat(const FileStatSlim& fileStat, uint8_t* outBuf, const size_t maxBytes,
+                                  BuildArena* scratch) {
   if (!outBuf || maxBytes == 0) return 0;
 
   const ScopedOpenClose zip{*this};
@@ -770,8 +771,33 @@ size_t ZipFile::readBytesFromStat(const FileStatSlim& fileStat, uint8_t* outBuf,
     // one-shot inflate: read a bounded compressed chunk and decompress it all at
     // once without a ring buffer.
     constexpr size_t READ_BUF = 512;
-    auto* readBuf = static_cast<uint8_t*>(malloc(READ_BUF));
+    // The ring and read buffer from the caller's arena when it has room (the section build's lent
+    // region: memory audit 2026-09, build inventory -- this probe and its caller's header buffer
+    // were the build's heap peak, 8.7 KB inside one SAX chunk). A block of its own, released below
+    // on every path, so the arena is left exactly as found.
+    const size_t ringSize = InflateReader::ringSizeFor(wantBytes);
+    BuildArena::Block scratchBlock;
+    uint8_t* readBuf = nullptr;
+    uint8_t* arenaRing = nullptr;
+    if (scratch != nullptr && scratch->valid()) {
+      scratchBlock = scratch->reserveBlock();
+      readBuf = static_cast<uint8_t*>(scratch->alloc(READ_BUF));
+      arenaRing = readBuf ? static_cast<uint8_t*>(scratch->alloc(ringSize)) : nullptr;
+      if (arenaRing == nullptr) {
+        scratch->release(scratchBlock);
+        readBuf = nullptr;
+      }
+    }
+    const bool inArena = arenaRing != nullptr;
+    if (!inArena) readBuf = static_cast<uint8_t*>(malloc(READ_BUF));
     if (!readBuf) return 0;
+    const auto releaseScratch = [&] {
+      if (inArena) {
+        scratch->release(scratchBlock);
+      } else {
+        free(readBuf);
+      }
+    };
 
     ZipInflateCtx ctx;
     ctx.file = &file;
@@ -791,7 +817,7 @@ size_t ZipFile::readBytesFromStat(const FileStatSlim& fileStat, uint8_t* outBuf,
     // and contig 42996 -> 4084 between two page emissions, recovering pages later. That is this
     // ring, taken and released per image resolve, mid-parse — the single worst contiguous dip
     // in a section build, and it lands exactly where a PNG decode would want its own 32 KB.
-    if (ctx.reader.init(true, wantBytes)) {
+    if (inArena ? ctx.reader.initWithExternalRing(arenaRing, ringSize) : ctx.reader.init(true, wantBytes)) {
       ctx.reader.setReadCallback(zipReadCallback);
 
       size_t totalOut = 0;
@@ -803,14 +829,16 @@ size_t ZipFile::readBytesFromStat(const FileStatSlim& fileStat, uint8_t* outBuf,
         if (status == InflateStatus::Done || status == InflateStatus::Error) break;
       }
 
-      free(readBuf);
+      ctx.reader.deinit();  // drops the ring pointer before its arena block goes back
+      releaseScratch();
       return totalOut;
     }
 
     // Streaming ring buffer unavailable — fall back to one-shot inflate.
     // Read a bounded compressed chunk (4× the desired output as a rough overhead
     // estimate, capped at the actual compressed size) and decompress in one shot.
-    free(readBuf);
+    ctx.reader.deinit();
+    releaseScratch();
     const size_t compChunkSize = std::min(static_cast<size_t>(fileStat.compressedSize), wantBytes * 4);
     auto* compBuf = static_cast<uint8_t*>(malloc(compChunkSize));
     if (!compBuf) return 0;
@@ -853,6 +881,7 @@ struct ZipFile::EntryReader::Impl {
   FsFile file;
   size_t inflatedSize_ = 0;
   size_t bytesProduced_ = 0;
+  size_t outputCap_ = 0;  // 0 = the whole entry
   bool error_ = false;
   bool done_ = false;
 
@@ -884,6 +913,7 @@ struct ZipFile::EntryReader::Impl {
     if (file) file.close();
     inflatedSize_ = 0;
     bytesProduced_ = 0;
+    outputCap_ = 0;
     storedRemaining = 0;
     method = 0;
     error_ = false;
@@ -907,8 +937,14 @@ bool ZipFile::EntryReader::open(const char* filename) {
   return open(fileStat);
 }
 
-bool ZipFile::EntryReader::open(const FileStatSlim& fileStat) {
+bool ZipFile::EntryReader::open(const FileStatSlim& fileStat) { return open(fileStat, 0); }
+
+bool ZipFile::EntryReader::open(const FileStatSlim& fileStat, const size_t outputCap) {
   impl_->reset();
+  impl_->outputCap_ = outputCap;
+  // What the ring must cover: the whole entry, or only the prefix the caller will read.
+  const size_t expectedOutput =
+      outputCap == 0 ? fileStat.uncompressedSize : std::min<size_t>(fileStat.uncompressedSize, outputCap);
 
   const long dataOffset = impl_->zf.getDataOffset(fileStat);
   if (dataOffset < 0) {
@@ -948,11 +984,11 @@ bool ZipFile::EntryReader::open(const FileStatSlim& fileStat) {
     // makes holding the reader across background-build slices affordable.
     bool ringOk;
     if (impl_->arena) {
-      const size_t ringSize = InflateReader::ringSizeFor(fileStat.uncompressedSize);
+      const size_t ringSize = InflateReader::ringSizeFor(expectedOutput);
       auto* ring = static_cast<uint8_t*>(impl_->arena->alloc(ringSize));
       ringOk = ring && impl_->ctx.reader.initWithExternalRing(ring, ringSize);
     } else {
-      ringOk = impl_->ctx.reader.init(true, fileStat.uncompressedSize);
+      ringOk = impl_->ctx.reader.init(true, expectedOutput);
     }
     if (!ringOk) {
       LOG_ERR("ZIP", "EntryReader::open: OOM initialising inflate ring buffer");
@@ -973,7 +1009,7 @@ bool ZipFile::EntryReader::open(const FileStatSlim& fileStat) {
   return false;
 }
 
-bool ZipFile::EntryReader::step(uint8_t* out, const size_t cap, size_t* produced, bool* done) {
+bool ZipFile::EntryReader::step(uint8_t* out, size_t cap, size_t* produced, bool* done) {
   *produced = 0;
   *done = false;
 
@@ -982,6 +1018,17 @@ bool ZipFile::EntryReader::step(uint8_t* out, const size_t cap, size_t* produced
     return true;
   }
   if (impl_->error_) return false;
+
+  // Past the cap the ring no longer guarantees correct output, so the entry ends here.
+  if (impl_->outputCap_ != 0) {
+    const size_t remaining = impl_->outputCap_ - std::min(impl_->outputCap_, impl_->bytesProduced_);
+    if (remaining == 0) {
+      impl_->done_ = true;
+      *done = true;
+      return true;
+    }
+    if (cap > remaining) cap = remaining;
+  }
 
   if (impl_->method == ZIP_METHOD_STORED) {
     if (impl_->storedRemaining == 0) {
@@ -999,7 +1046,7 @@ bool ZipFile::EntryReader::step(uint8_t* out, const size_t cap, size_t* produced
     impl_->storedRemaining -= static_cast<size_t>(n);
     impl_->bytesProduced_ += static_cast<size_t>(n);
     *produced = static_cast<size_t>(n);
-    if (impl_->storedRemaining == 0) {
+    if (impl_->storedRemaining == 0 || (impl_->outputCap_ != 0 && impl_->bytesProduced_ >= impl_->outputCap_)) {
       impl_->done_ = true;
       *done = true;
     }
@@ -1011,7 +1058,7 @@ bool ZipFile::EntryReader::step(uint8_t* out, const size_t cap, size_t* produced
     const InflateStatus status = impl_->ctx.reader.readAtMost(out, cap, &p);
     impl_->bytesProduced_ += p;
     *produced = p;
-    if (status == InflateStatus::Done) {
+    if (status == InflateStatus::Done || (impl_->outputCap_ != 0 && impl_->bytesProduced_ >= impl_->outputCap_)) {
       impl_->done_ = true;
       *done = true;
       return true;
