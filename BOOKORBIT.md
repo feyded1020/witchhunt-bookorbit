@@ -15,7 +15,7 @@ CrossInk-Bookorbit (MIT) and adapted to Witch Hunt's network stack, stores and U
 | **Reading stats** | Every page you read is recorded (time on page + position) and uploaded on the next sync, feeding BookOrbit's dashboard, streaks and pace. Timestamps are corrected against network time at upload. |
 | **Highlights**: two-way | Reader menu → *Highlight Text*: move to the first word, **Confirm**, extend to the last word, **Confirm** again. Highlights are underlined on the page and listed under *Highlights* (jump / delete). Web highlights arrive on the next sync; deletions go both ways. |
 | **Bookmarks**: two-way | The existing star-page bookmarks sync both ways, deletions included. Bookmarks made on the web land in the right chapter and settle on the exact page the first time you open that chapter. |
-| **Catalog** | Home → *BookOrbit* (appears once an account is set), or Settings → BookOrbit Sync → *Browse Catalog*. Same layout as CrossInk-Bookorbit: the server's sections with book counts (continue reading, recently added, libraries, collections, authors, series, all books), then *On device* and *In progress* (these two also work offline), then search. Books already on the SD card are marked • and open directly; others download and open. |
+| **Catalog** | Home → *BookOrbit* (appears once an account is set; **Settings → Display → Home screen** can move it behind **More** like any other home entry), or Settings → BookOrbit Sync → *Browse Catalog*. Same layout as CrossInk-Bookorbit: the server's sections with book counts (continue reading, recently added, libraries, collections, authors, series, all books), then *On device* and *In progress* (these two also work offline), then search. Books already on the SD card are marked • and open directly; others download and open. |
 
 If the apply/upload question is left unanswered for three minutes, the sync closes itself and the
 book reopens showing **"Not synced - progress stayed on this device"**, so an unfinished sync is
@@ -56,24 +56,24 @@ network feature, so only do it if you have to.
 
 ## Flashing
 
-1. Build it (below) or take `firmware.bin` from a build of this branch.
+1. Build it (below) or download `firmware-x4pro.bin` from [the latest release](https://github.com/feyded1020/witchhunt-bookorbit/releases/latest).
 2. Open the [CrossPoint flash tools](https://crosspointreader.com/#flash-tools) in Chrome/Edge,
-   choose **Custom .bin**, upload `firmware.bin`, connect the X4 Pro by USB and flash.
-   (Already on Witch Hunt? Copy `firmware.bin` to the SD card and use **SD Firmware Update**.)
+   choose **Custom .bin**, upload `firmware-x4pro.bin`, connect the X4 Pro by USB and flash.
+   (Already on Witch Hunt? Copy the `.bin` to the SD card and use **SD Firmware Update**.)
 
 **The built-in update check now follows this fork**, not upstream Witch Hunt, so Settings ->
 System -> Check for Updates installs BookOrbit builds from
 [this repository's releases](https://github.com/feyded1020/witchhunt-bookorbit/releases).
 
-Versions are `<upstream release>.<fork build>` — 2.31.1 is the first fork build on Witch Hunt
-2.31, and merging upstream 2.32 would start 2.32.1. Release tags are that exact number (no `v`),
+Versions are `<upstream release>.<fork build>`: 2.36.1 is the first fork build on Witch Hunt
+2.36, and merging upstream 2.37 would start 2.37.1. Release tags are that exact number (no `v`),
 because that is what the on-device version check can read, and the firmware file keeps its fixed
 name `firmware-x4pro.bin` so the updater always finds it.
 
 Test builds carry the number of the stable they are heading for plus an `-rc.N` suffix
-(`2.31.11-rc.1`), and go out as GitHub prereleases. A prerelease is invisible to the normal
+(`2.36.2-rc.1`), and go out as GitHub prereleases. A prerelease is invisible to the normal
 update check; **Settings → System → Include Beta Updates** is what asks for them. A stable
-outranks every rc of the same number, so a device on `2.31.11-rc.3` is offered `2.31.11` when it
+outranks every rc of the same number, so a device on `2.36.2-rc.3` is offered `2.36.2` when it
 lands.
 
 Before your first flash, note which firmware you are on now and keep its `.bin`, so you can flash
@@ -89,12 +89,6 @@ python3 -m venv .venv && .venv/bin/pip install platformio
 
 The app slot is 6,553,600 bytes; see the commit log for the size of each build.
 
-## Busy indicator
-
-A screen change that takes a moment (leaving a book, opening the library) shows a small black
-square in the bottom right corner until the next screen is drawn, so a press never looks ignored.
-Settings -> Display -> Show Busy Indicator turns it off.
-
 ## What was removed or changed from Witch Hunt
 
 - **KOReader Sync is gone** (client, credential store, settings). BookOrbit's sync replaces it,
@@ -102,6 +96,8 @@ Settings -> Display -> Show Busy Indicator turns it off.
   Removing it is also what keeps the build inside the flash partition.
 - **Bookmark file** is version 3 (adds creation time and a layout-independent position); older
   files still load. Older Witch Hunt builds will not read a v3 file.
+- **Home screen**: BookOrbit is an extra entry in Witch Hunt's home menu table, with its own
+  show-on-home switch.
 - **HalClock** gains an "NTP synced" hook that BookOrbit's `WallClock` uses to correct queued
   reading-session timestamps.
 

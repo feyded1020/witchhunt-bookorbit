@@ -64,6 +64,8 @@ share the same library.
 
 Photographed on an Xteink X4 Pro. No mock-ups.
 
+Your reading history under the cover, Reading Stats on the home menu, search and the folder tools all started in this fork and are now part of Witch(hunt) itself (shipped in its 2.35 release), so you get them on either firmware. **BookOrbit** and **highlights** are what only this fork has.
+
 ## Your whole library, on the reader
 
 BookOrbit is the point of this fork, so here is what it actually looks like. Your library browsed from the device, not a file list on a card.
@@ -114,18 +116,19 @@ It counts days you actually opened the book rather than the number of times you 
 
 ## Reading Stats
 
-Time per book, sessions, pages, streaks, first and last read, and a day-by-day record. One row on the home menu rather than three levels down in Settings — and a switch in **Settings > Display** for anyone who would rather not have the row at all.
+Time per book, sessions, pages, streaks, first and last read, and a day-by-day record. One row on the home menu rather than three levels down in Settings. **Settings > Display > Home screen** has a switch for every home entry, this one included: switch it off and it moves behind **More** instead of disappearing.
 
 <table>
 <tr>
 <td align="center"><img src="docs/images/reading-stats-all-time.jpg" width="250"><br><sub>All time</sub></td>
 <td align="center"><img src="docs/images/reading-stats-book.jpg" width="250"><br><sub>Per book</sub></td>
 <td align="center"><img src="docs/images/reading-stats-all-books.jpg" width="250"><br><sub>Every book</sub></td>
-<td align="center"><img src="docs/images/stats-row-setting.jpg" width="250"><br><sub>Or turn it off</sub></td>
 </tr>
 </table>
 
 ## Find a book anywhere on the card
+
+*Now part of Witch(hunt) itself.*
 
 A folder holding a few hundred books was a scroll, and the only way to reach one was to know roughly where it sorted.
 
@@ -142,6 +145,8 @@ A folder holding a few hundred books was a scroll, and the only way to reach one
 No index, and that is deliberate. An index of the card would have to know when the card changed, and FAT gives no way to ask — so it would have to re-walk the tree to check whether it was still true, which is the walk it was meant to save, and it would still be blind to anything written over USB. Walking when asked is always correct, costs nothing when nobody asks, and takes no space on the card. In practice it returns faster than you can let go of the button.
 
 ## The browser it grew into
+
+*Now part of Witch(hunt) itself.*
 
 Somewhere along the way this stopped being a file list.
 
