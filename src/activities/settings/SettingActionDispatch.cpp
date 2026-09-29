@@ -16,6 +16,7 @@
 #include "FontScalingTestActivity.h"
 #include "FontSelectionActivity.h"
 #include "GestureActionsOverviewActivity.h"
+#include "KeyboardLayoutsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"
@@ -66,6 +67,8 @@ std::unique_ptr<Activity> createActivityForAction(SettingAction action, GfxRende
       return std::make_unique<SwitchToUsbDriveActivity>(renderer, mappedInput);
     case SettingAction::Language:
       return std::make_unique<LanguageSelectActivity>(renderer, mappedInput);
+    case SettingAction::KeyboardLayouts:
+      return std::make_unique<KeyboardLayoutsActivity>(renderer, mappedInput);
     case SettingAction::Weather:
       return std::make_unique<WeatherSettingsActivity>(renderer, mappedInput);
     case SettingAction::SystemInfo:

@@ -44,19 +44,18 @@ void WeatherSettingsActivity::loop() {
     }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-      if (!searchResults.empty() && selectedIndex < static_cast<int>(searchResults.size())) {
-        const auto& result = searchResults[selectedIndex];
+      if (resultIndex >= 0 && resultIndex < static_cast<int>(searchResults.size())) {
+        const auto& result = searchResults[resultIndex];
         WEATHER_SETTINGS.setLocation(result.latitude, result.longitude, result.name + ", " + result.country);
         WEATHER_SETTINGS.saveToFile();
         showingSearchResults = false;
-        selectedIndex = 0;
         requestUpdate();
       }
       return;
     }
 
-    buttonNavigator.onNextList(selectedIndex, static_cast<int>(searchResults.size()), [this] { requestUpdate(); });
-    buttonNavigator.onPreviousList(selectedIndex, static_cast<int>(searchResults.size()), [this] { requestUpdate(); });
+    resultsNavigator.onNextList(resultIndex, static_cast<int>(searchResults.size()), [this] { requestUpdate(); });
+    resultsNavigator.onPreviousList(resultIndex, static_cast<int>(searchResults.size()), [this] { requestUpdate(); });
     return;
   }
 
@@ -145,7 +144,7 @@ void WeatherSettingsActivity::onBackPressed() {
 
 ListRowTap::Result WeatherSettingsActivity::selectListRow(const int index) {
   if (!showingSearchResults) return MenuListActivity::selectListRow(index);
-  return ListRowTap::apply(index, static_cast<int>(searchResults.size()), selectedIndex);
+  return ListRowTap::apply(index, static_cast<int>(searchResults.size()), resultIndex);
 }
 
 void WeatherSettingsActivity::launchCitySearch() {
@@ -163,13 +162,13 @@ void WeatherSettingsActivity::launchCitySearch() {
                                                       if (wifiResult.isCancelled) return;
                                                       searchResults = WeatherClient::searchCity(query);
                                                       showingSearchResults = !searchResults.empty();
-                                                      selectedIndex = 0;
+                                                      resultIndex = 0;
                                                       requestUpdate();
                                                     });
                            } else {
                              searchResults = WeatherClient::searchCity(kb.text);
                              showingSearchResults = !searchResults.empty();
-                             selectedIndex = 0;
+                             resultIndex = 0;
                              requestUpdate();
                            }
                          });
@@ -236,7 +235,7 @@ void WeatherSettingsActivity::render(RenderLock&&) {
     } else {
       GUI.drawList(
           renderer, Rect(contentRect.x, contentTop, contentRect.width, contentHeight),
-          static_cast<int>(searchResults.size()), static_cast<int>(selectedIndex),
+          static_cast<int>(searchResults.size()), resultIndex,
           [this](int index) {
             const auto& r = searchResults[index];
             std::string label = r.name;

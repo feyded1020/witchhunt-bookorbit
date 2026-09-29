@@ -40,13 +40,9 @@ constexpr ThemeMetrics values = {.batteryWidth = 16,
                                  .keyboardKeyWidth = 31,
                                  .keyboardKeyHeight = 40,
                                  .keyboardKeySpacing = 0,
-                                 .keyboardBottomKeyHeight = 35,
-                                 .keyboardBottomKeySpacing = 5,
-                                 .keyboardBottomAligned = true,
                                  .keyboardCenteredText = false,
                                  .keyboardVerticalOffset = -7,
-                                 .keyboardTextFieldWidthPercent = 85,
-                                 .keyboardWidthPercent = 90};
+                                 .keyboardTextFieldWidthPercent = 85};
 
 // How the height of a tile is divided between the cover and the text under it.
 //

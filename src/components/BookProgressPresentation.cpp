@@ -33,15 +33,24 @@ std::string formatEtaShort(uint32_t totalSeconds) {
   return buf;
 }
 
+// The cached figures for a recent book (HomeActivity::onEnter() prefetched them), or null when the
+// book has no history. Never reads the card: this runs from the themes' render().
+const ReadingStatsStore::RecentSnapshot* historyOf(const RecentBook& book) {
+  const auto* snapshot = READING_STATS.recent(KOReaderDocumentId::calculateFromFilename(book.path));
+  return snapshot != nullptr && snapshot->known ? snapshot : nullptr;
+}
+
 // Pace-based "time to finish" suffix for a book, e.g. "~45m". Empty when the
 // book is finished, has no progress data, or has too little history to estimate.
 std::string bookEtaSuffix(const RecentBook& book, int progressPercent) {
   if (progressPercent < 0 || progressPercent >= 100) {
     return {};
   }
-  const std::string docId = KOReaderDocumentId::calculateFromFilename(book.path);
-  const uint32_t etaSeconds =
-      READING_STATS.estimateRemainingSeconds(docId, 100.0f - static_cast<float>(progressPercent));
+  const auto* history = historyOf(book);
+  const float own =
+      history != nullptr ? ReadingStatsStore::ownSecondsPerPercent(history->totalSeconds, history->progress) : 0.0f;
+  const float pace = own > 0.0f ? own : READING_STATS.recentPooledPace();
+  const uint32_t etaSeconds = ReadingStatsStore::etaSeconds(pace, 100.0f - static_cast<float>(progressPercent));
   if (etaSeconds == 0) {
     return {};
   }
@@ -231,7 +240,7 @@ std::string formatLastRead(time_t epoch) {
 }
 
 std::string historyLine(const RecentBook& book) {
-  const BookReadingStats* stats = READING_STATS.findBook(KOReaderDocumentId::calculateFromFilename(book.path));
+  const auto* stats = historyOf(book);
   if (stats == nullptr || stats->totalSeconds == 0) {
     return {};
   }
@@ -247,11 +256,8 @@ std::string historyLine(const RecentBook& book) {
   // dayIndex 0 is the bucket for sessions recorded while the clock was not wall-anchored. Those
   // are real reading but belong to no known day, so they are excluded -- and on a device whose
   // clock has never synced that leaves nothing to say, so the clause is dropped rather than
-  // claiming zero days.
-  size_t knownDays = 0;
-  for (const auto& day : stats->days) {
-    if (day.dayIndex != 0) ++knownDays;
-  }
+  // claiming zero days. (The scan already dropped the undated buckets.)
+  const size_t knownDays = stats->knownDays;
   if (knownDays > 0) {
     snprintf(buf, sizeof(buf), knownDays == 1 ? tr(STR_STATS_DAY_ONE) : tr(STR_STATS_DAYS_FORMAT),
              static_cast<unsigned>(knownDays));
@@ -270,16 +276,13 @@ std::string historyLine(const RecentBook& book) {
 }
 
 std::string historyLineCompact(const RecentBook& book) {
-  const BookReadingStats* stats = READING_STATS.findBook(KOReaderDocumentId::calculateFromFilename(book.path));
+  const auto* stats = historyOf(book);
   if (stats == nullptr || stats->totalSeconds == 0) {
     return {};
   }
 
   std::string line = formatReadingDuration(stats->totalSeconds);
-  size_t knownDays = 0;
-  for (const auto& day : stats->days) {
-    if (day.dayIndex != 0) ++knownDays;
-  }
+  const size_t knownDays = stats->knownDays;
   if (knownDays > 0) {
     char buf[16];
     snprintf(buf, sizeof(buf), " · %ud", static_cast<unsigned>(knownDays));

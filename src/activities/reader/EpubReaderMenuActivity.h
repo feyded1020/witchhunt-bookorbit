@@ -10,6 +10,13 @@
 #include "activities/settings/SettingInfo.h"
 #include "components/UITheme.h"
 
+// The reader menu's tabs can carry a small glyph above each label (CrossInk's icon-tab design).
+// Off by default: at 16 px the glyphs add little over the label, so the tabs are plain text
+// like the settings screen's. Build with -DREADER_MENU_TAB_ICONS=1 to bring them back.
+#ifndef READER_MENU_TAB_ICONS
+#define READER_MENU_TAB_ICONS 0
+#endif
+
 class EpubReaderMenuActivity final : public TabbedUiListActivity {
  public:
   // Menu actions identified by StrId of the menu item.
@@ -80,10 +87,12 @@ class EpubReaderMenuActivity final : public TabbedUiListActivity {
   freeink::ui::ListNav& activeNav() override { return tabNav[activeTabIndex()]; }
   int tabCount() const override { return visibleTabCount; }
   const char* tabLabel(int slot) const override;
+#if READER_MENU_TAB_ICONS
   // Taller than the theme's tab bar because this one carries icons, not just a label. Grows
   // with the UI font size so the tab labels keep their clearance at the larger step.
   int16_t tabBarHeight() const override { return static_cast<int16_t>(54 + UITheme::fontGrowth().body); }
   void customizeTabBar(UiScreen& screen, freeink::ui::TabBarProps& props) override;
+#endif
   void onBackFromTabs() override { onBackPressed(); }
   void drawChrome() override;
   void drawFooter() override;
@@ -93,8 +102,10 @@ class EpubReaderMenuActivity final : public TabbedUiListActivity {
   void onSettingToggled(int index);
   void materializeListWindow();
 
+#if READER_MENU_TAB_ICONS
   static bool paintTabIcon(freeink::ui::DrawTarget& target, freeink::ui::Rect rect, const freeink::ui::TabItem& tab,
                            uint8_t index, void* user);
+#endif
 
   // Map from StrId to MenuAction for result passing
   static MenuAction actionForNameId(StrId nameId);

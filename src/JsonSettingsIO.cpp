@@ -13,7 +13,6 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "OpdsServerStore.h"
-#include "ReadingStats.h"
 #include "RecentBooksStore.h"
 #include "SettingsList.h"
 #include "TouchGestures.h"
@@ -196,6 +195,8 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["moveFinishedBooksToCompleted"] = s.moveFinishedBooksToCompleted;
   doc["removeFinishedBooksFromRecents"] = s.removeFinishedBooksFromRecents;
   doc["syncFinishedBookToKOReader"] = s.syncFinishedBookToKOReader;
+  // Left out while unconfigured, so the default keeps following the UI language.
+  if (s.keyboardLayouts != 0) doc["keyboardLayouts"] = s.keyboardLayouts;
 
   String json;
   serializeJson(doc, json);
@@ -340,6 +341,8 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   s.moveFinishedBooksToCompleted = doc["moveFinishedBooksToCompleted"] | (uint8_t)0;
   s.removeFinishedBooksFromRecents = doc["removeFinishedBooksFromRecents"] | (uint8_t)0;
   s.syncFinishedBookToKOReader = doc["syncFinishedBookToKOReader"] | (uint8_t)0;
+  // Unknown bits (a file from a build with more layouts) are dropped by keyboard_layouts::enabled().
+  s.keyboardLayouts = doc["keyboardLayouts"] | (uint16_t)0;
 
   const uint8_t quickResumeBeforeNormalize = s.quickResumeSleepScreen;
   CrossPointSettings::normalizeDependentSettings(s);
@@ -694,114 +697,4 @@ bool JsonSettingsIO::loadOpds(OpdsServerStore& store, const char* json, bool* ne
 
   LOG_DBG("OPS", "Loaded %zu OPDS servers from file", store.servers.size());
   return true;
-}
-
-// ---- ReadingStatsStore ----
-
-bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, HalFile& out) {
-  JsonDocument doc;
-  doc["totalSeconds"] = store.getGlobalTotalSeconds();
-  doc["totalSessions"] = store.getGlobalTotalSessions();
-  doc["totalPagesTurned"] = store.getGlobalTotalPagesTurned();
-  doc["longestStreak"] = store.getLongestStreakSeen();
-
-  // Day buckets are serialised as a flat array of [dayIndex, seconds] pairs
-  // to keep the file compact when many days are populated. The C++ side
-  // already keeps days sorted, so we preserve that on disk too.
-  auto writeDays = [](JsonArray out, const std::vector<DayBucket>& days) {
-    for (const auto& d : days) {
-      JsonArray pair = out.add<JsonArray>();
-      pair.add(d.dayIndex);
-      pair.add(d.seconds);
-    }
-  };
-
-  writeDays(doc["globalDays"].to<JsonArray>(), store.getGlobalDays());
-
-  JsonArray arr = doc["books"].to<JsonArray>();
-  for (const auto& book : store.getBooks()) {
-    JsonObject obj = arr.add<JsonObject>();
-    obj["docId"] = book.docId;
-    obj["title"] = book.title;
-    obj["author"] = book.author;
-    obj["totalSeconds"] = book.totalSeconds;
-    obj["pagesTurned"] = book.pagesTurned;
-    obj["sessions"] = book.sessions;
-    obj["firstReadEpoch"] = static_cast<int64_t>(book.firstReadEpoch);
-    obj["lastReadEpoch"] = static_cast<int64_t>(book.lastReadEpoch);
-    obj["progress"] = book.progress;
-    obj["finishedCount"] = book.finishedCount;
-    obj["lastFinishedEpoch"] = static_cast<int64_t>(book.lastFinishedEpoch);
-    // Derived for backwards-compatibility with consumers (web dashboard,
-    // older firmware) that still read the bool field.
-    obj["finished"] = book.finishedCount > 0;
-    writeDays(obj["days"].to<JsonArray>(), book.days);
-  }
-
-  // The document is the one in-RAM copy; it streams out through the file's write buffer.
-  const size_t written = serializeJson(doc, out);
-  if (written == 0 || doc.overflowed()) {
-    LOG_ERR("RST", "saveReadingStats: %s", doc.overflowed() ? "document overflowed (out of memory)" : "write failed");
-    return false;
-  }
-  return true;
-}
-
-JsonSettingsIO::ReadingStatsLoad JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, HalFile& in) {
-  JsonDocument doc;
-  // Streamed from the file: the JSON text never sits in RAM as a whole, only the document does.
-  const auto error = deserializeJson(doc, in);
-  if (error) {
-    LOG_ERR("RST", "JSON parse error: %s", error.c_str());
-    return error == DeserializationError::NoMemory ? ReadingStatsLoad::NoMemory : ReadingStatsLoad::Corrupt;
-  }
-
-  std::vector<BookReadingStats> books;
-  std::vector<DayBucket> globalDays;
-  const uint32_t totalSeconds = doc["totalSeconds"] | (uint32_t)0;
-  const uint32_t totalSessions = doc["totalSessions"] | (uint32_t)0;
-  const uint32_t totalPagesTurned = doc["totalPagesTurned"] | (uint32_t)0;
-  const uint16_t longestStreak = doc["longestStreak"] | (uint16_t)0;
-
-  auto readDays = [](JsonArray in, std::vector<DayBucket>& out) {
-    for (JsonArray pair : in) {
-      if (pair.size() < 2) continue;
-      DayBucket b;
-      b.dayIndex = pair[0] | (uint16_t)0;
-      b.seconds = pair[1] | (uint32_t)0;
-      if (b.dayIndex == 0 || b.seconds == 0) continue;
-      out.push_back(b);
-    }
-  };
-
-  readDays(doc["globalDays"].as<JsonArray>(), globalDays);
-
-  JsonArray arr = doc["books"].as<JsonArray>();
-  for (JsonObject obj : arr) {
-    BookReadingStats book;
-    book.docId = obj["docId"] | std::string("");
-    if (book.docId.empty()) continue;  // skip corrupt entries
-    book.title = obj["title"] | std::string("");
-    book.author = obj["author"] | std::string("");
-    book.totalSeconds = obj["totalSeconds"] | (uint32_t)0;
-    book.pagesTurned = obj["pagesTurned"] | (uint32_t)0;
-    book.sessions = obj["sessions"] | (uint32_t)0;
-    book.firstReadEpoch = static_cast<time_t>(obj["firstReadEpoch"] | (int64_t)0);
-    book.lastReadEpoch = static_cast<time_t>(obj["lastReadEpoch"] | (int64_t)0);
-    book.progress = obj["progress"] | (uint8_t)0;
-    if (!obj["finishedCount"].isNull()) {
-      book.finishedCount = obj["finishedCount"] | (uint16_t)0;
-    } else if (obj["finished"] | false) {
-      book.finishedCount = 1;
-    }
-    book.lastFinishedEpoch = static_cast<time_t>(obj["lastFinishedEpoch"] | (int64_t)0);
-    readDays(obj["days"].as<JsonArray>(), book.days);
-    books.push_back(std::move(book));
-  }
-
-  const size_t bookCount = books.size();
-  store.replaceLoaded(std::move(books), std::move(globalDays), totalSeconds, totalSessions, totalPagesTurned,
-                      longestStreak);
-  LOG_DBG("RST", "Reading stats loaded (%zu books, %u s total)", bookCount, totalSeconds);
-  return ReadingStatsLoad::Ok;
 }

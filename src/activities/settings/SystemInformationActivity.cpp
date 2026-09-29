@@ -69,6 +69,8 @@ void SystemInformationActivity::onEnter() {
   status_.reset();
   sdStatusReady_ = false;
   sdLoadRequested_ = false;
+  page_ = 0;
+  pageCount_ = 1;
   requestUpdate();
 }
 
@@ -78,6 +80,18 @@ void SystemInformationActivity::loop() {
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     finish();
     return;
+  }
+
+  if (pageCount_ > 1) {
+    const bool next = mappedInput.wasPressed(MappedInputManager::frontStripNext()) ||
+                      mappedInput.wasPressed(MappedInputManager::Button::PageForward);
+    const bool prev = mappedInput.wasPressed(MappedInputManager::frontStripPrevious()) ||
+                      mappedInput.wasPressed(MappedInputManager::Button::PageBack);
+    if (next || prev) {
+      page_ = (page_ + (next ? 1 : pageCount_ - 1)) % pageCount_;
+      requestUpdate();
+      return;
+    }
   }
 
   // Collect fast fields first so this page appears immediately.
@@ -108,33 +122,59 @@ void SystemInformationActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer,
-                 Rect{contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight},
-                 tr(STR_SYSTEM_INFO), CROSSPOINT_VERSION);
+  auto drawHeader = [&](const char* subtitle) {
+    GUI.drawHeader(renderer,
+                   Rect{contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight},
+                   tr(STR_SYSTEM_INFO), subtitle);
+  };
 
   // Two-column layout with interleaved section headers (drawn via the theme's
   // subheader so the full-width underline is consistent with the rest of the
   // UI). Data rows use a bold label on the left and the value at the column
-  // midpoint; row step is tightened so all sections fit on one screen.
+  // midpoint.
+  //
+  // The rows are laid out as one continuous flow that breaks onto a new page
+  // whenever the next section would run past the bottom, so the page count
+  // follows the orientation and the rows present rather than a hand-kept split.
+  // Every page is laid out on every render; only the rows of page_ are drawn.
   const int leftX = contentRect.x + metrics.verticalSpacing * 3;
   const int valueX = contentRect.x + contentRect.width / 2;
   const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
   const int rowStep = lineH + 2;
   const int subHeaderHeight = lineH + 6;
-  int y = contentRect.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int pageTop = contentRect.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int pageBottom = contentRect.y + contentRect.height - metrics.verticalSpacing;
+  int y = pageTop;
+  int layoutPage = 0;
 
-  auto drawSection = [&](const char* title) {
-    GUI.drawSubHeader(renderer, Rect{contentRect.x, y, contentRect.width, subHeaderHeight}, title);
+  auto breakIfShort = [&](int needed) {
+    if (y + needed > pageBottom && y > pageTop) {
+      ++layoutPage;
+      y = pageTop;
+    }
+  };
+  // `rows` keeps a section's header together with its rows; a section taller
+  // than a page still breaks row by row in drawRow.
+  auto drawSection = [&](const char* title, int rows) {
+    breakIfShort(subHeaderHeight + 2 + rows * rowStep);
+    if (layoutPage == page_) {
+      GUI.drawSubHeader(renderer, Rect{contentRect.x, y, contentRect.width, subHeaderHeight}, title);
+    }
     y += subHeaderHeight + 2;
   };
   auto drawRow = [&](const char* label, const std::string& value) {
-    renderer.drawText(UI_10_FONT_ID, leftX, y, label, true, EpdFontFamily::BOLD);
-    renderer.drawText(UI_10_FONT_ID, valueX, y, value.c_str());
+    breakIfShort(rowStep);
+    if (layoutPage == page_) {
+      renderer.drawText(UI_10_FONT_ID, leftX, y, label, true, EpdFontFamily::BOLD);
+      renderer.drawText(UI_10_FONT_ID, valueX, y, value.c_str());
+    }
     y += rowStep;
   };
 
   if (!status_.has_value()) {
     // Stats not yet collected — show a placeholder so the screen updates immediately
+    pageCount_ = 1;
+    drawHeader(CROSSPOINT_VERSION);
     drawRow(tr(STR_FW_VERSION), CROSSPOINT_VERSION);
     y += rowStep;
     drawRow("", tr(STR_GATHERING_DATA));
@@ -146,7 +186,7 @@ void SystemInformationActivity::render(RenderLock&&) {
 
   const auto& status = *status_;
 
-  drawSection(tr(STR_SEC_VERSION));
+  drawSection(tr(STR_SEC_VERSION), 5);
   drawRow(tr(STR_FW_VERSION), status.version);
   drawRow(tr(STR_DISPLAY_SDK), status.displaySdk);
   drawRow(tr(STR_DEVICE), std::string(status.deviceType) + " (" + std::to_string(status.displayWidth) + " x " +
@@ -156,15 +196,15 @@ void SystemInformationActivity::render(RenderLock&&) {
   // sibling profiles, and that distinction is what makes two field reports comparable.
   drawRow(tr(STR_DIAG_BOARD_PROFILE), status.boardProfile);
 
-  drawSection(tr(STR_SEC_CHIP));
+  drawSection(tr(STR_SEC_CHIP), 2);
   drawRow(tr(STR_CHIP), status.chipVersion);
   drawRow(tr(STR_CPU), std::to_string(status.cpuFreqMHz) + " " + tr(STR_MHZ));
 
-  drawSection(tr(STR_SEC_MEMORY));
+  drawSection(tr(STR_SEC_MEMORY), 1);
   drawRow(tr(STR_MEM_COMBINED),
           formatBytesTriple(status.freeHeapBytes, status.minFreeHeapBytes, status.maxAllocHeapBytes));
 
-  drawSection(tr(STR_SEC_FLASH));
+  drawSection(tr(STR_SEC_FLASH), status.fontCacheTotalBytes > 0 ? 3 : 2);
   drawRow(tr(STR_APP_PARTITION), formatBytes(status.flashAppPartitionSize));
   drawRow(tr(STR_FLASH_TOTAL), formatBytes(status.flashBytes));
   if (status.fontCacheTotalBytes > 0) {
@@ -174,7 +214,8 @@ void SystemInformationActivity::render(RenderLock&&) {
     drawRow(tr(STR_FONT_CACHE), fontCacheValue);
   }
 
-  drawSection(tr(STR_SEC_RUNTIME));
+  // Uptime, light sleep, battery, and deep sleep when known.
+  drawSection(tr(STR_SEC_RUNTIME), status.deepSleepSeconds > 0 ? 4 : 3);
   const uint32_t h = status.uptimeSeconds / 3600;
   const uint32_t m = (status.uptimeSeconds % 3600) / 60;
   const uint32_t s = status.uptimeSeconds % 60;
@@ -247,7 +288,7 @@ void SystemInformationActivity::render(RenderLock&&) {
   }
   drawRow(tr(STR_BATTERY), batteryLabel);
 
-  drawSection(tr(STR_SEC_STORAGE));
+  drawSection(tr(STR_SEC_STORAGE), 1);
   if (!sdStatusReady_) {
     const char* sdMessage = sdLoadRequested_ ? tr(STR_READING) : tr(STR_SD_UPDATE_PROMPT);
     drawRow(tr(STR_SD_CARD), sdMessage);
@@ -257,18 +298,28 @@ void SystemInformationActivity::render(RenderLock&&) {
     drawRow(tr(STR_SD_CARD), tr(STR_NOT_SET));
   }
 
+  pageCount_ = layoutPage + 1;
+  const bool paged = pageCount_ > 1;
+  // With more than one page the header's subtitle says "1 / 2" instead of the
+  // version, which is the first row anyway: a reader has to know there IS a
+  // second page before they will look for the way to reach it.
+  const std::string pageOfPages = std::to_string(page_ + 1) + " / " + std::to_string(pageCount_);
+  drawHeader(paged ? pageOfPages.c_str() : CROSSPOINT_VERSION);
+
   // Draw logo centered horizontally, vertically centered in the space between
-  // the last data row and the button hints. drawImage handles coordinate
+  // the last data row and the button hints -- on the last page only, where y is
+  // still the cursor of the page on screen. drawImage handles coordinate
   // transformation internally so plain content-rect coordinates are used here.
   constexpr int kLogoSize = 120;
   const int hintsTop = contentRect.y + contentRect.height - metrics.buttonHintsHeight;
   const int logoY = y + (hintsTop - y - kLogoSize) / 2;
   const int logoX = contentRect.x + (contentRect.width - kLogoSize) / 2;
-  if (logoY >= 0 && logoY + kLogoSize <= hintsTop) {
+  if (layoutPage == page_ && logoY >= 0 && logoY + kLogoSize <= hintsTop) {
     renderer.drawImage(Logo120, logoX, logoY, kLogoSize, kLogoSize);
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), sdStatusReady_ ? "" : tr(STR_UPDATE), "", "");
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), sdStatusReady_ ? "" : tr(STR_UPDATE),
+                                            paged ? tr(STR_PREV) : "", paged ? tr(STR_NEXT) : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

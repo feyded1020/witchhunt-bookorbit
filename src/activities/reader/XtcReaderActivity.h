@@ -36,6 +36,7 @@ class XtcReaderActivity final : public Activity {
   void render(RenderLock&&) override;
   bool isReaderActivity() const override { return true; }
   void onButtonAction(CrossPointSettings::BUTTON_ACTION action) override;
+  bool handleForcedRefresh(HalDisplay::RefreshMode mode) override;
 
   // Renders the last saved page to the frame buffer without flushing to display.
   // Used by SleepActivity to prepare the background for the overlay sleep mode.

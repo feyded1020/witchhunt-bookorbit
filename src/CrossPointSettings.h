@@ -696,6 +696,10 @@ class CrossPointSettings {
   // composes with whichever action (home / open next / OPDS search) was picked rather than
   // replacing it — see BookFinished::launchFinishedBookFlow.
   uint8_t syncFinishedBookToKOReader = 0;
+  // Keyboard layouts the language key cycles through: bit i enables keyboard_layouts::ALL[i]
+  // (see activities/util/KeyboardLayoutSet.h). 0 means "not configured" -- the UI language's
+  // layout plus English -- so a reader who never opens the screen follows the UI language.
+  uint16_t keyboardLayouts = 0;
   // Show clock in the reader status bar
   uint8_t statusBarClock = 0;
   // Which end of the status-item lane the clock is drawn at (see STATUS_BAR_CLOCK_POSITION).

@@ -71,13 +71,9 @@ struct ThemeMetrics {
   int keyboardKeyWidth;
   int keyboardKeyHeight;
   int keyboardKeySpacing;
-  int keyboardBottomKeyHeight;
-  int keyboardBottomKeySpacing;
-  bool keyboardBottomAligned;
   bool keyboardCenteredText;
   int keyboardVerticalOffset;
   int keyboardTextFieldWidthPercent;
-  int keyboardWidthPercent;
   int keyboardKeyCornerRadius = 0;
 };
 
@@ -98,8 +94,6 @@ enum UIIcon {
   Stats,
   Ellipsis
 };
-
-enum class KeyboardKeyType { Normal, Shift, Mode, Reveal, Space, Del, Ok, Disabled };
 
 enum class HomeNavigation { Linear, Carousel };
 
@@ -135,13 +129,9 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .keyboardKeyWidth = 22,
                                  .keyboardKeyHeight = 40,
                                  .keyboardKeySpacing = 0,
-                                 .keyboardBottomKeyHeight = 35,
-                                 .keyboardBottomKeySpacing = 5,
-                                 .keyboardBottomAligned = true,
                                  .keyboardCenteredText = false,
                                  .keyboardVerticalOffset = -13,
-                                 .keyboardTextFieldWidthPercent = 85,
-                                 .keyboardWidthPercent = 90};
+                                 .keyboardTextFieldWidthPercent = 85};
 }
 
 enum class SyncIndicator : uint8_t { None, Active, Failed };
@@ -201,9 +191,6 @@ class BaseTheme {
   virtual void drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label) const;
   virtual void drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth, bool cursorMode = false,
                              int contentStartX = 0, int contentWidth = 0) const;
-  virtual void drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const char* label, const bool isSelected,
-                               const char* secondaryLabel = nullptr, KeyboardKeyType keyType = KeyboardKeyType::Normal,
-                               bool inactiveSelection = false) const;
   virtual bool showsFileIcons() const { return false; }
 
   // ---- Home screen navigation / rendering contract ----

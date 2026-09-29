@@ -19,6 +19,8 @@ target_include_directories(JpegDecoderTest PRIVATE
   ${REPO_ROOT}/test/shims
   ${REPO_ROOT}/lib/Logging
   ${REPO_ROOT}/lib/GfxRenderer
+  # BufferedPrint.h
+  ${REPO_ROOT}/lib/Serialization
   ${REPO_ROOT}/lib/JpegToBmpConverter
   ${REPO_ROOT}/lib/ProgressiveJpegDc
   ${REPO_ROOT}/lib/ProgressiveJpeg

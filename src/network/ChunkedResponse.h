@@ -77,6 +77,26 @@ class ChunkedResponse {
   size_t used = 0;
 };
 
+// Print on top of ChunkedResponse, for writers that speak Print (the reading-stats dashboard and export).
+class ChunkedPrint final : public Print {
+ public:
+  explicit ChunkedPrint(ChunkedResponse& out) : out(out) {}
+
+  size_t write(uint8_t b) override {
+    const char c = static_cast<char>(b);
+    out.append(&c, 1);
+    return 1;
+  }
+
+  size_t write(const uint8_t* buffer, size_t size) override {
+    out.append(reinterpret_cast<const char*>(buffer), size);
+    return size;
+  }
+
+ private:
+  ChunkedResponse& out;
+};
+
 // JSON-array framing on top of ChunkedResponse: owns the brackets and the
 // separating commas so callers cannot emit a leading or doubled comma when an
 // entry is skipped.

@@ -901,12 +901,11 @@ void EpubReaderActivity::onExit() {
   currentPageFootnotes.clear();
   currentPageFootnotes.shrink_to_fit();
 
-  // Flush the reading-stats session LAST: end() loads the whole history to merge one entry and
-  // rewrite the file, and it needs nothing of the reader (the tracker copied the id, title and
-  // author at begin()). Before the teardown it ran with the section, the page and the epub still
-  // resident -- run 17 loaded an 18-book store at 25 KB free / 9.7 KB contiguous, the tightest
-  // point of the whole exit path; here it has the ~18 KB the teardown just freed. Sleep paths
-  // that bypass onExit() still end up here on resume because the activity is recreated.
+  // Flush the reading-stats session LAST: end() writes the book and the global figures in place
+  // (~10 KB of heap whatever the history holds), and it needs nothing of the reader (the tracker
+  // copied the id, title and author at begin()). Here it has the heap the teardown just freed.
+  // Sleep paths that bypass onExit() still end up here on resume because the activity is
+  // recreated.
   globalReadingSessionTracker().end();
 }
 
@@ -1545,12 +1544,19 @@ void EpubReaderActivity::stepBackgroundSectionBuild() {
   // it dereferences section state the render task mutates — an earlier unlocked version in serviceBackgroundWork()
   // raced buildSection's reassignment of `section`. B keeps waiting behind pendingPreRender until the retry has run,
   // preserving A's priority.
+  //
+  // Only for the page ON SCREEN. A navigation dispatched from main.cpp (double/long press, gesture)
+  // moves the position and requests its render on this same tick, before the render task has run;
+  // arming here then made that render a PreRender pass, which draws the page after the new one
+  // off-screen and never flushes — the panel stayed on the old page (issue #351). The render that
+  // draws the new page arms its own pre-render.
   const uint32_t preRenderFree = esp_get_free_heap_size();
   // Everything except the heap floor, so the floor can be reported on its own. Pre-render is a
   // nice-to-have (page-turn latency), not correctness — but a floor that rejects it constantly is
   // still evidence the floors are mistuned.
   const bool preRenderWanted =
       !preRenderedPage.ready && section->currentPage + 1 < section->pageCount &&
+      lastRenderedSpineIndex_ == currentSpineIndex && lastRenderedPageIndex_ == section->currentPage &&
       (preRenderRearmSpine_ != currentSpineIndex || preRenderRearmPage_ != section->currentPage);
   if (preRenderWanted && preRenderFree < PRE_RENDER_MIN_FREE_HEAP_BYTES) {
     HEAP_GATE("preRenderArm", false, preRenderFree, PRE_RENDER_MIN_FREE_HEAP_BYTES, 0, 0);
@@ -3803,6 +3809,7 @@ bool EpubReaderActivity::renderBufferDisplayPass(const RenderLayout& layout) {
     return false;
   }
   // Same reason as in renderContents(): pin the page identity before the pass does any work.
+  lastRenderedSpineIndex_ = currentSpineIndex;
   lastRenderedPageIndex_ = section->currentPage;
   lastRenderedPageCount_ = section->pageCount;
   currentPageFootnotes = std::move(p->footnotes);
@@ -5143,6 +5150,7 @@ void EpubReaderActivity::renderContents(RenderLock& lock, std::unique_ptr<Page> 
   logReaderMemSnapshot("render_start");
   // Pin the page identity now, while it still describes what this pass is about to draw.
   if (section) {
+    lastRenderedSpineIndex_ = currentSpineIndex;
     lastRenderedPageIndex_ = section->currentPage;
     lastRenderedPageCount_ = section->pageCount;
   }
@@ -6863,24 +6871,24 @@ void EpubReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION 
         openQuickOverrides();
       }
       break;
-    case BA::BTN_FORCE_REFRESH:
-    case BA::BTN_FORCE_FAST_REFRESH:
-      // Re-display the CURRENT page to clear ghosting — do NOT raw displayBuffer() (the
-      // framebuffer may hold a Background-A pre-render of the *next* page, which would look
-      // like a page turn). Clear the pre-render flags so classifyRenderPass() picks a Normal
-      // render of the current page, request the forced mode for that render, and re-render.
-      {
-        RenderLock lock(*this);
-        pendingPreRender = false;
-        usePreRenderedBuffer = false;
-        preRenderedPage.ready = false;
-        preRenderedPlanesStaged_ = false;
-        forceRefreshModeNextRender_ = static_cast<int8_t>(
-            action == BA::BTN_FORCE_FAST_REFRESH ? HalDisplay::FAST_REFRESH : HalDisplay::HALF_REFRESH);
-      }
-      requestUpdate();
-      break;
     default:
       break;
   }
+}
+
+bool EpubReaderActivity::handleForcedRefresh(const HalDisplay::RefreshMode mode) {
+  // Re-display the CURRENT page to clear ghosting — do NOT raw displayBuffer() (the
+  // framebuffer may hold a Background-A pre-render of the *next* page, which would look
+  // like a page turn). Clear the pre-render flags so classifyRenderPass() picks a Normal
+  // render of the current page, request the forced mode for that render, and re-render.
+  {
+    RenderLock lock(*this);
+    pendingPreRender = false;
+    usePreRenderedBuffer = false;
+    preRenderedPage.ready = false;
+    preRenderedPlanesStaged_ = false;
+    forceRefreshModeNextRender_ = static_cast<int8_t>(mode);
+  }
+  requestUpdate();
+  return true;
 }

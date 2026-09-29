@@ -112,4 +112,5 @@ class LineReaderActivity : public Activity {
   // them -- and then dropped the lot: a swipe bound to "Next page" or "Exit reader" did nothing
   // here while working in the EPUB reader.
   void onButtonAction(CrossPointSettings::BUTTON_ACTION action) override;
+  bool handleForcedRefresh(HalDisplay::RefreshMode mode) override;
 };

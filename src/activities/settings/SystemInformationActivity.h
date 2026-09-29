@@ -19,4 +19,8 @@ class SystemInformationActivity final : public Activity {
   std::optional<SystemStatus> status_;
   bool sdStatusReady_ = false;
   bool sdLoadRequested_ = false;
+  // The rows no longer fit one screen, so render() flows them onto as many pages as
+  // the current orientation needs and records the count here for loop() to page with.
+  int page_ = 0;
+  int pageCount_ = 1;
 };

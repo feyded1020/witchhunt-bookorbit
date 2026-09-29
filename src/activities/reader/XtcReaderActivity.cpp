@@ -522,3 +522,13 @@ void XtcReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION a
       break;
   }
 }
+
+// Re-render the current page rather than let main.cpp re-flush it: a 2-bit page carries a gray
+// overlay that a raw flush of the B/W buffer would strip. The override replaces whatever the
+// refresh cycle picks for the base, so the requested mode also holds with the cycle set to Never.
+bool XtcReaderActivity::handleForcedRefresh(const HalDisplay::RefreshMode mode) {
+  if (!xtc) return false;  // render() would draw nothing and leave the override armed
+  renderer.setNextDisplayRefreshMode(mode);
+  requestUpdate();
+  return true;
+}

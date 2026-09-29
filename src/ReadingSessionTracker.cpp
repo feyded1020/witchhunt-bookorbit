@@ -106,12 +106,10 @@ void ReadingSessionTracker::updateProgress(uint8_t progress) {
 void ReadingSessionTracker::markFinished() {
   if (!active) return;
   const int64_t walltime = HalClock::isSynced() ? static_cast<int64_t>(HalClock::now()) : 0;
-  // Book exit is the only moment the history has to be in RAM; pull it in, merge, write, drop.
-  const ReadingStatsStore::ScopedLoad statsLoad;
-  READING_STATS.markFinished(docId, title, author, static_cast<time_t>(walltime));
-  if (!READING_STATS.saveToFile()) {
-    LOG_ERR("RST", "saveToFile failed (markFinished) doc=%s title=%s author=%s wall=%lld", docId.c_str(), title.c_str(),
-            author.c_str(), (long long)walltime);
+  const auto result = READING_STATS.markFinished(docId, title, author, static_cast<time_t>(walltime));
+  if (result != ReadingStatsStore::WriteResult::Done) {
+    LOG_ERR("RST", "markFinished not recorded (%u) doc=%s wall=%lld", static_cast<unsigned>(result), docId.c_str(),
+            (long long)walltime);
   }
   LOG_DBG("RST", "Marked finished doc=%s wall=%lld", docId.c_str(), (long long)walltime);
 }
@@ -134,13 +132,12 @@ void ReadingSessionTracker::end() {
           pagesTurnedThisSession, lastKnownProgress, (long long)walltime);
 
   if (!docId.empty()) {
-    // See markFinished(): the store is loaded only for this merge-and-save, then released.
-    const ReadingStatsStore::ScopedLoad statsLoad;
-    READING_STATS.recordSession(docId, title, author, seconds, pagesTurnedThisSession, lastKnownProgress,
-                                static_cast<time_t>(walltime));
-    if (!READING_STATS.saveToFile()) {
-      LOG_ERR("RST", "saveToFile failed (session end) doc=%s title=%s author=%s secs=%u pages=%u wall=%lld",
-              docId.c_str(), title.c_str(), author.c_str(), seconds, pagesTurnedThisSession, (long long)walltime);
+    // One book and the global figures, written in place copy-on-write: ~10 KB of heap whatever the history holds.
+    const auto result = READING_STATS.recordSession(docId, title, author, seconds, pagesTurnedThisSession,
+                                                    lastKnownProgress, static_cast<time_t>(walltime));
+    if (result != ReadingStatsStore::WriteResult::Done) {
+      LOG_ERR("RST", "Session not recorded (%u) doc=%s secs=%u pages=%u wall=%lld", static_cast<unsigned>(result),
+              docId.c_str(), seconds, pagesTurnedThisSession, (long long)walltime);
     }
   }
 

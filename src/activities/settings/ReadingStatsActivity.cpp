@@ -41,11 +41,26 @@ std::string formatPagesPerMin(uint32_t pages, uint32_t seconds) {
 
 }  // namespace
 
+void ReadingStatsActivity::loadSummary() {
+  ReadingStatsStore::Summary summary;
+  std::vector<BookReadingStats> top;
+  const bool ok = READING_STATS.querySummary(summary, /*withIndex=*/true) == ReadingStatsStore::ReadResult::Ok;
+  if (ok) {
+    const size_t shown = std::min<size_t>(summary.byTime.size(), 3);
+    if (READING_STATS.queryBooksAt(summary.byTime, 0, shown, summary.seq, top) != ReadingStatsStore::ReadResult::Ok) {
+      top.clear();
+    }
+    for (BookReadingStats& book : top) book.days.clear();  // the card shows title and time only
+    std::vector<ReadingStatsStore::IndexEntry>().swap(summary.byTime);
+  }
+  RenderLock lock(*this);
+  summary_ = std::move(summary);
+  topBooks_ = std::move(top);
+}
+
 void ReadingStatsActivity::onEnter() {
   Activity::onEnter();
-  // See the member: only now is the previous screen gone, so only now is "is the store already
-  // loaded" a question with a lasting answer.
-  statsLoad_.emplace();
+  loadSummary();
   requestUpdate();
 }
 
@@ -56,9 +71,13 @@ void ReadingStatsActivity::loop() {
   }
   // Confirm opens the all-books list when there's anything to drill into.
   // Suppressed when the store is empty so the button hint never lies.
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm) && !READING_STATS.getBooks().empty()) {
+  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm) && summary_.bookCount > 0) {
     startActivityForResult(std::make_unique<ReadingStatsBookListActivity>(renderer, mappedInput),
-                           [this](const ActivityResult&) { requestUpdate(); });
+                           [this](const ActivityResult&) {
+                             // The list may have removed books.
+                             loadSummary();
+                             requestUpdate();
+                           });
     return;
   }
   // If a reading session happens to be live, tick at most once per second so
@@ -87,7 +106,6 @@ void ReadingStatsActivity::render(RenderLock&&) {
   cfg.outerMarginX = metrics.verticalSpacing * 2;
   CardLayout layout(renderer, contentRect, startY, cfg);
 
-  const auto& store = READING_STATS;
   auto& tracker = globalReadingSessionTracker();
 
   // ---- Live session card ----
@@ -100,7 +118,7 @@ void ReadingStatsActivity::render(RenderLock&&) {
 
   // ---- All-time card ----
   layout.card(tr(STR_READING_STATS_TOTAL_TIME), [&](CardLayout::Body& b) {
-    if (store.getGlobalTotalSeconds() == 0) {
+    if (summary_.totalSeconds == 0) {
       b.centeredMessage(tr(STR_READING_STATS_NO_DATA));
       return;
     }
@@ -108,30 +126,31 @@ void ReadingStatsActivity::render(RenderLock&&) {
     // 4-cell stat grid: sessions / books / current streak / longest streak.
     // Streaks read "—" when the clock has never been wall-anchored.
     const uint16_t today = currentLocalDayIndex();
-    const bool haveStreak = today != 0 && !store.getGlobalDays().empty();
-    const std::string curStreak =
-        haveStreak ? std::to_string(store.computeCurrentStreak(today)) : std::string(tr(STR_READING_STATS_UNKNOWN));
+    const bool haveStreak = today != 0 && !summary_.globalDays.empty();
+    const std::string curStreak = haveStreak
+                                      ? std::to_string(ReadingStatsStore::currentStreakIn(summary_.globalDays, today))
+                                      : std::string(tr(STR_READING_STATS_UNKNOWN));
     const std::string maxStreak =
-        haveStreak ? std::to_string(store.computeLongestStreak()) : std::string(tr(STR_READING_STATS_UNKNOWN));
-    b.statGrid({{{std::to_string(store.getGlobalTotalSessions()), tr(STR_READING_STATS_SESSIONS)},
-                 {std::to_string(store.getBookCount()), tr(STR_READING_STATS_BOOKS)},
+        haveStreak ? std::to_string(ReadingStatsStore::longestStreakIn(summary_.globalDays, summary_.longestStreak))
+                   : std::string(tr(STR_READING_STATS_UNKNOWN));
+    b.statGrid({{{std::to_string(summary_.totalSessions), tr(STR_READING_STATS_SESSIONS)},
+                 {std::to_string(summary_.bookCount), tr(STR_READING_STATS_BOOKS)},
                  {curStreak, tr(STR_READING_STATS_STREAK)},
                  {maxStreak, tr(STR_READING_STATS_LONGEST)}}});
 
-    b.rowLR(tr(STR_READING_STATS_TOTAL_TIME), formatReadingDuration(store.getGlobalTotalSeconds()));
-    b.rowLR(tr(STR_READING_STATS_PAGES), std::to_string(store.getGlobalTotalPagesTurned()));
-    b.rowLR(tr(STR_READING_STATS_PAGES_PER_MIN),
-            formatPagesPerMin(store.getGlobalTotalPagesTurned(), store.getGlobalTotalSeconds()));
+    b.rowLR(tr(STR_READING_STATS_TOTAL_TIME), formatReadingDuration(summary_.totalSeconds));
+    b.rowLR(tr(STR_READING_STATS_PAGES), std::to_string(summary_.totalPagesTurned));
+    b.rowLR(tr(STR_READING_STATS_PAGES_PER_MIN), formatPagesPerMin(summary_.totalPagesTurned, summary_.totalSeconds));
     // Only show the finished row once the user has actually finished a book —
     // otherwise it's just clutter saying "0".
-    if (store.getFinishedBookCount() > 0) {
-      b.rowLR(tr(STR_READING_STATS_FINISHED), std::to_string(store.getFinishedBookCount()));
+    if (summary_.finishedBookCount > 0) {
+      b.rowLR(tr(STR_READING_STATS_FINISHED), std::to_string(summary_.finishedBookCount));
     }
   });
 
   // ---- 30-day sparkline card ----
   const uint16_t today = currentLocalDayIndex();
-  if (today != 0 && !store.getGlobalDays().empty()) {
+  if (today != 0 && !summary_.globalDays.empty()) {
     layout.card(tr(STR_READING_STATS_LAST_30D), [&](CardLayout::Body& b) {
       constexpr int kSparkDays = 30;
       constexpr int kSparkHeight = 32;
@@ -148,7 +167,7 @@ void ReadingStatsActivity::render(RenderLock&&) {
         const uint16_t d = (today > static_cast<uint16_t>(kSparkDays - 1 - i))
                                ? static_cast<uint16_t>(today - (kSparkDays - 1 - i))
                                : 0;
-        const uint32_t s = store.getSecondsForDay(d);
+        const uint32_t s = ReadingStatsStore::secondsOn(summary_.globalDays, d);
         if (s > maxSeconds) maxSeconds = s;
       }
 
@@ -158,7 +177,7 @@ void ReadingStatsActivity::render(RenderLock&&) {
         const uint16_t d = (today > static_cast<uint16_t>(kSparkDays - 1 - i))
                                ? static_cast<uint16_t>(today - (kSparkDays - 1 - i))
                                : 0;
-        const uint32_t s = store.getSecondsForDay(d);
+        const uint32_t s = ReadingStatsStore::secondsOn(summary_.globalDays, d);
         const int barX = sparkOriginX + i * (barWidth + kBarGap);
         const int h = s == 0 ? 1 : std::max<int>(2, (s * kSparkHeight) / maxSeconds);
         renderer.fillRect(barX, sparkOriginY + kSparkHeight - h, barWidth, h, true);
@@ -168,27 +187,18 @@ void ReadingStatsActivity::render(RenderLock&&) {
   }
 
   // ---- Top books card ----
-  if (!store.getBooks().empty()) {
-    std::vector<const BookReadingStats*> sorted;
-    sorted.reserve(store.getBooks().size());
-    std::transform(store.getBooks().begin(), store.getBooks().end(), std::back_inserter(sorted),
-                   [](const BookReadingStats& b) { return &b; });
-    std::sort(sorted.begin(), sorted.end(),
-              [](const BookReadingStats* a, const BookReadingStats* b) { return a->totalSeconds > b->totalSeconds; });
-
+  if (!topBooks_.empty()) {
     layout.card(tr(STR_READING_STATS_TOP_BOOKS), [&](CardLayout::Body& b) {
       const int ellipsisWidth = renderer.getTextWidth(UI_10_FONT_ID, "…");
       constexpr int kTitleGap = 8;
-      const size_t shown = std::min<size_t>(sorted.size(), 3);
       const int innerLeft = b.innerLeft();
       const int innerRight = b.innerRight();
-      for (size_t i = 0; i < shown; ++i) {
-        const auto* bk = sorted[i];
-        const std::string time = formatReadingDuration(bk->totalSeconds);
+      for (const auto& bk : topBooks_) {
+        const std::string time = formatReadingDuration(bk.totalSeconds);
         const int timeWidth = renderer.getTextWidth(UI_10_FONT_ID, time.c_str());
         renderer.drawText(UI_10_FONT_ID, innerRight - timeWidth, b.currentY(), time.c_str());
 
-        std::string label = bk->title.empty() ? bk->docId : bk->title;
+        std::string label = bk.title.empty() ? bk.docId : bk.title;
         const int maxLabelWidth = (innerRight - timeWidth - kTitleGap) - innerLeft;
         if (maxLabelWidth > 0 && renderer.getTextWidth(UI_10_FONT_ID, label.c_str()) > maxLabelWidth) {
           while (!label.empty() &&
@@ -203,7 +213,7 @@ void ReadingStatsActivity::render(RenderLock&&) {
     });
   }
 
-  const char* btn2 = store.getBooks().empty() ? "" : tr(STR_READING_STATS_BOOK_LIST);
+  const char* btn2 = summary_.bookCount == 0 ? "" : tr(STR_READING_STATS_BOOK_LIST);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), btn2, "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

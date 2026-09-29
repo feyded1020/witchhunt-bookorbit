@@ -113,6 +113,8 @@ Under each book's cover is a line of its reading history, such as *Read 3h 18m o
 
 **Choosing what is on the Home screen:** **Settings → Display → Home screen** has one switch each for Browse files, Recent books, Reading stats, Bookmarks, OPDS browser, File transfer and Weather. Everything is on by default. Anything you switch off moves behind a **More** row above Settings, so it is still one step away. More only appears when something has been moved there. Settings itself cannot be switched off, because it is where you undo the choice.
 
+**Correcting a book's title or author:** a metadata file next to an EPUB with the same name (`Some Book.opf` beside `Some Book.epub`) takes precedence over the details inside the book. The metadata editor plugin in the web interface writes one for you. The Home screen and Recent Books notice when that file is added, changed or removed, over USB or from the plugin, and show the new details without the book having to be opened first.
+
 ### 3.2 Reading Mode
 
 See [Reading Mode](#4-reading-mode) below for more information.
@@ -308,6 +310,10 @@ The Settings screen allows you to configure the device's behavior.
 #### 3.7.4 System
 
 - **Language**: Set the system language (see **[Supported Languages](#supported-languages)**).
+- **Keyboard Layouts**: Which layouts the on-screen keyboard offers, each named in its own language: English (QWERTY), Français (AZERTY), Deutsch (QWERTZ, with ä, ö, ü and ß), Español (with ñ), and ЙЦУКЕН for Русский, Українська, Беларуская and Қазақша. Press **Confirm** on a row to switch it on or off. Until you change anything here, the keyboard offers your system language's layout plus English.
+  - Once two or more layouts are on, the keyboard shows a globe key that switches to the next one.
+  - One Latin layout always stays on, because web addresses and passwords need one; its row then reads "Default" and cannot be switched off.
+  - On the keyboard, hold **Confirm** on a key (or long-press it on a touch screen) for its alternate letter, such as an accented one or Ukrainian ґ and the extra Kazakh letters, or for the other case. Holding **Confirm** on Delete clears the whole text. Shift applies to the next letter only, and `-`, `=`, `.` and `,` are on the symbols page (**?123**).
 - **Show Hidden Files**: Show files and folders whose names start with `.`. "ON" / "OFF"
 - **Show File Extensions**: Show file extensions in the file browser. "ON" / "OFF"
 
@@ -330,9 +336,9 @@ The Settings screen allows you to configure the device's behavior.
 **System**:
 - **Clear Reading Cache**: Clear the internal SD card cache.
 - **Repair Screen**: Clears ghosting left behind by fast page refreshes, by driving every pixel hard between black and white several times. Takes about 20 seconds and deletes nothing. A maintenance action, not a fix for ghosting while you read.
-- **System Information**: Display device info (firmware version, hardware, memory, SD card).
+- **System Information**: Display device info (firmware version, hardware, memory, SD card). When it runs to more than one page, the header shows the page ("1 / 2") and the page buttons move between pages, wrapping round at the ends. How many pages there are depends on the orientation.
 - **Boot Diagnostics**: How this boot started, where the last sleep stopped, and the history pairing each sleep with the boot that followed it. One screenful, meant to be photographed into a bug report when the device fails to sleep or fails to wake.
-- **Reading Statistics**: View reading stats (streaks, time read, pages/min, per-book ETA, sparkline history). Also on the Home screen as **Reading Stats**.
+- **Reading Statistics**: View reading stats (streaks, time read, pages/min, per-book ETA, sparkline history). Also on the Home screen as **Reading Stats**. To forget one book, open it under **All books** and press **Confirm** (**Remove**); its reading time comes out of the totals and the book file itself is untouched. Not offered for the book you currently have open. The web dashboard's **Stats** page has the same **Remove from stats** button in each book's expanded row.
 
 **Firmware Update**:
 - **Check for Updates**: Check for and download Witch Reader firmware updates over WiFi.
@@ -510,7 +516,8 @@ This feature can be disabled in the **[Controls Settings](#373-controls)** to he
 ### System Navigation
 * **Return to Home:** Press the **Back** button to close the book and return to the **[Home](#31-home-screen)** screen.
 * **Return to Browse Files:** Press and hold the **Back** button to close the book and return to the **[Browse Files](#33-browse-files-screen)** screen.
-* **Reader Menu:** Press **Confirm** to open the reader menu, which includes: **[Table of Contents](#6-chapter-selection-screen)**, bookmarks, sync progress, reading statistics, quick per-book overrides (font, images, hyphenation, bionic reading…), take screenshot, and more.
+* **Reader Menu:** Press **Confirm** to open the reader menu, which includes: **[Table of Contents](#6-chapter-selection-screen)**, bookmarks, sync progress, reading statistics, quick per-book overrides (font, images, hyphenation, bionic reading…), take screenshot, and more. Its entries are grouped into tabs. While the tab bar is selected, **Confirm** moves to the next tab, and its button hint names that tab.
+* **Your place is kept by paragraph as well as by page.** If a book is laid out differently the next time you open it, for example after you changed the font size from outside the book or after a firmware update re-indexed it, it opens at the paragraph you were reading rather than at a page number scaled to the new length.
 
 ### Supported Languages
 

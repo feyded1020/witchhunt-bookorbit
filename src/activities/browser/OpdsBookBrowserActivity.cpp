@@ -369,9 +369,9 @@ void OpdsBookBrowserActivity::loop() {
       return;
     }
 
-    buttonNavigator.onNextList(ButtonNavigator::getStepNextButtons(), formatSelectorIndex,
+    formatNavigator.onNextList(ButtonNavigator::getStepNextButtons(), formatSelectorIndex,
                                static_cast<int>(entry.acquisitionLinks.size()), [this] { requestUpdate(); });
-    buttonNavigator.onPreviousList(ButtonNavigator::getStepPreviousButtons(), formatSelectorIndex,
+    formatNavigator.onPreviousList(ButtonNavigator::getStepPreviousButtons(), formatSelectorIndex,
                                    static_cast<int>(entry.acquisitionLinks.size()), [this] { requestUpdate(); });
     return;
   }

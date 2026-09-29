@@ -72,6 +72,7 @@ enum class SettingAction {
   CheckForUpdates,
   SdFirmwareUpdate,
   Language,
+  KeyboardLayouts,
   SystemInfo,
   BootDiagnostics,
   FontScalingTest,

@@ -57,6 +57,9 @@ class OpdsBookBrowserActivity final : public Activity {
   int selectorIndex = 0;
   int selectedBookIndex = -1;
   int formatSelectorIndex = 0;
+  // The format picker's own navigator: a navigator keeps per-list press and double-tap state, so
+  // the picker must not step with the entry list's one (#342).
+  ButtonNavigator formatNavigator;
   std::vector<std::string> formatSelectionLabels;
   std::string errorMessage;
   std::string statusMessage;

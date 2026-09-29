@@ -580,6 +580,7 @@ void EpubReaderMenuActivity::materializeListWindow() {
   }
 }
 
+#if READER_MENU_TAB_ICONS
 bool EpubReaderMenuActivity::paintTabIcon(fui::DrawTarget& target, const fui::Rect rect, const fui::TabItem& tab,
                                           const uint8_t, void* user) {
   auto* self = static_cast<EpubReaderMenuActivity*>(user);
@@ -626,6 +627,7 @@ bool EpubReaderMenuActivity::paintTabIcon(fui::DrawTarget& target, const fui::Re
   }
   return true;
 }
+#endif
 
 const char* EpubReaderMenuActivity::tabLabel(const int slot) const {
   static constexpr StrId tabLabels[MENU_TAB_COUNT] = {StrId::STR_READER_NAVIGATION, StrId::STR_SETTINGS_TITLE,
@@ -633,6 +635,7 @@ const char* EpubReaderMenuActivity::tabLabel(const int slot) const {
   return I18N.get(tabLabels[static_cast<size_t>(visibleTabs[slot])]);
 }
 
+#if READER_MENU_TAB_ICONS
 // Adapted from CrossInk's icon-tab reader menu at commit 60cc4da5 (MIT):
 // https://github.com/uxjulia/crossink -- the icon-above-label tab design and the per-tab glyphs
 // paintTabIcon() draws. The shared tab composition and touch routing this builds on moved to
@@ -645,6 +648,7 @@ void EpubReaderMenuActivity::customizeTabBar(UiScreen& screen, fui::TabBarProps&
   props.iconPainter = &EpubReaderMenuActivity::paintTabIcon;
   props.iconPainterUserData = this;
 }
+#endif
 
 void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
@@ -690,6 +694,9 @@ void EpubReaderMenuActivity::drawChrome() {
 }
 
 void EpubReaderMenuActivity::drawFooter() {
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  // Confirm means "next tab" while the bar holds focus and "select" on a row, so the hint names
+  // the tab it would move to, as the settings screen does.
+  const auto confirmLabel = tabsFocused() ? tabLabel((selectedTab() + 1) % tabCount()) : tr(STR_SELECT);
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }

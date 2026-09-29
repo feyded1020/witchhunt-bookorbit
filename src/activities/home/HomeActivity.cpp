@@ -28,6 +28,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalBookmarkIndex.h"
+#include "KOReaderDocumentId.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "ReadingStats.h"
@@ -810,12 +811,6 @@ void HomeActivity::restoreSecondaryBuffer(bool callerHoldsRenderLock) {
 void HomeActivity::onEnter() {
   Activity::onEnter();
 
-  // The Lyra themes print a pace-based ETA badge on each recent book (UITheme::bookEtaSuffix),
-  // which is the one reading-stats consumer outside the settings screens. Load the history for
-  // as long as Home is on screen and release it on the way out — the reader must not inherit it,
-  // since that ~15 KB and its effect on the largest free block is what starves a section build.
-  statsLoad_.emplace();
-
   // A finished-book "sync to KOReader, then search OPDS for this author" request that just
   // rebooted (the sync reboots to reclaim WiFi-session heap fragmentation, see
   // BookOrbitSyncActivity::onExit()) lands here first — there's no reader to hand it to the way
@@ -857,6 +852,12 @@ void HomeActivity::onEnter() {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   loadRecentBooks(metrics.homeRecentBooksCount);
+  // The themes draw each recent book's history and pace from the stats cache; fill it here, on the
+  // loop task, so their render() reads no file. A warm cache makes this free.
+  std::vector<std::string> recentDocIds;
+  recentDocIds.reserve(recentBooks.size());
+  for (const auto& book : recentBooks) recentDocIds.push_back(KOReaderDocumentId::calculateFromFilename(book.path));
+  READING_STATS.prefetchRecent(recentDocIds);
   if (recentBooks.empty()) {
     recentsLoaded = true;
   }
@@ -892,7 +893,6 @@ void HomeActivity::onExit() {
   // The cover-loading burst is over; release the one book's metadata the memo still holds.
   Epub::clearCoverMetadataMemo();
   Activity::onExit();
-  statsLoad_.reset();
   freeCoverBuffer();
   UITheme::getInstance().getMutableTheme().invalidateFrameCache();
   // Never hand the next activity a degraded display: if we exit mid-load (e.g. the

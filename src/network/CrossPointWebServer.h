@@ -157,6 +157,7 @@ class CrossPointWebServer {
   void handleStatsPage() const;
   void handleStatsApi() const;
   void handleStatsExport() const;
+  void handleStatsRemove() const;
 
   // Web-UI plugins: JS on the SD card that the Settings and File Manager pages
   // discover and load, so the web interface can be extended without a firmware

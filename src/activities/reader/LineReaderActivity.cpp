@@ -197,6 +197,17 @@ void LineReaderActivity::onButtonAction(const CrossPointSettings::BUTTON_ACTION 
   }
 }
 
+// Re-render the current page rather than let main.cpp re-flush it: with text anti-aliasing on, a
+// raw flush sends only the B/W buffer, so the refresh meant to clean the page up would strip its
+// gray planes until the next turn. The override replaces whatever the refresh cycle picks, so the
+// requested mode also holds with the cycle set to Never.
+bool LineReaderActivity::handleForcedRefresh(const HalDisplay::RefreshMode mode) {
+  if (!txt) return false;  // render() would draw nothing and leave the override armed
+  renderer.setNextDisplayRefreshMode(mode);
+  requestUpdate();
+  return true;
+}
+
 void LineReaderActivity::goToPreviousPage() {
   if (currentPage > 0) {
     currentPage--;

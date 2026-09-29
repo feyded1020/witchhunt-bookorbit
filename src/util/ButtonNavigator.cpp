@@ -55,7 +55,14 @@ void ButtonNavigator::onRelease(const Buttons& buttons, const Callback& callback
   // ActivityManager::dispatchButtonAction, which is reader-only). Gating on isShortPending
   // there just makes Left/Right navigation feel sluggish (300ms lag) compared to Up/Down
   // (which have no FSM at all). So skip the gate outside reader activities.
-  const bool inReader = activityManager.isReaderActivity();
+  //
+  // "In a reader" means the reader is ON TOP, the same test dispatchButtonAction() makes -- not
+  // isReaderActivity(), which also answers true for a list opened from the reader. There the gate
+  // is worse than sluggish: the release edge lives for one tick, so a release it holds back is
+  // lost, not delayed. With the default double actions on Left/Right, the reader menu dropped
+  // every front-button step except the second of a quick pair (the pair's release is a Double,
+  // with nothing pending).
+  const bool inReader = activityManager.currentIsReaderActivity();
   const bool wasReleased =
       std::any_of(buttons.begin(), buttons.end(), [inReader](const MappedInputManager::Button button) {
         if (mappedInput == nullptr || !mappedInput->wasReleased(button)) {
@@ -347,6 +354,9 @@ void ButtonNavigator::onListNav(const Buttons& buttons, const bool forward, int&
   const bool resumed = press.count < lastSeenPressCount;  // drain() zeroed the log under us
   const uint16_t newPresses = resumed ? press.count : static_cast<uint16_t>(press.count - lastSeenPressCount);
   lastSeenPressCount = press.count;
+  // A drain with nothing pressed since is a resync, not a press. Without this, the first tick back
+  // on a list after a child activity closed stepped the selection once on its own (#342).
+  if (newPresses == 0) return;
 
   // Long press already fired: skip the press navigation — the jump-to-end already happened.
   if (longPressFired) return;

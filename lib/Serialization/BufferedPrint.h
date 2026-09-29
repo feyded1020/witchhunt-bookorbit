@@ -63,6 +63,9 @@ class BufferedPrint final : public Print {
     return out_.write(bufferBase(), n) == n;
   }
 
+  // The buffer actually allocated: 0 when the allocation failed and writes pass straight through.
+  size_t capacity() const { return cap_; }
+
   // Drop whatever is pending without writing it. For the error paths that close and delete the
   // output file: without this the destructor would flush into a closed handle.
   void discard() { fill_ = 0; }

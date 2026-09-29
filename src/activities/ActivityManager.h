@@ -207,7 +207,11 @@ class ActivityManager {
   // True while the current activity owns the raw SD card (USB Drive). main.cpp
   // consults this to suspend its own loop work — see Activity::requiresExclusiveStorageLoop().
   bool requiresExclusiveStorageLoop() const;
+  // True while a reader is anywhere on the stack -- including under its own menu or TOC.
   bool isReaderActivity() const;
+  // True only while the reader itself is on top: the one case dispatchButtonAction() delivers a
+  // configured action. A list opened from the reader answers false here but true above.
+  bool currentIsReaderActivity() const;
   bool skipLoopDelay() const;
 
   // True while the current activity owns the raw serial input stream (see
@@ -223,6 +227,10 @@ class ActivityManager {
   // Reader-specific actions (page navigation, TOC, bookmarks, footnotes) are forwarded
   // only when the current activity is a reader; others are no-ops in other contexts.
   void dispatchButtonAction(CrossPointSettings::BUTTON_ACTION action);
+
+  // Offer a manual force refresh to the activity on top. False when it leaves the refresh to the
+  // caller -- see Activity::handleForcedRefresh().
+  bool handleForcedRefresh(HalDisplay::RefreshMode mode);
 
 #if CP_TOUCH_UI
   // Pull the reading-light submenu down from the top edge, from whatever screen is up.

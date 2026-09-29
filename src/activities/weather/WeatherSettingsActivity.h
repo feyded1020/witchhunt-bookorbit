@@ -30,6 +30,11 @@ class WeatherSettingsActivity final : public MenuListActivity {
  private:
   std::vector<GeocodingResult> searchResults;
   bool showingSearchResults = false;
+  // The results list's own selection and navigator. The inherited ones belong to the settings
+  // menu: its navigator carries the menu's selectable predicate and item count, so stepping the
+  // results with it walked the MENU's rows -- past the last city into invisible entries (#342).
+  int resultIndex = 0;
+  ButtonNavigator resultsNavigator;
   std::string searchQuery;
 
   void buildMenuItems();

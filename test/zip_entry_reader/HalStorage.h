@@ -135,8 +135,13 @@ class HalFile : public Print {
   bool isOpen() const { return fp_ != nullptr; }
   explicit operator bool() const { return fp_ != nullptr || isDir_ || hasName_; }
 
+  // Test fault injection: a read that starts at or past this offset fails, as a flaky card read
+  // would. -1 (the default) turns it off.
+  static inline long failReadsFrom = -1;
+
   int read(void* buf, size_t n) {
     if (!fp_) return -1;
+    if (failReadsFrom >= 0 && ftell(fp_) >= failReadsFrom) return -1;
     return static_cast<int>(fread(buf, 1, n, fp_));
   }
   // Single-byte read, SdFat-style: returns the byte or -1 (used by Bitmap.cpp).

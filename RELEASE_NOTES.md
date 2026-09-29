@@ -2,6 +2,67 @@
 
 User-facing changes only. Full commit history is in git log.
 
+## 2.37 — 2026-09-29
+
+Everything since 2.35, including the 2.36 pre-release. The on-screen keyboard now types Cyrillic, French, German and Spanish, and reading statistics no longer slow down leaving a book. The page counter counts the whole chapter, and a book whose layout changed reopens at the paragraph you were reading.
+
+### Reading
+
+- **The page counter counts the whole chapter** (#325). Some books split a chapter into several files. J-Novel Club light novels, for example, start a new file at every illustration. The counter used to start again at 1 in each file while the title still named the same chapter, so every picture showed as "1/1". The counter and the Chapter progress bar now run across all of the chapter's files. A file that has not been laid out yet is estimated from its size, and the total shows a `~` until the rest of the chapter has been prepared in the background. The status bar then updates without waiting for a page turn.
+- **A book whose layout changed reopens at the paragraph you were reading.** Your place used to be kept as a page number and scaled by the chapter's new page count, which could land several pages away in a chapter with pictures, tables or headings. This happened after changing a setting outside the book, and after every update that re-indexes books. The reader now also saves the paragraph when you leave a book, and uses it whenever the chapter's page count has changed. If nothing changed, you return to exactly the same page, even one that starts mid-paragraph.
+- **Chapters open faster in books with a great many files.** Every chapter's caches used to sit in one folder, and the card searches a folder from the start every time it opens a file in it. For a book with 1,732 files, that meant reading about 540 blocks of the card to open one chapter. The caches are now split into folders of 32 chapters, and the same open reads about 14. The sleep screen also finds the printed page number for late chapters of such books, which it used to miss.
+- **The reader menu's tabs are plain text**, like the tabs in Settings, and while the tab bar is selected, the Confirm hint names the tab it switches to.
+- **Fix: a double press or long press to jump pages left the old page on screen** (#351). The position moved, but the screen did not, and the next press then jumped one page past where it should have. This happened within a chapter, on the X3 and X4.
+- **Fix (X4): Left and Right in the reader menu worked only every second or third press.** Screens opened from the reader (the menu, the contents, the printed-page dialog) were treated as the reader itself when a press was released. A press was held back to see whether it would become a double press, and was then lost. The same mistake swallowed reader shortcuts on those screens, such as the double press (±10) in the printed-page dialog in landscape, and touch gestures bound to reader actions.
+- Fix: **Refresh Screen** now refreshes the screen you are looking at. Over the reader menu and the other screens opened from a book, it did nothing. The TXT, Markdown and XTC readers ignored it. On other screens it briefly showed the previous screen.
+
+### Reading statistics
+
+- **Remove a single book from your reading statistics**, without wiping the rest. The book's screen in Reading Stats has **Remove**, behind a confirmation, and each book on the web dashboard's statistics page has a remove button. The book's time, sessions and days come back out of the totals, as if it had never been read. Your longest streak is kept. Deleting a book from the card still leaves its history alone.
+- **Leaving a book is instant again.** The statistics were kept in a single file that was rewritten in full at the end of every reading session. With a hundred books in it, that took 2.7 seconds on the X3 every time you left a book or the device went to sleep from one. They now live in a file with a fixed slot per book, and only the book you read and a small index are written: about 30 ms. A power cut during a save loses at most that one update, never the history.
+- **Fix: a reading session could be lost** once about 25–30 books had statistics. The end of a session loaded the whole history into memory, and past that size the load failed and the session was not recorded.
+- Fix: the web dashboard's statistics page and the statistics export could fail for a long history, because they also loaded all of it at once. Both now read it from the card as they go.
+
+### Keyboard
+
+- **Keyboard layouts for your language**: ЙЦУКЕН for Russian, Ukrainian, Belarusian and Kazakh, AZERTY for French, QWERTZ with ä, ö, ü and ß for German, and Spanish with ñ. Ukrainian ґ and the extra Kazakh letters are on a long press, since there is no room for more keys. Choose which layouts you use in **Settings → System → Keyboard Layouts**. Once two or more are on, a globe key switches between them. One Latin layout always stays on, because web addresses and passwords need one.
+- The cursor and Delete now move by whole characters. Before, editing a title with accented letters could cut a letter in half.
+- The keyboard comes from the `freeink-sdk` this firmware is built on, and works a little differently: Shift applies to one letter only, `-`, `=`, `.` and `,` moved to the symbols page, the keys look different, and on the T5 S3 tapping the text field places the cursor there.
+
+### Home, settings and navigation
+
+- **The home screen picks up changed book details.** A metadata file next to a book (`Some Book.opf`, as written by the metadata editor plugin) sets its title and author. The home screen and Recent Books only read it when the book was opened, so a change made later, over USB or from the plugin, did not show until then. They now notice the change and pick it up. Removing the file brings back the book's own details.
+- **System Information is split into pages** now that it no longer fits one screen. The page buttons move between pages and the header shows "1 / 2". Pages follow the orientation.
+- Fix: in **SD Firmware Update**, the button that opens the Options menu had no label (#329). The menu also offered things that do not belong there: Flash firmware (which Confirm already does), Move to folder, New folder and deleting folders. It now offers sorting, search and Remove on a firmware file, so an old firmware file can still be deleted on the device.
+- Fix: in **System Update**, the front Up button did not wrap from the first item to the last (#333).
+- Fix: in landscape counter-clockwise, the side button labels ("« Page", "Page »") were upside down (#336).
+- **Fix: a city found by the weather location search could not be selected** (#342). The result list moved the cursor through invisible rows. The cause also made every list move one row by itself when you came back from a screen opened from it, for example after cancelling an entry in Weather Settings.
+
+### The screen and fonts
+
+- **Fix: a gap before the letter "i" in the menus.** In the 12 pt menu font, every "i" had a gap before it and none after it. When the fonts were made, the hinting that sharpens letter stems also nudged about one letter in ten sideways, by up to a pixel. The built-in UI fonts, Bookerly and Noto Sans have been regenerated, so letters sit evenly between their neighbours. The width of each letter is unchanged, so books do not re-paginate.
+- **Fix (X4): entering Settings from Home could leave parts of the Home screen showing through.** The fast refresh compared the new screen with an older screen instead of Home, and skipped the pixels the two had in common. The same fix went into two other places with the same gap: the first chapter indexing of a newly opened book, and serial file transfer when memory runs low.
+
+### With thanks to
+
+Where the code here is someone else's, it is credited in the source file it lives in. Where the idea is theirs and the code is ours, the source says that too.
+
+- **Justin Mitchell** (@itsthisjustin): the keyboard built on the SDK (crosspoint-reader #2481, with **Julia Nguyen**).
+- **winst0niuss**: the set of language layouts and the key that switches them (#2858, with **Uri Tauber**), and moving the cursor by whole characters (#3094, #3095).
+- **Julia Nguyen** (@uxjulia): the look of the keys (#3755).
+- **Ankit**: Shift in web-address fields (#2357).
+- **@thiagokokada**: sending Refresh Screen to the screen on top (#2683).
+- The bug reports and requests behind the fixes above: **syfq91** for the chapter page counter (#325), the firmware picker (#329), System Update (#333) and the upside-down side labels (#336); **a1exb0nd** for the weather city search (#342); and **biggy-spoon** for the page jump (#351).
+- The German and French letters and the smaller keyboard tables have been offered back to the `freeink-sdk` (Free-Ink/freeink-sdk #127, #128).
+
+### Upgrade notes
+
+- **Every book re-indexes each chapter once, the first time you open it**, because the chapter caches have moved to new folders. Your place in every book is kept. The old caches stay on the card and take up space until the book's cache is cleared. **Settings → System → Clear Reading Cache** removes them all at once, and also re-indexes every book.
+- **Your reading statistics are converted once**, the first time they are used. That takes under a second, even for a hundred books. The old file is kept as `reading-stats.json.imported`. If you go back to an older firmware, it starts with empty statistics. Renaming that file back to `reading-stats.json`, or importing the statistics export from the web dashboard, restores them.
+- Reopening at the paragraph works for books you leave after updating. A place saved by an older version still uses the scaled page number once.
+- **Keyboard layouts start as your interface language's layout plus English.** In English and the languages without their own layout, the keyboard is English only, with no globe key, until you turn on more in **Settings → System → Keyboard Layouts**.
+- The new labels are translated in German, French, Spanish, Italian, Dutch, Portuguese (PT and BR), Polish, Russian, Ukrainian, Belarusian, Slovenian and Swedish. "Keyboard Layouts" is translated in every language. Otherwise Turkish, Vietnamese and the eight partly-translated languages show the new labels in English until a native speaker fills them in.
+
 ## 2.35 — 2026-09-27
 
 Everything since 2.31. You can organise and search the library on the device itself, pictures are decoded at their full resolution, and lists and headings are laid out the way the book's stylesheet asks. Underneath all of it, building a chapter takes far less memory than it did.

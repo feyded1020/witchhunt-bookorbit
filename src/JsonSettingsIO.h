@@ -9,7 +9,6 @@ class CrossPointState;
 class WifiCredentialStore;
 class RecentBooksStore;
 class OpdsServerStore;
-class ReadingStatsStore;
 
 namespace JsonSettingsIO {
 
@@ -32,13 +31,5 @@ bool loadRecentBooks(RecentBooksStore& store, const char* json);
 // OpdsServerStore
 bool saveOpds(const OpdsServerStore& store, const char* path);
 bool loadOpds(OpdsServerStore& store, const char* json, bool* needsResave = nullptr);
-
-// ReadingStatsStore
-// Serialises the store straight into `out` (an open file), no in-RAM copy of the JSON.
-bool saveReadingStats(const ReadingStatsStore& store, HalFile& out);
-// Streams `in` into the store. NoMemory is a transient failure (the caller keeps the file and
-// retries later); Corrupt is permanent (the caller sets the file aside).
-enum class ReadingStatsLoad : uint8_t { Ok, NoMemory, Corrupt };
-ReadingStatsLoad loadReadingStats(ReadingStatsStore& store, HalFile& in);
 
 }  // namespace JsonSettingsIO

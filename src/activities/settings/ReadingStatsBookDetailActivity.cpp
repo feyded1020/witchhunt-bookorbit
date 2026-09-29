@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <I18n.h>
+#include <Logging.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -12,7 +13,9 @@
 #include <utility>
 
 #include "MappedInputManager.h"
+#include "ReadingSessionTracker.h"
 #include "ReadingStats.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/BookProgressPresentation.h"
 #include "components/CardLayout.h"
 #include "components/UITheme.h"
@@ -53,6 +56,12 @@ uint32_t secondsForDayIn(const std::vector<DayBucket>& days, uint16_t dayIndex) 
 
 void ReadingStatsBookDetailActivity::onEnter() {
   Activity::onEnter();
+  ReadingStatsStore::BookQuery query;
+  if (READING_STATS.queryBook(docId, query) != ReadingStatsStore::ReadResult::Ok) query = {};
+  {
+    RenderLock lock(*this);
+    query_ = std::move(query);
+  }
   requestUpdate();
 }
 
@@ -61,13 +70,43 @@ void ReadingStatsBookDetailActivity::loop() {
     finish();
     return;
   }
+  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm) && canRemove()) {
+    confirmRemove();
+  }
+}
+
+// Not while this book's session is still open (this screen opened from the reader's menu, or
+// settings reached over an open book): the session lands in the store when the reader closes and
+// would bring the entry straight back.
+bool ReadingStatsBookDetailActivity::canRemove() const {
+  if (!query_.found) return false;
+  const auto& tracker = globalReadingSessionTracker();
+  return !(tracker.isActive() && tracker.getDocId() == docId);
+}
+
+void ReadingStatsBookDetailActivity::confirmRemove() {
+  const std::string title = query_.book.title.empty() ? docId : query_.book.title;
+  startActivityForResult(
+      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_READING_STATS_REMOVE_BOOK), title),
+      [this](const ActivityResult& res) {
+        if (res.isCancelled) {
+          requestUpdate();
+          return;
+        }
+        if (READING_STATS.removeBook(docId) != ReadingStatsStore::WriteResult::Done) {
+          LOG_ERR("RST", "remove failed doc=%s", docId.c_str());
+          requestUpdate();
+          return;
+        }
+        // Nothing left to show; the list underneath rebuilds when it regains the screen.
+        finish();
+      });
 }
 
 void ReadingStatsBookDetailActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, /*hasBottomHints=*/true, /*hasSideHints=*/false);
-  const auto& store = READING_STATS;
-  const BookReadingStats* book = store.findBook(docId);
+  const BookReadingStats* book = query_.found ? &query_.book : nullptr;
 
   renderer.clearScreen();
 
@@ -98,8 +137,8 @@ void ReadingStatsBookDetailActivity::render(RenderLock&&) {
   CardLayout layout(renderer, contentRect, startY, cfg);
 
   if (!book) {
-    // The book may have been removed from the store between the list and
-    // the detail screen (e.g. a future "clear stats for this book" action).
+    // No history for this book: opened from the reader's menu before its
+    // first session has been recorded, or the history failed to load.
     // Show a placeholder rather than crash on a null deref.
     layout.card(nullptr, [](CardLayout::Body& b) { b.centeredMessage(tr(STR_READING_STATS_NO_DATA)); });
   } else {
@@ -125,7 +164,9 @@ void ReadingStatsBookDetailActivity::render(RenderLock&&) {
       // reading the book; the reader's status bar can pick this up live.
       if (book->progress < 100) {
         const float remainingPercent = 100.0f - static_cast<float>(book->progress);
-        const uint32_t etaSeconds = store.estimateRemainingSeconds(book->docId, remainingPercent);
+        const float own = ReadingStatsStore::ownSecondsPerPercent(book->totalSeconds, book->progress);
+        const uint32_t etaSeconds =
+            ReadingStatsStore::etaSeconds(own > 0.0f ? own : query_.pooledPace, remainingPercent);
         b.rowLR(tr(STR_READING_STATS_ETA),
                 etaSeconds > 0 ? formatReadingDuration(etaSeconds) : std::string(tr(STR_READING_STATS_UNKNOWN)));
       }
@@ -187,7 +228,7 @@ void ReadingStatsBookDetailActivity::render(RenderLock&&) {
     }
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), canRemove() ? tr(STR_REMOVE) : "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

@@ -61,5 +61,5 @@ body:
       description: |
         Paste serial port logs or drop error screenshots here.
         Need help capturing serial output? Follow our step-by-step guide:
-        [docs/debugging.md](https://github.com/jpirnay/witchhunt-reader/blob/main/docs/debugging.md)
+        [docs/debugging.md](https://github.com/jpirnay/witchhunt-reader/blob/master/docs/debugging.md)
       render: shell

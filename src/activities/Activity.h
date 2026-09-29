@@ -136,6 +136,16 @@ class Activity {
   // Non-reader activities can ignore this (default is no-op).
   virtual void onButtonAction(CrossPointSettings::BUTTON_ACTION) {}
 
+  // A manual force refresh (a button or gesture bound to Force Refresh) while this activity is on
+  // top. Return true when the activity repaints itself in `mode`; false lets main.cpp re-flush the
+  // displayed frame as it stands. Override when that frame is more than the B/W buffer -- an
+  // anti-aliased or grayscale page, whose gray planes a raw flush would strip -- or when the write
+  // buffer may hold something other than the screen, such as the reader's pre-rendered next page.
+  // Ported from crosspoint-reader PR #2683 ("fix: restore antialiasing after manual refresh",
+  // @thiagokokada): the hook and the raw-flush fallback are theirs; the mode parameter (for the
+  // separate HALF and FAST actions) and the per-reader overrides are ours.
+  virtual bool handleForcedRefresh(HalDisplay::RefreshMode /*mode*/) { return false; }
+
   // Start a new activity without destroying the current one
   // Note: requestUpdate() will be invoked automatically once resultHandler finishes
   //

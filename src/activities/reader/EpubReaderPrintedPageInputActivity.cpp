@@ -115,9 +115,9 @@ void EpubReaderPrintedPageInputActivity::loop() {
   // The digit buttons come through the FSM-backed event queue so we can react to Short vs Double.
   // Short = ±1, Double = ±10. In portrait they are the side buttons, and PageBack/PageForward are
   // the same hardware under another name; the FSM emits an event for each logical button, but we
-  // only handle the direction variants here. The global dispatcher consumes PageBack/PageForward
-  // variants (they're configured as page-turn actions in the reader) and dispatch is a no-op while
-  // this dialog is current, so they're effectively swallowed.
+  // only handle the direction variants here. The PageBack/PageForward variants still arrive -- the
+  // global dispatcher hands a reader-scoped binding back as the raw event while this dialog, not
+  // the reader, is on top -- and the loop below discards them.
   ButtonEventManager::ButtonEvent ev;
   while (buttonEvents.consumeEvent(ev)) {
     if (MappedInputManager::isDirection(ev.button, MappedInputManager::Direction::Up)) {

@@ -100,7 +100,6 @@ TEST(UiFontLadderTest, TextBearingMetricsGrowWithTheirFont) {
       EXPECT_GE(scaled.tabBarHeight - base.tabBarHeight, growth.body);
       EXPECT_GE(scaled.buttonHintsHeight - base.buttonHintsHeight, growth.body);
       EXPECT_GE(scaled.keyboardKeyHeight - base.keyboardKeyHeight, growth.body);
-      EXPECT_GE(scaled.keyboardBottomKeyHeight - base.keyboardBottomKeyHeight, growth.body);
 
       // A title line over up to two subtitle lines — the worst case drawList() paints.
       EXPECT_GE(scaled.listWithSubtitleRowHeight - base.listWithSubtitleRowHeight, growth.body + growth.small * 2);

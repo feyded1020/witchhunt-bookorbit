@@ -240,6 +240,20 @@
       font-weight: 600;
     }
 
+    .remove-book {
+      margin-top: 12px;
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      background: #e74c3c;
+      color: white;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+
+    .remove-book:hover { background: #c0392b; }
+    .remove-book:disabled { opacity: 0.6; cursor: default; }
+
     .empty-state {
       text-align: center;
       color: var(--label-color);
@@ -531,8 +545,39 @@
         renderSparkline(sparkHost, daysMap, todayDayIndex);
         cell.appendChild(sparkHost);
       }
+      const removeButton = document.createElement("button");
+      removeButton.className = "remove-book";
+      removeButton.textContent = "Remove from stats";
+      removeButton.addEventListener("click", () => removeBook(book, removeButton));
+      cell.appendChild(removeButton);
       row.appendChild(cell);
       return row;
+    }
+
+    // Same action as the device's per-book stats screen: the book's entry goes and its reading time
+    // comes back out of the totals. The book file is not touched.
+    async function removeBook(book, button) {
+      const name = book.title || book.docId;
+      if (!confirm(`Remove "${name}" from reading stats?
+
+Its reading time is taken out of the totals. The book itself stays on the device.`)) return;
+      button.disabled = true;
+      try {
+        const res = await fetch("/api/stats/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ docId: book.docId }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "HTTP " + res.status);
+        }
+        expandedDocId = null;
+        await load();
+      } catch (e) {
+        button.disabled = false;
+        alert("Could not remove the book: " + e.message);
+      }
     }
 
     function toggleBookDetail(book, tr, todayDayIndex) {

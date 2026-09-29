@@ -106,11 +106,12 @@ void BookInfoActivity::loadData() {
   // filename-based document id the reader uses when recording sessions.
   if (loadSucceeded) {
     const std::string docId = KOReaderDocumentId::calculateFromFilename(filePath);
-    if (const BookReadingStats* stats = READING_STATS.findBook(docId)) {
-      hasReadingStats = stats->totalSeconds > 0 || stats->sessions > 0;
-      statTotalSeconds = stats->totalSeconds;
-      statProgress = stats->progress;
-      statLastReadEpoch = stats->lastReadEpoch;
+    ReadingStatsStore::BookQuery stats;
+    if (READING_STATS.queryBook(docId, stats) == ReadingStatsStore::ReadResult::Ok && stats.found) {
+      hasReadingStats = stats.book.totalSeconds > 0 || stats.book.sessions > 0;
+      statTotalSeconds = stats.book.totalSeconds;
+      statProgress = stats.book.progress;
+      statLastReadEpoch = stats.book.lastReadEpoch;
     }
   }
 }
