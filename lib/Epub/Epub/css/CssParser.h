@@ -88,7 +88,12 @@ class CssParser {
   //      and `visibility: hidden` are parsed and persisted (one visibility-flags byte). A cache
   //      compiled by v18 never saw `color`, so it is stale for exactly the books this is for --
   //      the PDF-to-EPUB conversions whose OCR layer is transparent text under a scan.
-  static constexpr uint8_t CSS_CACHE_VERSION = 19;
+  // v20: `background-image` (and the url in a `background` shorthand) is recorded in a side file
+  //      next to the rule cache (see backgroundImageFor). A v19 compile never looked for it, so
+  //      a book whose picture is a CSS background (Alice's rabbit hole) kept showing none.
+  // v21: `display` keeps Inline apart from Block (#388). A v20 cache stored display:inline as
+  //      Block, which would now lay those spans out as blocks.
+  static constexpr uint8_t CSS_CACHE_VERSION = 21;
   // Bytes before the sorted offset index: version(1) + ruleCount(2) + totalSelectorCandidates(4)
   // + unsupportedSelectorSkips(4) + flags(1).
   static constexpr uint32_t CSS_CACHE_HEADER_BYTES = 12;
@@ -223,7 +228,7 @@ class CssParser {
   };
   [[nodiscard]] ResidentFootprint getResidentFootprint() const;
 
-  // Phase-2 arena mode (docs/compiled-book-pipeline-plan.md). A section built with the
+  // Arena mode (docs/memory-allocation-strategy.md §4, class C). A section built with the
   // secondary framebuffer BORROWED (not freed) runs with ~52 KB less general heap than a
   // released build, so the resolver would otherwise self-degrade below MIN_FREE_HEAP_FOR_CSS
   // and its result gets discarded. These two knobs relocate the resolver's footprint into
@@ -244,7 +249,47 @@ class CssParser {
   }
   void setLeanResolve(bool enable) { leanResolve_ = enable; }
 
+  // Background images. The renderer cannot paint behind text, so an element's background picture
+  // reaches the page as a picture of its own, placed after the element's content (see
+  // ChapterHtmlSlimParser::noteBackgroundImage). It is not a CssStyle property: a path does not
+  // fit the fixed-size style records the rule cache and the arena pool are built on, and almost
+  // no book has one. Instead every rule that sets one records {selector, path} while the sheets
+  // are compiled, and the list is kept in a small side file next to the rule cache (absent when
+  // the book has none).
+  //
+  // Only a `no-repeat` background is recorded. A repeating one is a texture or a tile -- paper,
+  // a border, a gradient strip -- and turned into a picture it would be a page of noise.
+  struct BackgroundDeclaration {
+    bool declared = false;  // a background / background-image declaration was seen
+    std::string url;        // its url(), unresolved; empty for none, a colour, or a data: URI
+    bool noRepeat = false;  // background-repeat (or the shorthand) said no-repeat
+  };
+  // Reads the background declarations of a rule body or a style attribute; the last one wins.
+  [[nodiscard]] static BackgroundDeclaration parseBackground(std::string_view declarations);
+  // The stylesheet about to be compiled, as a path inside the EPUB: url() resolves against its
+  // directory. Set before each appendCompiledFromStream / loadFromStream.
+  void setStylesheetPath(const std::string& sheetPathInEpub);
+  // The background picture of an element as an EPUB path (directory of its sheet + url, not yet
+  // normalised or unescaped), or nullptr. Same cascade as resolveStyle: tag < .class < tag.class
+  // < #id < tag#id, and among rules for the same selector the later one.
+  [[nodiscard]] const std::string* backgroundImageFor(const std::string& tagName, const std::string& classAttr,
+                                                      const std::string& idAttr = {}) const;
+
  private:
+  // See backgroundImageFor. An empty path records an explicit `none`, which cancels an earlier
+  // rule's picture for the same selector.
+  struct BackgroundImageRule {
+    std::string selector;
+    std::string path;
+  };
+  static constexpr size_t MAX_BACKGROUND_IMAGE_RULES = 32;
+  mutable std::vector<BackgroundImageRule> backgroundImages_;
+  mutable bool backgroundImagesLoaded_ = false;
+  std::string stylesheetDir_;
+  void recordBackgroundImage(std::string_view selectorGroup, const std::string& path);
+  void saveBackgroundImages() const;
+  void loadBackgroundImages() const;
+
   // Storage: maps normalized selector -> style properties
   std::unordered_map<std::string, CssStyle> rulesBySelector_;
 

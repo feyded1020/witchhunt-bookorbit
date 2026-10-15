@@ -19,12 +19,11 @@ enum class SettingType { TOGGLE, ENUM, ACTION, VALUE, STRING };
 // third board: on X4 Pro deviceIsX3() is false, so every X4-targeted setting
 // would silently appear there whether or not the hardware supports it, and
 // every X3-targeted one would silently vanish. Widening the enum to name four
-// boards multiplies the problem rather than fixing it. See the B0
-// capability-predicate section of
-// docs/multiboard-bringup-handover-2026-08-15.md.
+// boards multiplies the problem rather than fixing it. See
+// docs/contributing/board-support.md, "Ask what the board can do".
 //
 // Each value below names one capability, answered from the HAL or the active
-// board profile in getSettingsList(). Add a value when a setting needs
+// board profile in SettingsListDetail::boardHas(). Add a value when a setting needs
 // something no existing one covers — never a board name.
 enum class SettingRequires : uint8_t {
   Nothing,     // always visible
@@ -71,6 +70,7 @@ enum class SettingAction {
   ScreenRepair,
   CheckForUpdates,
   SdFirmwareUpdate,
+  AllFiles,
   Language,
   KeyboardLayouts,
   SystemInfo,
@@ -103,8 +103,10 @@ struct SettingInfo {
   //                        SD card, or a point size ("14pt").
   //   enumLiteralLabelFn -- the same idea for options that ARE known at compile time and live in
   //                         flash as literals. See its own note below.
+  //   enumCountFn/enumLabelFn -- options read when asked, for lists that follow live state. See
+  //                              withDynamicOptions().
   //
-  // enumLabels is exclusive: it wins whenever it is non-empty, so a row that sets it leaves
+  // enumLabels is exclusive of enumValues: it wins whenever it is non-empty, so a row that sets it leaves
   // enumValues EMPTY rather than padding it to the same length. enumLiteralLabelFn is not -- it
   // EXTENDS enumValues, so a row can carry translated options followed by literal ones.
   //
@@ -118,14 +120,14 @@ struct SettingInfo {
   // options come from StrIds as usual, and the options at and after that index come from this
   // callback, which returns a pointer into flash.
   //
-  // enumLabels would seem to fit, but it is a vector<std::string> -- and getSettingsList()
+  // enumLabels would seem to fit, but it is a vector<std::string> -- and forEachSetting()
   // rebuilds every row on every settings save AND load, so the timezone row's 86 city names
   // would mean 86 heap strings per call, for labels that are string literals and never change.
   //
-  // A FUNCTION rather than a const char* array for the same reason this whole list is built by a
-  // function returning by value (see the note at the top of SettingsList.h): the array would
+  // A FUNCTION rather than a const char* array for the same reason the settings rows are built
+  // at runtime (see the note at the top of SettingsList.h): the array would
   // want a function-local static to assemble it, and the guard variable on first use pulls
-  // __cxa_guard_acquire and a FreeRTOS mutex onto a stack that getSettingsList() is already deep
+  // __cxa_guard_acquire and a FreeRTOS mutex onto a stack that forEachSetting() is already deep
   // into, called as it is from inside SETTINGS.loadFromFile() at boot. A captureless lambda
   // decays to a plain function pointer, needs no storage at all, and cannot allocate.
   //
@@ -138,6 +140,24 @@ struct SettingInfo {
   SettingInfo& withLiteralOptions(const LiteralLabelFn labelFn, const uint8_t count) {
     enumLiteralLabelFn = labelFn;
     enumLiteralCount = count;
+    return *this;
+  }
+
+  // A fourth form, for options that follow live state. A font-size row lists the sizes of the
+  // family selected right now, and that changes while the screen holding the row is open (choose a
+  // family, then a size, in the same submenu). The other forms are filled in when the row is
+  // built, so they would go on listing the previous family's sizes.
+  //
+  // Function pointers taking accessorCtx, for the same reason as the dynamic getter and setter
+  // (no std::function heap). Wins over the other three forms when set.
+  using OptionCountFn = uint8_t (*)(const void* ctx);
+  using OptionLabelFn = std::string (*)(const void* ctx, uint8_t index);
+  OptionCountFn enumCountFn = nullptr;
+  OptionLabelFn enumLabelFn = nullptr;
+
+  SettingInfo& withDynamicOptions(const OptionCountFn countFn, const OptionLabelFn labelFn) {
+    enumCountFn = countFn;
+    enumLabelFn = labelFn;
     return *this;
   }
   SettingAction action = SettingAction::None;
@@ -449,6 +469,7 @@ struct SettingInfo {
   // Number of selectable options (0 for non-ENUM).
   [[nodiscard]] uint8_t getEnumOptionCount() const {
     if (type != SettingType::ENUM) return 0;
+    if (enumCountFn) return enumCountFn(accessorCtx);
     if (!enumLabels.empty()) return static_cast<uint8_t>(enumLabels.size());
     return static_cast<uint8_t>(enumValues.size() + enumLiteralCount);
   }
@@ -463,7 +484,7 @@ struct SettingInfo {
   // where before it stored 86 pointers into flash. Everything else should use
   // getEnumOptionLabel() and not think about lifetimes.
   [[nodiscard]] const char* getEnumOptionFlashLabel(uint8_t index) const {
-    if (type != SettingType::ENUM || !enumLabels.empty()) return nullptr;
+    if (type != SettingType::ENUM || !enumLabels.empty() || enumLabelFn) return nullptr;
     if (index < enumValues.size()) return I18N.get(enumValues[index]);
     const size_t literal = index - enumValues.size();
     if (enumLiteralLabelFn && literal < enumLiteralCount) return enumLiteralLabelFn(static_cast<uint8_t>(literal));
@@ -473,6 +494,7 @@ struct SettingInfo {
   // Localised label for option `index` (empty if out of range or non-ENUM).
   [[nodiscard]] std::string getEnumOptionLabel(uint8_t index) const {
     if (type != SettingType::ENUM) return {};
+    if (enumLabelFn) return index < getEnumOptionCount() ? enumLabelFn(accessorCtx, index) : std::string{};
     if (!enumLabels.empty()) return index < enumLabels.size() ? enumLabels[index] : std::string{};
     const char* flash = getEnumOptionFlashLabel(index);
     return flash ? std::string(flash) : std::string{};

@@ -161,6 +161,15 @@ int verifyCallback(int preverify, WOLFSSL_X509_STORE_CTX* store) {
             store->error);
     return 1;
   }
+  // Name the link that failed: depth 0 is the leaf, higher depths walk up towards the root, so a
+  // chain failure no longer surfaces as one connect-level error with no certificate attached.
+  if (preverify == 0 && store != nullptr) {
+    // Heap alongside: wolfSSL reports an allocation failure inside the signature math as a signature
+    // failure (ASN_SIG_CONFIRM_E), so a -155 with a small largest block is memory, not the chain.
+    LOG_ERR("TLS", "verify failed at depth %d: err=%d (callback #%lu) heap=%u largest=%u", store->error_depth,
+            store->error, static_cast<unsigned long>(g_chainVerify.count), esp_get_free_heap_size(),
+            heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+  }
   return preverify;
 }
 }  // namespace
@@ -244,6 +253,15 @@ int SecureClient::connectWithMethod(const char* host, uint16_t port, void* metho
   wolfSSL_SetIOReadCtx(ssl, &_transport);
   wolfSSL_SetIOWriteCtx(ssl, &_transport);
   wolfSSL_UseSNI(ssl, WOLFSSL_SNI_HOST_NAME, host, strlen(host));
+#ifdef HAVE_MAX_FRAGMENT
+  // Ask the peer to cap its TLS records at 2 KB (RFC 6066 max_fragment_length). wolfSSL sizes its
+  // receive buffer to each incoming record, so a full 16 KB record needs a ~17 KB contiguous block;
+  // a server that honours this keeps it at about 2 KB. One that ignores it (GitHub, for TLS 1.2 and
+  // 1.3) keeps its 16 KB records exactly as before: wolfSSL lowers its own limit only when the
+  // server acknowledges (ssl.c wolfSSL_UseMaxFragment, tls.c TLSX_MFL_Parse).
+  // Ported from Free-Ink/freeink-sdk b72416b (Justin Mitchell).
+  wolfSSL_UseMaxFragment(ssl, WOLFSSL_MFL_2_11);
+#endif
   if (verifyPeer && !_insecure) {
     // Also check the hostname against the cert SAN/CN, not just the chain.
     wolfSSL_check_domain_name(ssl, host);
@@ -368,6 +386,7 @@ int SecureClient::connect(const char* host, uint16_t port) {
   // error, and a stale verification code from an earlier attempt would
   // misclassify it and trigger a pointless insecure-fallback retry.
   _lastConnectErr = 0;
+  _lastReadErr = 0;
   _handshakeMinFree = SIZE_MAX;
   _handshakeMinLargest = SIZE_MAX;
 
@@ -415,11 +434,20 @@ int SecureClient::read(uint8_t* buf, size_t size) {
 
   const int err = wolfSSL_get_error(ssl, n);
   if (err == WOLFSSL_ERROR_WANT_READ || err == WOLFSSL_ERROR_WANT_WRITE) return 0;  // no data yet
-  if (err == WOLFSSL_ERROR_ZERO_RETURN) {                                           // peer closed cleanly
+  // The peer closed: with close_notify (ZERO_RETURN), or by dropping the TCP connection, which
+  // wolfSSL_read reports as SOCKET_PEER_CLOSED_E with a 0 return (internal.c ReceiveData). Both end
+  // the stream normally; framed HTTP bodies still detect a short body as truncation. Neither is an
+  // error to log.
+  if (err == WOLFSSL_ERROR_ZERO_RETURN || err == SOCKET_PEER_CLOSED_E) {
     _connected = false;
     return 0;
   }
+  // A hard read error ends the body early (the HTTP layer reports it as truncated), so say why:
+  // MEMORY_E (-125) here means no contiguous block for the next record buffer.
+  LOG_ERR("TLS", "read failed: err=%d ret=%d heap=%u largest=%u", err, n, esp_get_free_heap_size(),
+          heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
   _connected = false;
+  _lastReadErr = err;
   return -1;
 }
 
@@ -442,6 +470,8 @@ void SecureClient::stop() {
 }
 
 uint8_t SecureClient::connected() { return _connected && _transport.connected(); }
+
+bool SecureClient::lastReadWasOutOfMemory() const { return _lastReadErr == MEMORY_E; }
 
 #else  // !FREEINK_NET_WOLFSSL — inert stub so the firmware builds without wolfSSL.
 
@@ -474,6 +504,7 @@ void SecureClient::stop() {
   _connected = false;
 }
 uint8_t SecureClient::connected() { return 0; }
+bool SecureClient::lastReadWasOutOfMemory() const { return false; }
 
 #endif
 

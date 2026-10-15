@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <random>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "../../lib/Epub/Epub/BookMetadataCache.h"
@@ -83,6 +84,7 @@ namespace opf_test_hooks {
 extern std::vector<std::string>* g_spineHrefSink;
 extern size_t g_refuseNothrowArraysAbove;
 extern size_t g_refusedNothrowArrays;
+std::unordered_set<void*>& liveNothrowArrays();
 }  // namespace opf_test_hooks
 
 namespace {
@@ -144,6 +146,7 @@ TEST(ContentOpfParser, ExtractsMetadataManifestAndGuideFields) {
 
   EXPECT_EQ(parser.title, "Main Title");
   EXPECT_EQ(parser.author, "Author One, Author Two");
+  EXPECT_EQ(parser.primaryAuthor, "Author One");
   EXPECT_EQ(parser.language, "en");
   EXPECT_EQ(parser.description, "Hello World");
   EXPECT_EQ(parser.series, "Series Name");
@@ -399,6 +402,44 @@ TEST(ContentOpfParser, HugeManifestResolvesThroughLinearScanWhenIndexGrowthFails
   EXPECT_GT(opf_test_hooks::g_refusedNothrowArrays, 0u) << "the index never failed to grow; the fallback did not run";
 }
 
+// Without the index, every idref used to rescan .items.bin from its first record: a 2956-itemref
+// book read ~4.4 million records and spent 75 s in this parse on the device. Spine order follows
+// manifest order in practice, so resuming after the previous match reads the store about once.
+// Measured in bytes read, not time: a host finishes either scan quickly, the device does not.
+TEST(ContentOpfParser, AnInOrderSpineReadsTheItemStoreAboutOnceWithoutTheIndex) {
+  const std::string cacheDir = makeTempDir();
+  ASSERT_FALSE(cacheDir.empty());
+  TempDirGuard dirGuard(cacheDir);
+
+  std::vector<std::string> capturedSpineHrefs;
+  ScopedSpineHrefSink sinkGuard(&capturedSpineHrefs);
+
+  constexpr int kItemCount = 3000;
+  std::string spine;
+  for (int i = 0; i < kItemCount; ++i) spine += "<itemref idref='ch" + std::to_string(i) + "'/>";
+  const std::string xml =
+      "<?xml version='1.0' encoding='utf-8'?>"
+      "<package xmlns:opf='http://www.idpf.org/2007/opf' xmlns:dc='http://purl.org/dc/elements/1.1/'>"
+      "<metadata><dc:title>Long</dc:title></metadata>"
+      "<manifest>" +
+      buildManifestItems(kItemCount) + "</manifest><spine>" + spine + "</spine></package>";
+
+  const ScopedIndexGrowthOom oom;
+  BookMetadataCache cache(cacheDir);
+  ContentOpfParser parser(cacheDir, "/book/OEBPS/", xml.size(), &cache);
+  const size_t bytesReadBefore = FsFile::bytesRead;
+  ASSERT_TRUE(parseOpfXml(parser, xml));
+  const size_t bytesRead = FsFile::bytesRead - bytesReadBefore;
+
+  EXPECT_GT(opf_test_hooks::g_refusedNothrowArrays, 0u) << "the index never failed to grow; the fallback did not run";
+  ASSERT_EQ(capturedSpineHrefs.size(), static_cast<size_t>(kItemCount));
+  for (int i = 0; i < kItemCount; ++i) {
+    ASSERT_EQ(capturedSpineHrefs[i], "book/OEBPS/text/ch" + std::to_string(i) + ".xhtml") << "itemref " << i;
+  }
+  const auto storeBytes = static_cast<size_t>(std::filesystem::file_size(cacheDir + "/.items.bin"));
+  EXPECT_LE(bytesRead, 2 * storeBytes) << "item store is " << storeBytes << " bytes";
+}
+
 TEST(ContentOpfParser, DisablesHashTrustedIndexOnDuplicateIdsAndStillResolves) {
   const std::string cacheDir = makeTempDir();
   ASSERT_FALSE(cacheDir.empty());
@@ -435,4 +476,251 @@ TEST(ContentOpfParser, DisablesHashTrustedIndexOnDuplicateIdsAndStillResolves) {
   ASSERT_EQ(capturedSpineHrefs.size(), 2u);
   EXPECT_EQ(capturedSpineHrefs[0], "book/OEBPS/text/ch5.xhtml");  // first occurrence wins
   EXPECT_EQ(capturedSpineHrefs[1], "book/OEBPS/text/ch419.xhtml");
+}
+
+namespace {
+
+// What the creator handling produced for one <metadata> block.
+struct CreatorResult {
+  bool parsed = false;
+  std::string author;
+  std::string primaryAuthor;
+  std::string authorSort;
+  std::string series;
+  std::string seriesIndex;
+  std::string isbn;
+  std::string asin;
+};
+
+// Parses an OPF whose <metadata> holds `metadata`, fed `chunk` bytes per write() (0 = all at once),
+// so a test can make the parser receive one creator's text in many pieces.
+CreatorResult parseCreators(const std::string& metadata, const size_t chunk = 0) {
+  CreatorResult result;
+  const std::string cacheDir = makeTempDir();
+  if (cacheDir.empty()) return result;
+  TempDirGuard dirGuard(cacheDir);
+  const std::string base = "/book/OEBPS/";
+  const std::string xml =
+      "<?xml version='1.0' encoding='utf-8'?>"
+      "<package xmlns:opf='http://www.idpf.org/2007/opf' xmlns:dc='http://purl.org/dc/elements/1.1/'>"
+      "<metadata>" +
+      metadata +
+      "</metadata>"
+      "<manifest><item id='ncx' href='toc.ncx' media-type='application/x-dtbncx+xml'/></manifest>"
+      "<spine/>"
+      "</package>";
+  ContentOpfParser parser(cacheDir, base, xml.size(), nullptr);
+  if (!parser.setup()) return result;
+  const auto* data = reinterpret_cast<const uint8_t*>(xml.data());
+  const size_t step = chunk == 0 ? xml.size() : chunk;
+  for (size_t at = 0; at < xml.size(); at += step) {
+    const size_t n = std::min(step, xml.size() - at);
+    if (parser.write(data + at, n) != n) return result;
+  }
+  result.parsed = true;
+  result.author = parser.author;
+  result.primaryAuthor = parser.primaryAuthor;
+  result.authorSort = parser.authorSort;
+  result.series = parser.series;
+  result.seriesIndex = parser.seriesIndex;
+  result.isbn = parser.isbn;
+  result.asin = parser.asin;
+  return result;
+}
+
+}  // namespace
+
+// The display line lists every creator; the Library groups by the first one credited as author.
+TEST(ContentOpfParserCreators, JoinsEveryCreatorAndPicksTheFirstAuthorAsPrimary) {
+  const auto r = parseCreators(
+      "<dc:creator opf:role='trl'>Anthea Bell</dc:creator>"
+      "<dc:creator opf:role='aut' opf:file-as='Pratchett, Terry'>Terry Pratchett</dc:creator>"
+      "<dc:creator opf:role='aut'>Neil Gaiman</dc:creator>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.author, "Anthea Bell, Terry Pratchett, Neil Gaiman");
+  EXPECT_EQ(r.primaryAuthor, "Terry Pratchett");
+  EXPECT_EQ(r.authorSort, "Pratchett, Terry");
+}
+
+TEST(ContentOpfParserCreators, ACreatorWithNoRoleIsAnAuthor) {
+  const auto r = parseCreators("<dc:creator>\n  Ursula K. Le Guin \n</dc:creator>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.author, "Ursula K. Le Guin");
+  EXPECT_EQ(r.primaryAuthor, "Ursula K. Le Guin");
+  EXPECT_EQ(r.authorSort, "");
+}
+
+TEST(ContentOpfParserCreators, TheRoleCodeIsMatchedWhateverItsCase) {
+  const auto r =
+      parseCreators("<dc:creator opf:role='edt'>Ed Itor</dc:creator><dc:creator opf:role='AUT'>Au Thor</dc:creator>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.primaryAuthor, "Au Thor");
+}
+
+TEST(ContentOpfParserCreators, NoCreatorCreditedAsAuthorLeavesNoPrimaryAuthor) {
+  const auto r = parseCreators("<dc:creator opf:role='edt'>Ed Itor</dc:creator>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.author, "Ed Itor");
+  EXPECT_EQ(r.primaryAuthor, "");
+  EXPECT_EQ(r.authorSort, "");
+}
+
+// EPUB 3 states a creator's role and filing name in <meta refines="#id">, after the creator.
+TEST(ContentOpfParserCreators, Epub3RefinementsGiveRoleAndFileAs) {
+  const auto r = parseCreators(
+      "<dc:creator id='ill'>Pauline Baynes</dc:creator>"
+      "<dc:creator id='c2'>Ursula K. Le Guin</dc:creator>"
+      "<meta refines='#ill' property='role' scheme='marc:relators'>ill</meta>"
+      "<meta refines='#c2' property='role' scheme='marc:relators'>aut</meta>"
+      "<meta refines='#c2' property='file-as'> Le Guin, Ursula K. </meta>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.author, "Pauline Baynes, Ursula K. Le Guin");
+  EXPECT_EQ(r.primaryAuthor, "Ursula K. Le Guin");
+  EXPECT_EQ(r.authorSort, "Le Guin, Ursula K.");
+}
+
+// A refinement of something that is not a creator is not ours to take.
+TEST(ContentOpfParserCreators, RefinementsOfOtherThingsLeaveCreatorsAlone) {
+  const auto r = parseCreators(
+      "<dc:title id='t'>Tehanu</dc:title>"
+      "<dc:creator id='c1'>Ursula K. Le Guin</dc:creator>"
+      "<meta refines='#t' property='file-as'>Tehanu, The Last Book</meta>"
+      "<meta refines='#nobody' property='role'>edt</meta>"
+      "<meta property='belongs-to-collection' id='coll'>Earthsea</meta>"
+      "<meta refines='#coll' property='group-position'>4</meta>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.primaryAuthor, "Ursula K. Le Guin");
+  EXPECT_EQ(r.authorSort, "");
+  EXPECT_EQ(r.series, "Earthsea");
+  EXPECT_EQ(r.seriesIndex, "4");
+}
+
+// One creator's text may reach the parser in several pieces (a write boundary, an entity). The
+// separator belongs between creators, never inside one.
+TEST(ContentOpfParserCreators, ACreatorFedOneByteAtATimeStaysOneName) {
+  const auto r = parseCreators("<dc:creator>Laurel &amp; Hardy</dc:creator><dc:creator>Second</dc:creator>", 1);
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.author, "Laurel & Hardy, Second");
+  EXPECT_EQ(r.primaryAuthor, "Laurel & Hardy");
+}
+
+// A creator written surname-first is still one creator.
+TEST(ContentOpfParserCreators, ASurnameFirstCreatorStaysOneName) {
+  const auto r = parseCreators("<dc:creator>Le Guin, Ursula K.</dc:creator>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.author, "Le Guin, Ursula K.");
+  EXPECT_EQ(r.primaryAuthor, "Le Guin, Ursula K.");
+}
+
+// Only the first MAX_CREATORS (4) are candidates for primary author, but the
+// display line keeps them all.
+TEST(ContentOpfParserCreators, ManyCreatorsAllReachTheDisplayLine) {
+  const auto r = parseCreators(
+      "<dc:creator opf:role='ill'>I1</dc:creator><dc:creator opf:role='ill'>I2</dc:creator>"
+      "<dc:creator opf:role='ill'>I3</dc:creator><dc:creator opf:role='ill'>I4</dc:creator>"
+      "<dc:creator opf:role='aut'>A5</dc:creator><dc:creator>A6</dc:creator>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.author, "I1, I2, I3, I4, A5, A6");
+  EXPECT_EQ(r.primaryAuthor, "");
+}
+
+// EPUB 3 lets a creator hold several roles. Being credited as author is what counts: an author who
+// also illustrated stays the primary author whichever role is stated last.
+TEST(ContentOpfParserCreators, AnAuthorWithASecondRoleStaysTheAuthor) {
+  const auto r = parseCreators(
+      "<dc:creator id='c1'>Maurice Sendak</dc:creator>"
+      "<meta refines='#c1' property='role' scheme='marc:relators'>aut</meta>"
+      "<meta refines='#c1' property='role' scheme='marc:relators'>ill</meta>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.primaryAuthor, "Maurice Sendak");
+}
+
+TEST(ContentOpfParserCreators, AnOpfAuthorRoleSurvivesALaterRefinedRole) {
+  const auto r = parseCreators(
+      "<dc:creator id='c1' opf:role='aut'>Maurice Sendak</dc:creator>"
+      "<meta refines='#c1' property='role' scheme='marc:relators'>ill</meta>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.primaryAuthor, "Maurice Sendak");
+}
+
+// The creator table serves only to pick the primary author when <metadata> closes. It must be gone
+// by then: a first open goes on through the manifest and spine with this parser alive, and a large
+// book needs every byte of heap there.
+TEST(ContentOpfParserCreators, TheCreatorTableIsFreedWhenMetadataCloses) {
+  const std::string cacheDir = makeTempDir();
+  ASSERT_FALSE(cacheDir.empty());
+  TempDirGuard dirGuard(cacheDir);
+  const std::string head =
+      "<?xml version='1.0' encoding='utf-8'?>"
+      "<package xmlns:opf='http://www.idpf.org/2007/opf' xmlns:dc='http://purl.org/dc/elements/1.1/'>"
+      "<metadata><dc:creator>Ursula K. Le Guin</dc:creator></metadata>";
+  const std::string rest =
+      "<manifest><item id='ncx' href='toc.ncx' media-type='application/x-dtbncx+xml'/></manifest>"
+      "<spine/></package>";
+  ContentOpfParser parser(cacheDir, "/book/OEBPS/", head.size() + rest.size(), nullptr);
+  ASSERT_TRUE(parser.setup());
+  const size_t before = opf_test_hooks::liveNothrowArrays().size();
+  ASSERT_EQ(parser.write(reinterpret_cast<const uint8_t*>(head.data()), head.size()), head.size());
+  EXPECT_EQ(parser.primaryAuthor, "Ursula K. Le Guin");
+  EXPECT_EQ(opf_test_hooks::liveNothrowArrays().size(), before) << "the creator table outlived </metadata>";
+  ASSERT_EQ(parser.write(reinterpret_cast<const uint8_t*>(rest.data()), rest.size()), rest.size());
+}
+
+// An empty creator adds nothing, not even a separator.
+TEST(ContentOpfParserCreators, AWhitespaceOnlyCreatorIsSkipped) {
+  const auto r = parseCreators("<dc:creator> </dc:creator><dc:creator>Real Name</dc:creator>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.author, "Real Name");
+  EXPECT_EQ(r.primaryAuthor, "Real Name");
+}
+
+// ISBN and ASIN, for KOReader sync's metadata. Which dc:identifier is which follows crosspoint-reader
+// PR #3804 (Jadehawk / @jadehawk): the scheme names it, or the value's own prefix does.
+TEST(ContentOpfParserIdentifiers, AnIsbnSchemeNamesTheIsbn) {
+  const auto r = parseCreators("<dc:identifier opf:scheme='ISBN'>9780441013593</dc:identifier>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.isbn, "9780441013593");
+  EXPECT_EQ(r.asin, "");
+}
+
+TEST(ContentOpfParserIdentifiers, AnIsbnPrefixIsDropped) {
+  EXPECT_EQ(parseCreators("<dc:identifier id='pub-id'>urn:isbn:978-0-441-01359-3</dc:identifier>").isbn,
+            "978-0-441-01359-3");
+  EXPECT_EQ(parseCreators("<dc:identifier>ISBN: 9780441013593</dc:identifier>").isbn, "9780441013593");
+}
+
+// Calibre writes an Amazon identifier with the scheme MOBI-ASIN or AMAZON.
+TEST(ContentOpfParserIdentifiers, AsinSchemesAndPrefixesNameTheAsin) {
+  EXPECT_EQ(parseCreators("<dc:identifier opf:scheme='MOBI-ASIN'>B000FC1PJI</dc:identifier>").asin, "B000FC1PJI");
+  EXPECT_EQ(parseCreators("<dc:identifier opf:scheme='AMAZON'>B000FC1PJI</dc:identifier>").asin, "B000FC1PJI");
+  EXPECT_EQ(parseCreators("<dc:identifier>urn:asin:B000FC1PJI</dc:identifier>").asin, "B000FC1PJI");
+}
+
+TEST(ContentOpfParserIdentifiers, OtherIdentifiersAreNeither) {
+  const auto r = parseCreators(
+      "<dc:identifier opf:scheme='calibre'>0f3c5e1a-6b0e-4a4e-9c1d-1d2a3b4c5d6e</dc:identifier>"
+      "<dc:identifier id='uuid_id' opf:scheme='uuid'>urn:uuid:1234</dc:identifier>");
+  ASSERT_TRUE(r.parsed);
+  EXPECT_EQ(r.isbn, "");
+  EXPECT_EQ(r.asin, "");
+}
+
+TEST(ContentOpfParserIdentifiers, TheFirstOfEachIsKept) {
+  const auto r = parseCreators(
+      "<dc:identifier opf:scheme='ISBN'>9780441013593</dc:identifier>"
+      "<dc:identifier opf:scheme='AMAZON'>B000FC1PJI</dc:identifier>"
+      "<dc:identifier opf:scheme='ISBN'>9780000000000</dc:identifier>"
+      "<dc:identifier opf:scheme='AMAZON'>B999999999</dc:identifier>");
+  EXPECT_EQ(r.isbn, "9780441013593");
+  EXPECT_EQ(r.asin, "B000FC1PJI");
+}
+
+TEST(ContentOpfParserIdentifiers, AnIdentifierFedOneByteAtATimeStaysWholeAndTrimmed) {
+  EXPECT_EQ(parseCreators("<dc:identifier>\n  urn:isbn:9780441013593\n</dc:identifier>", 1).isbn, "9780441013593");
+}
+
+// No real identifier is this long; a cut-off one would be a wrong one, so it is not kept at all.
+TEST(ContentOpfParserIdentifiers, AnOverlongIdentifierIsNotKept) {
+  const std::string digits(200, '9');
+  EXPECT_EQ(parseCreators("<dc:identifier opf:scheme='ISBN'>" + digits + "</dc:identifier>").isbn, "");
 }

@@ -71,33 +71,32 @@ void EpubReaderActivity::launchKOReaderSync(const SyncLaunchMode mode, const Syn
   sync.spineIndex = positionOverride ? positionOverride->spineIndex : currentSpineIndex;
   sync.page = currentPage;
   sync.totalPagesInSpine = totalPages;
-  // Populate paragraph index and XHTML seek hint from section LUT if available. Not applicable
+  // Populate the paragraph indices from the section LUT if available. Not applicable
   // (and not attempted) for an overridden position — see the SyncPositionOverride comment.
+  sync.paragraphIndex = 0;
+  sync.hasParagraphIndex = false;
+  sync.paragraphIndexBefore = 0;
+  sync.visibleOffsetAtPage = 0;
+  sync.visibleOffsetAtNextPage = UINT32_MAX;
+  sync.hasVisibleOffset = false;
   if (section && !positionOverride) {
     if (const auto pIdx = section->getParagraphIndexForPage(static_cast<uint16_t>(currentPage))) {
       sync.paragraphIndex = *pIdx;
       sync.hasParagraphIndex = true;
-      if (const auto hint = section->getXhtmlByteOffsetForPage(static_cast<uint16_t>(currentPage))) {
-        sync.xhtmlSeekHint = *hint;
-      } else {
-        sync.xhtmlSeekHint = 0;
-      }
-    } else {
-      sync.paragraphIndex = 0;
-      sync.hasParagraphIndex = false;
-      sync.xhtmlSeekHint = 0;
     }
-  } else {
-    sync.paragraphIndex = 0;
-    sync.hasParagraphIndex = false;
-    sync.xhtmlSeekHint = 0;
+    if (currentPage > 0) {
+      sync.paragraphIndexBefore = section->getParagraphIndexForPage(static_cast<uint16_t>(currentPage - 1)).value_or(0);
+    }
+    if (const auto start = section->getVisibleTextOffsetForPage(static_cast<uint16_t>(currentPage))) {
+      sync.visibleOffsetAtPage = *start;
+      sync.visibleOffsetAtNextPage =
+          section->getVisibleTextOffsetAfterPage(static_cast<uint16_t>(currentPage)).value_or(UINT32_MAX);
+      sync.hasVisibleOffset = true;
+    }
   }
   sync.intent = syncIntent;
   sync.outcome = KOReaderSyncOutcomeState::PENDING;
-  sync.resultSpineIndex = 0;
-  sync.resultPage = 0;
-  sync.resultParagraphIndex = 0;
-  sync.resultHasParagraphIndex = false;
+  sync.clearResult();
   // Reset here (rather than trusting whatever the struct already held) so a stale destination
   // from a prior run cannot steal the user to the wrong place; every caller states what it wants,
   // defaulting to Reader (the pre-existing behavior for reader-menu-triggered syncs).
@@ -240,7 +239,11 @@ void EpubReaderActivity::applyPendingSyncSession() {
       restoreSpineIndex = sync.resultSpineIndex;
       restorePage = sync.resultPage;
     }
-    if (sync.resultHasListItemIndex) {
+    if (sync.resultHasVisibleOffset) {
+      restoreTarget = NavigationTarget::makeVisibleOffset(sync.resultVisibleOffset, restorePage);
+      LOG_DBG("ERS", "Applied synced remote position: spine=%d page=%d offset=%u", restoreSpineIndex, restorePage,
+              sync.resultVisibleOffset);
+    } else if (sync.resultHasListItemIndex) {
       restoreTarget = NavigationTarget::makeListItem(sync.resultListItemIndex, restorePage);
       LOG_DBG("ERS", "Applied synced remote position: spine=%d page=%d li[%u]", restoreSpineIndex, restorePage,
               sync.resultListItemIndex);

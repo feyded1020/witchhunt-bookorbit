@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -22,6 +23,13 @@ class BookMetadataCache {
     std::string series;
     std::string seriesIndex;
     std::string description;
+    // Not stored in book.bin: its version would have to go up and every book be cached again. Set by
+    // a fresh OPF parse and by the metadata sidecar; BookDetailsLookup::parse() loads past book.bin
+    // to get them.
+    std::string primaryAuthor;
+    std::string authorSort;
+    std::string isbn;
+    std::string asin;
   };
 
   struct SpineEntry {
@@ -70,13 +78,12 @@ class BookMetadataCache {
   std::optional<serialization::BufferedFileWriter> spineWriter_;
   std::optional<serialization::BufferedFileWriter> tocWriter_;
 
-  // Index for fast href→spineIndex lookup (used only for large EPUBs).
-  // Deque, not vector: ~12 B/spine, so ~21 KB at 1732 spines (King's Avatar). A vector demands
-  // that as ONE contiguous block, which was observed aborting at 51 KB free / 30 KB contig on a
-  // fragmented heap (bare operator new abort()s under -fno-exceptions). Deque's ~512-byte chunks
-  // remove the contiguity demand; its random-access iterators keep std::sort / lower_bound
-  // working. Total-heap exhaustion would take ~10,000 spines — past the addressable ceiling
-  // below — so the remaining throwing-allocation risk is not reachable by a real book.
+  // Index for fast href→spineIndex lookup (used only for large EPUBs): 16 B/spine, sorted for
+  // binary search, allocated NOTHROW in one block. First-open indexing runs with the secondary
+  // framebuffer lent rather than freed, on ~50 KB of fragmented heap, and a ~3000-spine book's
+  // index does not fit there: the deque that used to hold it allocated through the throwing
+  // operator new and aborted the device in beginTocPass(). When the block is refused, lookups
+  // take the resumed scan below, which needs no memory.
   struct SpineHrefIndexEntry {
     uint64_t hrefHash;  // FNV-1a 64-bit hash
     uint16_t hrefLen;   // length for collision reduction
@@ -86,8 +93,20 @@ class BookMetadataCache {
   // spineCount is uint16_t and would silently wrap past this; no real EPUB approaches it, but the
   // limit should be stated rather than latent.
   static constexpr int MAX_ADDRESSABLE_SPINES = 32767;
-  std::deque<SpineHrefIndexEntry> spineHrefIndex;
+  std::unique_ptr<SpineHrefIndexEntry[]> spineHrefIndex;
   bool useSpineHrefIndex = false;
+  // Without the index, a lookup scans the spine file starting after the previous match and wraps
+  // once, instead of starting at the first spine. A TOC lists its chapters in reading order, so
+  // the entry it wants is usually the next record: a 2956-entry TOC scanned from the start read
+  // ~4.4 million spine records. The scan reads through a buffered view (an unbuffered field read
+  // is a full FsFile call), and the resume point is the index and byte offset of the next record.
+  std::optional<serialization::BufferedFileReader> spineScanReader_;
+  int tocScanNextIndex_ = 0;
+  uint32_t tocScanNextOffset_ = 0;
+  // The index or the scan reader, set up by the first createTocEntry() of a TOC pass.
+  bool tocLookupPrepared_ = false;
+  void prepareTocLookup();
+  int16_t findSpineByScan(const std::string& href);
 
   // Batch ZIP size lookup and fast spine-href index are always better when N is
   // larger than a handful — lower threshold so even moderate books (e.g. 105

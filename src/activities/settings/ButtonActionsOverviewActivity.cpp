@@ -4,6 +4,8 @@
 #include <I18n.h>
 
 #include <array>
+#include <string>
+#include <vector>
 
 #include "MappedInputManager.h"
 #include "SettingInfo.h"
@@ -29,13 +31,31 @@ constexpr std::array<ButtonRow, 7> kButtonRows = {{
     {StrId::STR_BTN_CONFIRM, StrId::STR_BTN_CONFIRM},
 }};
 
-// Find the SettingInfo for a given (button submenu, press kind) pair in the shared settings list.
-std::string cellValue(const std::vector<SettingInfo>& settings, StrId submenu, StrId pressKind) {
-  auto it = std::find_if(settings.begin(), settings.end(), [submenu, pressKind](const SettingInfo& s) {
-    return s.submenu == submenu && s.nameId == pressKind && s.category == StrId::STR_CAT_CONTROLS;
+// The table's columns, left to right.
+constexpr std::array<StrId, 3> kPressKinds = {StrId::STR_BTN_SHORT_PRESS, StrId::STR_BTN_DOUBLE_PRESS,
+                                              StrId::STR_BTN_LONG_PRESS};
+
+// On the heap: 21 strings are ~500 bytes, too much for a render's stack frame.
+using CellValues = std::vector<std::array<std::string, kPressKinds.size()>>;
+
+// Every (button, press kind) cell's display value, read in ONE walk of the settings: a cell is the
+// first Controls row with that button's submenu and that press kind. Looked up cell by cell, the
+// table needs the whole list at hand, which is one 11.5 KB block (see forEachSetting()).
+CellValues cellValues() {
+  CellValues values(kButtonRows.size());
+  std::array<std::array<bool, kPressKinds.size()>, kButtonRows.size()> found{};
+  forEachSetting([&](const SettingInfo& s) {
+    if (s.category != StrId::STR_CAT_CONTROLS) return;
+    for (size_t r = 0; r < kButtonRows.size(); r++) {
+      if (kButtonRows[r].submenu != s.submenu) continue;
+      for (size_t k = 0; k < kPressKinds.size(); k++) {
+        if (s.nameId != kPressKinds[k] || found[r][k]) continue;
+        values[r][k] = s.getDisplayValue();
+        found[r][k] = true;
+      }
+    }
   });
-  if (it == settings.end()) return {};
-  return it->getDisplayValue();
+  return values;
 }
 
 }  // namespace
@@ -123,21 +143,19 @@ void ButtonActionsOverviewActivity::render(RenderLock&&) {
   renderer.fillPolygon(underlineX, underlineY, 4, true);
   y += 4;
 
-  const auto settings = getSettingsList();
+  const CellValues cells = cellValues();
 
   // Data rows
-  for (const auto& row : kButtonRows) {
+  for (size_t r = 0; r < kButtonRows.size(); r++) {
+    const ButtonRow& row = kButtonRows[r];
     const std::string label = I18N.get(row.labelStrId);
     const std::string clippedLabel = renderer.truncatedText(fontId, label.c_str(), colW[0], EpdFontFamily::BOLD);
     renderer.drawText(fontId, colX[0], y, clippedLabel.c_str(), true, EpdFontFamily::BOLD);
 
-    const std::string vShort = cellValue(settings, row.submenu, StrId::STR_BTN_SHORT_PRESS);
-    const std::string vDouble = cellValue(settings, row.submenu, StrId::STR_BTN_DOUBLE_PRESS);
-    const std::string vLong = cellValue(settings, row.submenu, StrId::STR_BTN_LONG_PRESS);
-
-    renderer.drawText(fontId, colX[1], y, renderer.truncatedText(fontId, vShort.c_str(), colW[1]).c_str());
-    renderer.drawText(fontId, colX[2], y, renderer.truncatedText(fontId, vDouble.c_str(), colW[2]).c_str());
-    renderer.drawText(fontId, colX[3], y, renderer.truncatedText(fontId, vLong.c_str(), colW[3]).c_str());
+    for (size_t k = 0; k < kPressKinds.size(); k++) {
+      renderer.drawText(fontId, colX[k + 1], y,
+                        renderer.truncatedText(fontId, cells[r][k].c_str(), colW[k + 1]).c_str());
+    }
 
     y += rowStep;
   }

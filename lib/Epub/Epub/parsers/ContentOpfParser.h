@@ -27,6 +27,8 @@ class ContentOpfParser final : public Print {
     IN_BOOK_DESCRIPTION,
     IN_BOOK_SERIES,
     IN_BOOK_SERIES_INDEX,
+    IN_BOOK_IDENTIFIER,
+    IN_CREATOR_REFINE,
     IN_MANIFEST,
     IN_SPINE,
     IN_GUIDE,
@@ -96,6 +98,9 @@ class ContentOpfParser final : public Print {
   ItemIndexVec itemIndex;
   bool useItemIndex = false;
   bool indexDisabled_ = false;  // latched when an index growth hit OOM → linear-scan fallback
+  // Where the linear scan picks up: the .items.bin offset just past its previous match (see
+  // resolveItemRefHrefLinearScan).
+  uint32_t itemScanResumeOffset_ = 0;
 
   // Memo of the last manifest item's media-type and its classification (MediaClass enum in the
   // .cpp, stored as its uint8_t value here). Manifest items overwhelmingly repeat one media type
@@ -106,6 +111,39 @@ class ContentOpfParser final : public Print {
   uint8_t lastMediaClass_ = 0;
 
   static constexpr uint16_t LARGE_SPINE_THRESHOLD = 400;
+
+  // One dc:creator as the <metadata> block describes it. Kept only until the block ends, to pick
+  // the primary author then: EPUB 3 states a creator's role and filing name in <meta refines="#id">
+  // elements that come after it.
+  struct Creator {
+    std::string id;
+    std::string name;
+    std::string role;
+    std::string fileAs;
+  };
+  // The first few creators are enough: books credit their authors first. Allocated from the heap,
+  // and only once a dc:creator appears, because the parser itself lives on the caller's stack.
+  static constexpr uint8_t MAX_CREATORS = 4;
+  // Longest creator name, id, role or filing name kept.
+  static constexpr size_t MAX_CREATOR_FIELD = 256;
+  std::unique_ptr<Creator[]> creators_;
+  uint8_t creatorCount_ = 0;
+  Creator* currentCreator_ = nullptr;    // the dc:creator being read; null past MAX_CREATORS or on OOM
+  std::string creatorText_;              // its text, gathered across however many pieces it arrives in
+  std::string* refineTarget_ = nullptr;  // the creator field a <meta refines> element's text fills
+
+  Creator* beginCreator(const char** atts);
+  std::string* creatorField(const char* id, const char* property);
+  void pickPrimaryAuthor();
+
+  // The dc:identifier being read: what its scheme attribute says it is, and its text. Longer than
+  // any ISBN or ASIN can be means it is neither, and a cut-off one would be a wrong one.
+  enum class IdentifierScheme : uint8_t { Other, Isbn, Asin };
+  static constexpr size_t MAX_IDENTIFIER = 64;
+  IdentifierScheme identifierScheme_ = IdentifierScheme::Other;
+  std::string identifierText_;
+  bool identifierTooLong_ = false;
+  void recordIdentifier();
 
   // FNV-1a hash function
   static uint32_t fnvHash(const std::string& s) {
@@ -142,11 +180,21 @@ class ContentOpfParser final : public Print {
   } stats;
 
   std::string title;
+  // Every dc:creator's text, joined with ", ": what the book shows as its author.
   std::string author;
+  // The first dc:creator credited as the book's author (role "aut", or no role at all), and how it
+  // files (opf:file-as, or EPUB 3 <meta refines property="file-as">). For grouping and ordering by
+  // author; `author` stays the display line. Empty when no creator qualifies.
+  std::string primaryAuthor;
+  std::string authorSort;
   std::string language;
   std::string description;
   std::string series;
   std::string seriesIndex;
+  // The first dc:identifier that is an ISBN, and the first that is an Amazon ASIN, without their
+  // "urn:isbn:" / "isbn:" prefixes. For KOReader sync's metadata; empty when the book gives none.
+  std::string isbn;
+  std::string asin;
   std::string tocNcxPath;
   std::string tocNavPath;   // EPUB 3 nav document path
   std::string pageMapPath;  // EPUB 2.01 page-map.xml document path

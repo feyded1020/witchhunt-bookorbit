@@ -1,6 +1,7 @@
 #include "ButtonEventManager.h"
 
 #include "CrossPointSettings.h"
+#include "util/DoubleActionWait.h"
 
 // Required for constexpr array out-of-class definition (C++14).
 constexpr ButtonEventManager::Button ButtonEventManager::ALL_BUTTONS[ButtonEventManager::NUM_BUTTONS];
@@ -40,26 +41,34 @@ bool ButtonEventManager::hasDoubleAction(const Button button) const {
   if (forcedDoubleMask & pairMask) {
     return true;
   }
-  using BA = CrossPointSettings::BUTTON_ACTION;
+  const uint8_t action = configuredDoubleAction(button);
+  // Outside the reader a reader-only double action falls through to the screen, so there is
+  // nothing to wait for (the default PAGE_BACK_10 / PAGE_FORWARD_10 on Left/Right).
+  const bool readerOnTop = readerOnTopQuery == nullptr || readerOnTopQuery();
+  return doubleActionNeedsWait(action != CrossPointSettings::BTN_DEFAULT,
+                               CrossPointSettings::isReaderScopedAction(action), readerOnTop);
+}
+
+uint8_t ButtonEventManager::configuredDoubleAction(const Button button) {
   switch (button) {
     case Button::Back:
-      return SETTINGS.btnDoubleBack != BA::BTN_DEFAULT;
+      return SETTINGS.btnDoubleBack;
     case Button::Confirm:
-      return SETTINGS.btnDoubleConfirm != BA::BTN_DEFAULT;
+      return SETTINGS.btnDoubleConfirm;
     case Button::Left:
-      return SETTINGS.btnDoubleLeft != BA::BTN_DEFAULT;
+      return SETTINGS.btnDoubleLeft;
     case Button::Right:
-      return SETTINGS.btnDoubleRight != BA::BTN_DEFAULT;
+      return SETTINGS.btnDoubleRight;
     case Button::Up:
     case Button::PageBack:
-      return SETTINGS.btnDoublePageBack != BA::BTN_DEFAULT;
+      return SETTINGS.btnDoublePageBack;
     case Button::Down:
     case Button::PageForward:
-      return SETTINGS.btnDoublePageForward != BA::BTN_DEFAULT;
+      return SETTINGS.btnDoublePageForward;
     case Button::Power:
-      return SETTINGS.btnDoublePower != BA::BTN_DEFAULT;
+      return SETTINGS.btnDoublePower;
   }
-  return false;
+  return CrossPointSettings::BTN_DEFAULT;
 }
 
 ButtonEventManager::PressLog ButtonEventManager::pressLog(const Button button) const {
@@ -69,18 +78,18 @@ ButtonEventManager::PressLog ButtonEventManager::pressLog(const Button button) c
   return {s.pressCount, s.loggedPressMs, s.priorLoggedPressMs};
 }
 
-void ButtonEventManager::pushEvent(const Button button, const PressType type) {
+void ButtonEventManager::pushEvent(const Button button, const PressType type, const unsigned long pressMs) {
   const int next = (eventTail + 1) % EVENT_BUF;
   if (next == eventHead) return;  // buffer full, drop oldest not possible — just drop newest
-  eventBuf[eventTail] = {button, type};
+  eventBuf[eventTail] = {button, type, pressMs};
   eventTail = next;
 }
 
-void ButtonEventManager::pushEventFront(const Button button, const PressType type) {
+void ButtonEventManager::pushEventFront(const ButtonEvent& event) {
   const int prev = (eventHead - 1 + EVENT_BUF) % EVENT_BUF;
   if (prev == eventTail) return;  // buffer full
   eventHead = prev;
-  eventBuf[eventHead] = {button, type};
+  eventBuf[eventHead] = event;
 }
 
 bool ButtonEventManager::isShortPending(const Button button) const {
@@ -146,7 +155,7 @@ void ButtonEventManager::applyEdge(const int idx, const Button btn, const bool p
       if (!pressed) {
         const unsigned long heldMs = t - s.pressDownTime;
         if (heldMs >= LONG_PRESS_MS) {
-          pushEvent(btn, PressType::Long);
+          pushEvent(btn, PressType::Long, s.pressDownTime);
           s.state = State::Idle;
         } else if (hasDoubleAction(btn)) {
           // Delay short-press decision until double-click window expires.
@@ -154,7 +163,7 @@ void ButtonEventManager::applyEdge(const int idx, const Button btn, const bool p
           s.state = State::ReleasedOnce;
         } else {
           // No double action configured — fire immediately.
-          pushEvent(btn, PressType::Short);
+          pushEvent(btn, PressType::Short, s.pressDownTime);
           s.state = State::Idle;
         }
       }
@@ -165,7 +174,7 @@ void ButtonEventManager::applyEdge(const int idx, const Button btn, const bool p
         if (t - s.releaseTime >= DOUBLE_WINDOW_MS) {
           // Window already elapsed before this press arrived (e.g. the loop task
           // was blocked past it): the first press was a Short, this starts fresh.
-          pushEvent(btn, PressType::Short);
+          pushEvent(btn, PressType::Short, s.pressDownTime);
           s.state = State::Pressed;
           s.pressDownTime = t;
         } else {
@@ -178,7 +187,7 @@ void ButtonEventManager::applyEdge(const int idx, const Button btn, const bool p
 
     case State::DoublePressed:
       if (!pressed) {
-        pushEvent(btn, PressType::Double);
+        pushEvent(btn, PressType::Double, s.pressDownTime);
         s.state = State::Idle;
       }
       break;
@@ -192,7 +201,7 @@ void ButtonEventManager::applyTimeout(const int idx, const Button btn, const uns
       if (heldNow && now - s.pressDownTime >= LONG_PRESS_MS) {
         // Fire Long as soon as the hold threshold passes, without waiting for
         // release. The eventual release edge lands in Idle and is ignored.
-        pushEvent(btn, PressType::Long);
+        pushEvent(btn, PressType::Long, s.pressDownTime);
         s.state = State::Idle;
       }
       break;
@@ -200,7 +209,7 @@ void ButtonEventManager::applyTimeout(const int idx, const Button btn, const uns
     case State::ReleasedOnce:
       if (now - s.releaseTime >= DOUBLE_WINDOW_MS) {
         // Window expired without a second press — it was a Short.
-        pushEvent(btn, PressType::Short);
+        pushEvent(btn, PressType::Short, s.pressDownTime);
         s.state = State::Idle;
       }
       break;

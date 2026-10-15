@@ -494,6 +494,41 @@ TEST(JpegToBmpConverter, CropModeEmitsExactTargetHeightOverfill) {
   EXPECT_EQ(le32(out.buf, 22), -10);
 }
 
+// Fit mode (crop=false), the cover grids' thumbnail: the WHOLE image inside the box, scaled by the
+// smaller factor, so one side is the box's and the other at most -- the opposite of the crop above.
+// A box that cropped a third off every ordinary cover is what this was added for.
+TEST(JpegToBmpConverter, FitModeKeepsTheWholeImageInsideTheBox) {
+  FsFile f;
+  ASSERT_TRUE(f.openForRead(fixture("contrast_420.jpg")));
+
+  MemoryPrint out;
+  // 96x64 landscape into a 20x40 portrait box: scale = min(20/96, 40/64) = 0.2083 -> 20x13.
+  const bool ok = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(f, out, 20, 40, nullptr, /*crop=*/false);
+  f.close();
+
+  ASSERT_TRUE(ok);
+  ASSERT_GE(out.buf.size(), 62u);
+  EXPECT_EQ(le32(out.buf, 18), 20);           // the width is the box's
+  const int32_t height = -le32(out.buf, 22);  // top-down => negative
+  EXPECT_LE(height, 40);                      // nothing past the box
+  EXPECT_NEAR(height, 13, 1);                 // and the aspect kept: nothing cropped
+}
+
+TEST(JpegToBmpConverter, FitModeIsHeightBoundInAWideBox) {
+  FsFile f;
+  ASSERT_TRUE(f.openForRead(fixture("contrast_420.jpg")));
+
+  MemoryPrint out;
+  // 96x64 into a 30x10 box: scale = min(30/96, 10/64) = 0.15625 -> 15x10. Height bound.
+  const bool ok = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(f, out, 30, 10, nullptr, /*crop=*/false);
+  f.close();
+
+  ASSERT_TRUE(ok);
+  ASSERT_GE(out.buf.size(), 62u);
+  EXPECT_NEAR(le32(out.buf, 18), 15, 1);
+  EXPECT_EQ(le32(out.buf, 22), -10);
+}
+
 // ---------------------------------------------------------------------------
 // One decode, two thumbnails (memory audit 2026-09, R9 item 2): the Lyra carousel needs a 340x540
 // and a 200x390 thumb of every cover, and each used to be a separate full decode of the JPEG. The

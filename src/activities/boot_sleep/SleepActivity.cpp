@@ -21,6 +21,7 @@
 #include <memory>
 #include <new>
 
+#include "../reader/EpubProgressRecord.h"
 #include "../reader/EpubReaderActivity.h"
 #if CROSSPOINT_KOREADER_AUTOSYNC
 #include "../reader/KOReaderAutoSync.h"
@@ -163,6 +164,22 @@ BitmapToneMapping sleepImageToneMapping() {
 // has the range to use a stronger curve, and measurably wants one.
 int sleepEqualizeBlend(const GfxRenderer& renderer) {
   return renderer.getGrayLevels() > 4 ? adaptive_tone::EQ_BLEND_NUM_DEEP : adaptive_tone::EQ_BLEND_NUM;
+}
+
+// Ships the BW base of a grey sleep image, ahead of its LSB/MSB planes.
+//
+// Overlapping the LSB render with that waveform is only safe while the secondary framebuffer is
+// resident. X3 and the X4 Pro controllers re-read the frame after the waveform (displayFinish()
+// syncs DTM1 from it; an X3 full sync also pushes it to the glass again), and the buffer swap is
+// what keeps the BW frame intact for them while the next plane is drawn into the write buffer.
+// Once the secondary is released or lent there is no swap, and the plane would overwrite the very
+// frame they re-read, so the base has to finish before anything draws again.
+void shipSleepGrayBase(const GfxRenderer& renderer) {
+  if (renderer.hasSecondaryBuffer()) {
+    renderer.triggerDisplayAsync(HalDisplay::HALF_REFRESH);
+  } else {
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  }
 }
 
 bool renderPngSleepScreen(const std::string& filename, GfxRenderer& renderer, const BookOverlayInfo& overlayInfo) {
@@ -333,10 +350,10 @@ bool renderPngSleepScreen(const std::string& filename, GfxRenderer& renderer, co
     useCache = !config.cachePath.empty() && Storage.exists(cachePath.c_str());
   }
   drawOverlay();
-  // Fire the BW scrub without waiting: the waveform runs on the controller's own RAM,
-  // so the LSB decode below (CPU/SD-only work) overlaps it. copyGrayscaleLsbBuffers()
-  // drains the pending finish before its SPI plane write.
-  renderer.triggerDisplayAsync(HalDisplay::HALF_REFRESH);
+  // Fire the BW scrub without waiting where that is safe (see shipSleepGrayBase): the
+  // waveform runs on the controller's own RAM, so the LSB decode below (CPU/SD-only work)
+  // overlaps it. copyGrayscaleLsbBuffers() drains the pending finish before its SPI plane write.
+  shipSleepGrayBase(renderer);
 
   // Passes 2 and 3 replay the cache when one is available; the render mode selects
   // which bit-plane each cached 2-bit value lands in, so no re-decode is needed.
@@ -514,6 +531,14 @@ void SleepActivity::renderSleepScreen() {
 }
 
 void SleepActivity::renderCustomSleepScreen() const {
+  // A PNG needs a ~32 KB contiguous inflate ring, and renderPngSleepScreen() refuses to start
+  // under 60 KB free. With the ~48-52 KB secondary framebuffer still resident, a sleep straight out
+  // of a book can be short of both, and the picture silently gave way to the default screen
+  // (#377). Free it, as renderCoverSleepScreen() does: nothing below needs the previous frame
+  // (shipSleepGrayBase() covers the drivers that re-read it), and enterDeepSleep() powers down
+  // right after. COVER_CUSTOM falls back to this screen with the buffer already gone.
+  if (renderer.hasSecondaryBuffer()) renderer.releaseSecondaryBuffer();
+
   const BookOverlayInfo overlayInfo{};
   const bool shouldLoadOverlayInfo =
       SETTINGS.sleepCoverOverlay != 0 && APP_STATE.lastSleepFromReader && !APP_STATE.openEpubPath.empty();
@@ -546,29 +571,39 @@ void SleepActivity::renderCustomSleepScreen() const {
   const auto files = collectSleepImages(/*allowPng=*/true);
   const auto numFiles = files.size();
   if (numFiles > 0) {
-    const auto pickedIndex = pickSleepImageIndex(numFiles);
-    APP_STATE.lastSleepImage = pickedIndex;
-    APP_STATE.saveToFile();
-    const auto& filename = files[pickedIndex];
-    LOG_DBG("SLP", "Loading sleep image: %s", filename.c_str());
     const BookOverlayInfo resolvedOverlayInfo =
         shouldLoadOverlayInfo ? getBookOverlayInfo(APP_STATE.openEpubPath) : overlayInfo;
-    if (FsHelpers::hasPngExtension(filename)) {
-      if (renderPngSleepScreen(filename, renderer, resolvedOverlayInfo)) {
-        return;
+    const auto renderSleepImage = [&](const std::string& filename) -> bool {
+      if (FsHelpers::hasPngExtension(filename)) {
+        return renderPngSleepScreen(filename, renderer, resolvedOverlayInfo);
       }
-    } else {
       FsFile file;
-      if (Storage.openFileForRead("SLP", filename, file)) {
-        delay(100);
-        Bitmap bitmap(file, true, sleepImageToneMapping(), sleepEqualizeBlend(renderer));
-        if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-          renderBitmapSleepScreen(bitmap, resolvedOverlayInfo);
-          file.close();
-          return;
-        }
-        file.close();
-      }
+      if (!Storage.openFileForRead("SLP", filename, file)) return false;
+      delay(100);
+      Bitmap bitmap(file, true, sleepImageToneMapping(), sleepEqualizeBlend(renderer));
+      const bool parsed = bitmap.parseHeaders() == BmpReaderError::Ok;
+      if (parsed) renderBitmapSleepScreen(bitmap, resolvedOverlayInfo);
+      file.close();
+      return parsed;
+    };
+
+    // The picked image first, then the ones after it. A PNG is only validated by decoding it, so
+    // a truncated or unsupported one should cost the user that one picture, not all of them. A
+    // failed PNG can take two decodes (tone analysis, then the render) and the device sleeps only
+    // after this returns, so a folder of broken images gets a few tries, not one per file.
+    constexpr size_t MAX_SLEEP_IMAGE_ATTEMPTS = 3;
+    const auto pickedIndex = pickSleepImageIndex(numFiles);
+    const size_t attempts = std::min(numFiles, MAX_SLEEP_IMAGE_ATTEMPTS);
+    for (size_t attempt = 0; attempt < attempts; ++attempt) {
+      const size_t index = (pickedIndex + attempt) % numFiles;
+      // Saved before the attempt rather than after it, as before: an image that takes the device
+      // down mid-decode is then not the next pick as well.
+      APP_STATE.lastSleepImage = index;
+      APP_STATE.saveToFile();
+      const auto& filename = files[index];
+      LOG_DBG("SLP", "Loading sleep image: %s", filename.c_str());
+      if (renderSleepImage(filename)) return;
+      LOG_ERR("SLP", "Sleep image failed: %s", filename.c_str());
     }
   }
 
@@ -667,23 +702,30 @@ BookOverlayInfo SleepActivity::getBookOverlayInfo(const std::string& bookPath) c
 
       FsFile f;
       if (Storage.openFileForRead("SLP", epub.getCachePath() + "/progress.bin", f)) {
-        uint8_t data[6];
-        const int dataSize = f.read(data, 6);
-        if (dataSize == 4 || dataSize == 6) {
-          int currentSpineIndex = data[0] + (data[1] << 8);
-          int currentPage = data[2] + (data[3] << 8);
-          int pageCount = (dataSize == 6) ? (data[4] + (data[5] << 8)) : 0;
+        uint8_t data[EpubProgressRecord::kMaxSize];
+        const int dataSize = f.read(data, sizeof(data));
+        f.close();
+        if (const auto record = EpubProgressRecord::decode(data, dataSize > 0 ? static_cast<size_t>(dataSize) : 0)) {
+          const int currentSpineIndex = record->spineIndex;
+          const int currentPage = record->page;
+          const int pageCount = record->pageCount;
           if (pageCount > 0) {
             float chapterProgress = static_cast<float>(currentPage) / static_cast<float>(pageCount);
             float bookProgress = epub.calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
 
-            // Pull the printed-page label (NCX <pageList> / EPUB 3 nav page-list /
-            // EPUB 2.01 page-map / inline doc-pagebreak) directly from the section
-            // cache so the sleep overlay can show e.g. "(42)" without instantiating
-            // a Section + render parameters.
+            // The reader records what its status bar showed when it closed the book: the page within
+            // the whole TOC chapter (#325) and the printed page. Records without it (older ones, a
+            // sync restore, a bookmark jump) count the page within its spine item, and pull the
+            // printed-page label (NCX <pageList> / EPUB 3 nav page-list / EPUB 2.01 page-map /
+            // inline doc-pagebreak) from the section cache without instantiating a Section +
+            // render parameters.
+            const auto& shown = record->shown;
+            const bool shownChapter = shown && shown->chapterTotal > 0;
             std::string printedPagePrefix;
-            if (const auto label = Section::getPrintedPageLabelFromCache(epub.getCachePath(), currentSpineIndex,
-                                                                         static_cast<uint16_t>(currentPage))) {
+            if (shown) {
+              if (!shown->printedPage.empty()) printedPagePrefix = shown->printedPage + " ";
+            } else if (const auto label = Section::getPrintedPageLabelFromCache(epub.getCachePath(), currentSpineIndex,
+                                                                                static_cast<uint16_t>(currentPage))) {
               printedPagePrefix = *label + " ";
             }
 
@@ -691,8 +733,10 @@ BookOverlayInfo SleepActivity::getBookOverlayInfo(const std::string& bookPath) c
             if (tocIndex != -1) {
               const auto tocItem = epub.getTocItem(tocIndex);
               info.chapterName = tocItem.title;
+              const int chapterPage = shownChapter ? shown->chapterPage : currentPage + 1;
+              const int chapterTotal = shownChapter ? shown->chapterTotal : pageCount;
               char suffix[64];
-              snprintf(suffix, sizeof(suffix), tr(STR_OVERLAY_CHAPTER_PAGE_SUFFIX), currentPage + 1, pageCount,
+              snprintf(suffix, sizeof(suffix), tr(STR_OVERLAY_CHAPTER_PAGE_SUFFIX), chapterPage, chapterTotal,
                        bookProgress);
               info.progressSuffix = printedPagePrefix + suffix;
               info.progressText = info.chapterName + info.progressSuffix;
@@ -708,7 +752,6 @@ BookOverlayInfo SleepActivity::getBookOverlayInfo(const std::string& bookPath) c
             info.progressText = buf;
           }
         }
-        f.close();
       }
     }
   }
@@ -913,10 +956,10 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const BookOver
                          : (panelHasAbsolute ? "differential (panel declined the absolute pass)"
                                              : "differential (panel has no absolute encoding)"));
     if (!absolutePass) {
-      // Fire the BW scrub without waiting: the waveform runs on the controller's own RAM,
-      // so the LSB draw below (CPU/SD-only work) overlaps it. copyGrayscaleLsbBuffers()
-      // drains the pending finish before its SPI plane write.
-      renderer.triggerDisplayAsync(HalDisplay::HALF_REFRESH);
+      // Fire the BW scrub without waiting where that is safe (see shipSleepGrayBase): the
+      // waveform runs on the controller's own RAM, so the LSB draw below (CPU/SD-only work)
+      // overlaps it. copyGrayscaleLsbBuffers() drains the pending finish before its SPI plane write.
+      shipSleepGrayBase(renderer);
     }
 
     // A differential plane starts empty and lets the B/W base supply black and

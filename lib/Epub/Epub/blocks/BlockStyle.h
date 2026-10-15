@@ -45,7 +45,10 @@ struct BlockStyle {
   int16_t paddingRight = 0;   // treated same as margin for rendering
   int16_t textIndent = 0;
   bool textIndentDefined = false;  // true if text-indent was explicitly set in CSS
-  bool textAlignDefined = false;   // true if text-align was explicitly set in CSS
+  // The indent came from margin-left on an inline span (one poem line drawn indented), and gives
+  // way before the line does: see ParsedText::layoutAndExtractLines.
+  bool textIndentYields = false;
+  bool textAlignDefined = false;  // true if text-align was explicitly set in CSS
   // Set when this block was created by a <br> element. Used by startNewTextBlock to inject
   // a full line-height gap when the <br> block stays empty (section-break use case).
   // NOT propagated through getCombinedBlockStyle so it can't leak into sibling blocks.
@@ -112,9 +115,11 @@ struct BlockStyle {
     if (child.textIndentDefined) {
       combinedBlockStyle.textIndent = child.textIndent;
       combinedBlockStyle.textIndentDefined = true;
+      combinedBlockStyle.textIndentYields = child.textIndentYields;
     } else {
       combinedBlockStyle.textIndent = textIndent;
       combinedBlockStyle.textIndentDefined = textIndentDefined;
+      combinedBlockStyle.textIndentYields = textIndentYields;
     }
     // Text align: use child's if defined
     if (child.textAlignDefined) {

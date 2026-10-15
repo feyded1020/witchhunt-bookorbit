@@ -3,7 +3,6 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
-#include <HalGPIO.h>
 #include <Logging.h>
 
 #include <cstring>
@@ -23,6 +22,22 @@ namespace fui = freeink::ui;
 
 bool SettingsActivity::isRowSelectable(const int index) const {
   return index >= 0 && index < settingsCount && !(*currentSettings)[index].isSeparator;
+}
+
+bool SettingsActivity::releaseBuriedState() {
+  // The four tabs' rows, the submenus and the visible window's labels: ~80 SettingInfo rows with
+  // their label vectors, in many small blocks across the heap. onEnter() builds them all again.
+  std::vector<SettingInfo>().swap(displaySettings);
+  std::vector<SettingInfo>().swap(readerSettings);
+  std::vector<SettingInfo>().swap(controlsSettings);
+  std::vector<SettingInfo>().swap(systemSettings);
+  std::vector<SettingInfo::SubmenuData>().swap(submenuData);
+  for (std::string& label : windowLabels) std::string().swap(label);
+  for (std::string& value : windowValues) std::string().swap(value);
+  currentSettings = nullptr;
+  settingsCount = 0;
+  windowCount = 0;
+  return true;
 }
 
 void SettingsActivity::onEnter() {
@@ -66,15 +81,15 @@ void SettingsActivity::onEnter() {
     insertedFontDownload = true;
   };
 
-  for (const auto& setting : getSettingsList()) {
-    if (setting.category == StrId::STR_NONE_OPT) continue;
+  forEachSetting([&](const SettingInfo& setting) {
+    if (setting.category == StrId::STR_NONE_OPT) return;
     if (setting.category == StrId::STR_CAT_SYSTEM &&
         (setting.nameId == StrId::STR_USE_CLOCK || setting.nameId == StrId::STR_CLOCK_FORMAT ||
          setting.nameId == StrId::STR_TIMEZONE)) {
-      continue;
+      return;
     }
     // Enrich font-family entries with SD card families discovered at boot.
-    // The list itself is a namespace-static; we only mutate our local copy here.
+    // The row is the walk's temporary; the screen keeps its own copy, and only that is enriched.
     SettingInfo enriched = setting;
     if (setting.key &&
         (std::strcmp(setting.key, "fontFamily") == 0 || std::strcmp(setting.key, "txtFontFamily") == 0)) {
@@ -86,7 +101,7 @@ void SettingsActivity::onEnter() {
     if (enriched.nameId == StrId::STR_INCLUDE_BETA_UPDATES) {
       includeBetaUpdatesSetting = enriched;
       sawIncludeBetaUpdates = true;
-      continue;
+      return;
     }
     const bool isReaderFontEntry =
         enriched.category == StrId::STR_CAT_READER &&
@@ -108,7 +123,7 @@ void SettingsActivity::onEnter() {
     if (isReaderFontEntry) sawReaderFontSection = true;
 
     // Web-only categories (KOReader Sync, OPDS Browser) are skipped for device UI
-  }
+  });
 
   if (!insertedFontDownload && sawReaderFontSection) {
     insertFontDownloadBelowFontSection();
@@ -149,6 +164,10 @@ void SettingsActivity::onEnter() {
   addToMoved(systemSettings, std::move(SettingInfo::Action(StrId::STR_CLOCK_SETTINGS, SettingAction::ClockSettings)
                                            .withSubcategory(StrId::STR_MENU_SYS_TOOLS)));
   addToMoved(systemSettings, std::move(SettingInfo::Action(StrId::STR_WEATHER_SETTINGS, SettingAction::Weather)
+                                           .withSubcategory(StrId::STR_MENU_SYS_TOOLS)));
+  // Every file on the card, images and sidecars included. Housekeeping rather than reading, so it
+  // lives here and not on Home, whose browser lists only books.
+  addToMoved(systemSettings, std::move(SettingInfo::Action(StrId::STR_ALL_FILES, SettingAction::AllFiles)
                                            .withSubcategory(StrId::STR_MENU_SYS_TOOLS)));
   addToMoved(systemSettings, std::move(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache)
                                            .withSubcategory(StrId::STR_MENU_SYS_SYSTEM)));
@@ -227,9 +246,6 @@ void SettingsActivity::enterCategory(const int categoryIndex) {
       break;
   }
   settingsCount = static_cast<int>(currentSettings->size());
-  // -1 is the tab bar: switching category always hands focus back to the bar, so the reader
-  // sees which tab they landed on rather than an arbitrary row of it.
-  nav.reset(-1);
   listTapActivation.reset();
 }
 
@@ -304,7 +320,7 @@ void SettingsActivity::activateIndex(const int index) {
   SETTINGS.saveToFile();
   // Repaint: nothing else will. Every other way this list changes asks for an
   // update -- moveSelectionTo(), the swipe handler, routeListTouch() -- but the
-  // Confirm path in UiListActivity::handleButtons() calls activateIndex() and
+  // Confirm path in the list controller calls activateIndex() and
   // returns, so an inline toggle would change and persist the value while the
   // row kept showing the old one until some later event forced a render.
   // MenuListActivity::toggleCurrentItem() does this too, which is why the
@@ -316,7 +332,7 @@ void SettingsActivity::activateIndex(const int index) {
 }
 
 void SettingsActivity::materializeListWindow() {
-  windowFirst = static_cast<uint16_t>(std::max(0, std::min(nav.top, settingsCount)));
+  windowFirst = static_cast<uint16_t>(std::max(0, std::min(activeNav().top, settingsCount)));
   windowCount = static_cast<uint16_t>(
       std::min(static_cast<size_t>(settingsCount - windowFirst), static_cast<size_t>(LIST_WINDOW_CAPACITY)));
   for (uint16_t offset = 0; offset < windowCount; ++offset) {
@@ -345,7 +361,7 @@ void SettingsActivity::materializeListWindow() {
 
 void SettingsActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
+  const Rect contentRect = listContentRect();
   screen.setContentMarginFromScreen(
       fui::Insets{static_cast<int16_t>(contentRect.y + metrics.topPadding + metrics.headerHeight),
                   static_cast<int16_t>(renderer.getScreenWidth() - (contentRect.x + contentRect.width)),
@@ -355,12 +371,8 @@ void SettingsActivity::buildScreen(UiScreen& screen) {
   buildTabBar(screen);
   screen.spacer(static_cast<int16_t>(UITheme::getInstance().getMetrics().verticalSpacing));
 
-  fui::ListProps props;
+  auto props = listProps(screen);
   props.count = static_cast<uint16_t>(settingsCount);
-  props.action = ACTION_ROW;
-  props.inputMask = fui::InputTouch;
-  props.labelText = screen.theme().bodyText;
-  props.labelText.maxLines = 2;
   syncListViewport(screen, props);
   materializeListWindow();
   props.items = windowItems.data();
@@ -380,17 +392,16 @@ void SettingsActivity::onBackFromTabs() {
 
 void SettingsActivity::drawChrome() {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
-  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION);
+  const Rect contentRect = listContentRect();
+  GUI.drawHeader(renderer,
+                 Rect{contentRect.x, contentRect.y + metrics.topPadding, contentRect.width, metrics.headerHeight},
+                 tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION);
 }
 
-void SettingsActivity::drawFooter() {
+const char* SettingsActivity::footerConfirmLabel() const {
   // Confirm means "next tab" while the bar holds focus and "toggle" on a row, so the hint names
   // the category it would move to rather than a generic label.
-  const auto confirmLabel =
-      tabsFocused() ? I18N.get(categoryNames[(selectedTab() + 1) % categoryCount]) : tr(STR_TOGGLE);
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  return selectedPosition() == 0 ? I18N.get(categoryNames[(selectedTab() + 1) % categoryCount]) : tr(STR_TOGGLE);
 }
 
 // Identical to UiListActivity::render() apart from the last line: this screen returns from a
@@ -400,11 +411,12 @@ void SettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
   drawChrome();
   renderUi();
-  for (int pass = 0; nav.consumeRebuildNeeded() && pass < 8; ++pass) {
+  for (int pass = 0; activeNav().consumeRebuildNeeded() && pass < 8; ++pass) {
     renderer.clearScreen();
     drawChrome();
     renderUi();
   }
+  publishListWindow();
   drawFooter();
 
   // Only spend the HALF if enough FAST refreshes have piled up since the last one to have
@@ -413,7 +425,8 @@ void SettingsActivity::render(RenderLock&&) {
   // per return against a FAST's 435 ms (X3-measured), even when the previous HALF was three
   // updates ago. Correctness HALFs are armed via setNextDisplayRefreshMode() and bypass this
   // entirely -- see GfxRenderer::ghostClearingHalfWorthwhile().
-  const bool halfRefresh = gpio.deviceIsX3() && needsHalfRefresh && renderer.ghostClearingHalfWorthwhile();
+  const bool halfRefresh =
+      renderer.ghostsUnderFastRefresh() && needsHalfRefresh && renderer.ghostClearingHalfWorthwhile();
   // Cleared whether or not it was spent, i.e. a gated request is DROPPED, not deferred. Deferring
   // would land the 2.2 s stall a few cursor moves into the screen, which reads as a freeze; on
   // entry it reads as the screen change it is. The ghosting cost of dropping is marginal because

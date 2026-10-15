@@ -2,6 +2,7 @@
 
 #include <CooperativeAbort.h>
 #include <GfxRenderer.h>
+#include <HeapFit.h>
 #include <Logging.h>
 #include <Serialization.h>
 
@@ -492,6 +493,15 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file, BuildArena* scratch) {
   if (fnCount > MAX_FOOTNOTES_PER_PAGE) {
     LOG_ERR("PGE", "Invalid footnote count %u", fnCount);
     return nullptr;
+  }
+  // Every link on the page is an entry, not only notes: a contents or index page reaches the cap,
+  // 64 x 128 B = 8 KB in one block, on every load of it (draw, pre-render, image lane). Without
+  // the block the page still draws, only its links are not tappable -- better than the abort a
+  // failed resize is on the device.
+  if (fnCount > 0 && !heapHasBlockFor(fnCount * sizeof(FootnoteEntry))) {
+    LOG_ERR("PGE", "No %u-byte block for %u footnotes; page loads without them",
+            static_cast<unsigned>(fnCount * sizeof(FootnoteEntry)), fnCount);
+    return page;  // the footnotes are the last thing in the record, nothing after them to skip to
   }
   page->footnotes.resize(fnCount);
   for (uint16_t i = 0; i < fnCount; i++) {

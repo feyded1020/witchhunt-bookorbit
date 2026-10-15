@@ -29,9 +29,9 @@ enum class WifiSelectionState {
   PASSWORD_ENTRY,     // Entering password for selected network
   CONNECTING,         // Attempting to connect
   CONNECTED,          // Successfully connected
-  SAVE_PROMPT,        // Asking user if they want to save the password
+  SAVE_PROMPT,        // Asking whether to save the password (a ConfirmationActivity above)
   CONNECTION_FAILED,  // Connection failed
-  FORGET_PROMPT,      // Asking user if they want to forget the network
+  FORGET_PROMPT,      // Offering to forget the network or reset its info (a ConfirmationActivity above)
   CAPTIVE_PORTAL      // Connected but network requires web-based login
 };
 
@@ -77,15 +77,18 @@ class WifiSelectionActivity final : public Activity {
 
   // Whether we are attempting to auto-connect
   bool autoConnecting = false;
+  // Whether this attempt has run WifiApChoice::improve(): once per attempt, so a reader that ends
+  // up on the far AP again after a failed move connects rather than going round.
+  bool apChoiceTried = false;
 
   // Saved-credential candidates for auto-cycling (SSIDs visible in scan, sorted by RSSI desc)
   std::vector<std::string> autoCycleCandidates;
   size_t autoCycleCandidateIndex = 0;
   bool autoCycleAfterScan = false;  // Scan was triggered to build cycle candidates
 
-  // Save/forget prompt selection (0 = Yes, 1 = No)
-  int savePromptSelection = 0;
-  int forgetPromptSelection = 0;
+  // A network whose saved password failed like a wrong one this session. Picking it from the list
+  // asks for the password instead of failing the same way again.
+  std::string passwordSuspectSsid;
 
   // Connection timeouts
   static constexpr unsigned long CONNECTION_TIMEOUT_MS = 15000;
@@ -111,9 +114,7 @@ class WifiSelectionActivity final : public Activity {
   void renderPasswordEntry() const;
   void renderConnecting() const;
   void renderConnected() const;
-  void renderSavePrompt() const;
   void renderConnectionFailed() const;
-  void renderForgetPrompt() const;
   void renderCaptivePortal() const;
 
   void startWifiScan();
@@ -127,9 +128,14 @@ class WifiSelectionActivity final : public Activity {
   void showNetworkListFromAutoConnect();
   void selectNetwork(int index);
   void promptHiddenSsid();
-  void promptPasswordEntry();
+  // `title` replaces "Enter WiFi Password" when there is a reason to give.
+  void promptPasswordEntry(const char* title = nullptr);
   void attemptConnection();
   void checkConnectionStatus();
+  void abandonConnectAttempt();
+  bool passwordLikelyWrong() const;
+  bool askForPasswordIfLikelyWrong();
+  bool promptForSuspectNetwork();
   // Issues WiFi.begin() with a full, signal-sorted scan. See the definition for why the cached
   // channel/BSSID hint that used to shortcut this was removed.
   void issueWifiBegin();
@@ -144,6 +150,9 @@ class WifiSelectionActivity final : public Activity {
 
   std::string captivePortalUrl;
 
+  void askToSavePassword();
+  void promptNetworkOptions();
+  void onNetworkOptionsAnswer(const ActivityResult& result);
   void onComplete(bool connected);
 
  public:
@@ -154,6 +163,8 @@ class WifiSelectionActivity final : public Activity {
   void onExit() override;
   // Tap on a list row -> move the selection there; ActivityManager then synthesizes Confirm.
   ListRowTap::Result selectListRow(int index) override;
+  // A swipe must not reach Left/Right, which are Options and Rescan here. Consumed without effect.
+  bool pageList(ListPageDirection direction) override;
   void loop() override;
   void render(RenderLock&&) override;
   // Scanning and associating are work in flight, and a half-entered passphrase is

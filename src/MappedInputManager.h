@@ -120,6 +120,12 @@ class MappedInputManager {
   // True if any press has been sampled since the last update(). Safe to call
   // mid-stall from within loop() to yield expensive work to button input.
   bool hasPendingInput() const { return gpio.hasPendingInput(); }
+  // Same, for one logical button. Only sees presses since the last update(); one drained before
+  // it is in wasPressed() instead, so a caller that cannot call update() itself checks both.
+  bool hasPendingPress(Button button) const;
+  // Whether taps reach the app: off when the user turned the touch controls off. Says nothing
+  // about whether the board has a digitiser; pair it with hasTouch().
+  bool touchEventsEnabled() const { return touchEventsEnabled_; }
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
 
@@ -128,7 +134,7 @@ class MappedInputManager {
   // renderer's live orientation — the layer above never sees panel-native
   // coordinates. Names and signatures are verbatim from upstream/develop so
   // screens stay diff-comparable when they convert; see
-  // docs/touch-input-migration-2026-08-14.md §1.
+  // docs/contributing/touch-architecture.md, "Layers".
   //
   // All of these are inert on non-touch boards (the SDK's touch methods compile
   // to false), so callers need no #ifdefs.
@@ -217,8 +223,6 @@ class MappedInputManager {
   // being left cannot act on the one being entered; that matters more now that
   // these outlive the tick they happened in.
   void flushTouchEvents() const { gpio.flushTouchEvents(); }
-  // Back = left-to-right swipe anchored at the left edge. Public so swipe-mode
-  // page turns (reader) can exclude it from a plain SwipeDir::Right.
   // Home-key boards (X4 Pro) exit with a short Home-key tap; their bottom-edge
   // swipe is intentionally unused. Other touch boards keep the bottom-edge
   // gesture.
@@ -258,7 +262,10 @@ class MappedInputManager {
   //
   // `longPress` makes it a HOLD rather than a click, for a long tap on the strip. Without it
   // every long-press-only action is out of reach on a board with no nav buttons.
-  void injectRawPress(uint8_t rawButtonIndex, bool longPress = false) const;
+  // `atMs` dates it (see HalGPIO::injectPress); 0 means now.
+  void injectRawPress(uint8_t rawButtonIndex, bool longPress = false, uint32_t atMs = 0) const;
+  // When the touch event this cycle happened, on the sampler's clock; 0 if there was none.
+  uint32_t lastTouchEventAtMs() const;
 
   // Drain one queued raw button edge from the background sampler (FIFO). Returns
   // false when empty. Used by ButtonEventManager to drive its press-type FSM.

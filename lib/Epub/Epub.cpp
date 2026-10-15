@@ -25,6 +25,8 @@
 #include "Epub/CoverThumbSession.h"
 #include "Epub/HashUtils.h"
 #include "Epub/ImageFormatDetector.h"
+#include "Epub/MetadataSidecar.h"
+#include "Epub/SpinePageIndex.h"
 #include "Epub/parsers/ContainerParser.h"
 #include "Epub/parsers/ContentOpfParser.h"
 #include "Epub/parsers/PageListSink.h"
@@ -151,6 +153,10 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, OpfCac
   bookMetadata.series = opfParser.series;
   bookMetadata.seriesIndex = opfParser.seriesIndex;
   bookMetadata.description = opfParser.description;
+  bookMetadata.primaryAuthor = opfParser.primaryAuthor;
+  bookMetadata.authorSort = opfParser.authorSort;
+  bookMetadata.isbn = opfParser.isbn;
+  bookMetadata.asin = opfParser.asin;
 
   // Guide-based cover fallback: if no cover found via metadata/properties,
   // or if the manifest-declared cover path is invalid, try extracting the image
@@ -306,13 +312,13 @@ bool Epub::parseTocNcxFile() const {
 
   if (!ncxParser.setup()) {
     LOG_ERR("EBP", "Could not setup toc ncx parser");
-    Storage.remove((getCachePath() + "/pagelist.bin").c_str());
+    ncxPageListSink.discard();
     return false;
   }
 
   if (!readItemContentsToStream(tocNcxItem, ncxParser, 1024)) {
     LOG_ERR("EBP", "Could not stream toc ncx data");
-    Storage.remove((getCachePath() + "/pagelist.bin").c_str());
+    ncxPageListSink.discard();
     return false;
   }
 
@@ -349,13 +355,13 @@ bool Epub::parseTocNavFile() const {
 
   if (!navParser.setup()) {
     LOG_ERR("EBP", "Could not setup toc nav parser");
-    Storage.remove((getCachePath() + "/pagelist.bin").c_str());
+    navPageListSink.discard();
     return false;
   }
 
   if (!readItemContentsToStream(tocNavItem, navParser, 1024)) {
     LOG_ERR("EBP", "Could not stream toc nav data");
-    Storage.remove((getCachePath() + "/pagelist.bin").c_str());
+    navPageListSink.discard();
     return false;
   }
 
@@ -390,13 +396,13 @@ bool Epub::parsePageMapFile() const {
 
   if (!pageMapParser.setup()) {
     LOG_ERR("EBP", "Could not setup page-map parser");
-    Storage.remove((getCachePath() + "/pagelist.bin").c_str());
+    pageMapPageListSink.discard();
     return false;
   }
 
   if (!readItemContentsToStream(pageMapItem, pageMapParser, 1024)) {
     LOG_ERR("EBP", "Could not stream page-map data");
-    Storage.remove((getCachePath() + "/pagelist.bin").c_str());
+    pageMapPageListSink.discard();
     return false;
   }
 
@@ -438,7 +444,36 @@ bool Epub::computeZipFingerprint(uint64_t* out) const {
 namespace {
 constexpr uint32_t FINGERPRINT_MAGIC = 0x31504658;  // "XFP1"
 constexpr const char* FINGERPRINT_FILE = "/fingerprint.bin";
+constexpr const char* TOC_RETRY_FILE = "/toc.retry";
+// Builds that may end without the TOC: the first one, then a retry on each of two later opens.
+constexpr uint8_t MAX_TOC_LOSSES = 3;
 }  // namespace
+
+uint8_t Epub::readTocLossCount() const {
+  // A plain open, not openFileForRead: the sidecar is absent for almost every book, and
+  // openFileForRead logs every miss.
+  FsFile f = Storage.open((cachePath + TOC_RETRY_FILE).c_str());
+  if (!f) return 0;
+  uint8_t count = 0;
+  if (f.read(&count, 1) != 1) count = 0;
+  f.close();
+  return count;
+}
+
+void Epub::writeTocLossCount(const uint8_t count) const {
+  FsFile f;
+  if (!Storage.openFileForWrite("EBP", cachePath + TOC_RETRY_FILE, f)) {
+    LOG_ERR("EBP", "Could not write TOC retry sidecar");
+    return;
+  }
+  f.write(&count, 1);
+  f.close();
+}
+
+bool Epub::lostTocRetryDue() const {
+  const uint8_t losses = readTocLossCount();
+  return losses > 0 && losses < MAX_TOC_LOSSES;
+}
 
 bool Epub::readStoredFingerprint(uint64_t* out) const {
   FsFile f;
@@ -471,6 +506,8 @@ bool Epub::needsFirstOpenIndexing() const {
   // Book content changed at the same path -> load() wipes the cache and rebuilds.
   uint64_t zipFp = 0, storedFp = 0;
   if (computeZipFingerprint(&zipFp) && readStoredFingerprint(&storedFp) && storedFp != zipFp) return true;
+  // An earlier build lost the TOC -> the reader's load() rebuilds to retry it.
+  if (lostTocRetryDue()) return true;
   return false;
 }
 
@@ -595,6 +632,7 @@ void Epub::parseCssFiles() const {
       Storage.remove(tmpCssPath.c_str());
       continue;
     }
+    cssParser->setStylesheetPath(cssPath);  // its url()s resolve against its own directory
     const bool compiledOk = cssParser->appendCompiledFromStream(tempCssFile);
     tempCssFile.close();
     Storage.remove(tmpCssPath.c_str());
@@ -663,8 +701,12 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, BuildArena
     }
   }
 
+  // An earlier build lost the TOC: rebuild rather than reuse its book.bin, which has no room to
+  // take the TOC in afterwards. Only on the reader's open (see setLostTocRetryEnabled()).
+  const bool retryLostToc = buildIfMissing && lostTocRetryEnabled_ && lostTocRetryDue();
+
   // Try to load existing cache first
-  if (bookMetadataCache->load()) {
+  if (!retryLostToc && bookMetadataCache->load()) {
     if (!skipLoadingCss) {
       // Rebuild CSS cache when missing or when cache version changed (loadFromCache removes stale file)
       if (!cssParser->hasCache() || !cssParser->loadFromCache()) {
@@ -695,8 +737,18 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, BuildArena
   }
 
   // Cache doesn't exist or is invalid, build it
-  LOG_DBG("EBP", "Cache not found, building spine/TOC cache");
+  if (retryLostToc) {
+    LOG_INF("EBP", "Rebuilding spine/TOC cache to retry a TOC an earlier build lost");
+  } else {
+    LOG_DBG("EBP", "Cache not found, building spine/TOC cache");
+  }
   setupCacheDir();
+
+  // A retry is counted before it starts, so one that fails or takes the device down still uses
+  // up an attempt.
+  const uint8_t tocLossesBefore = readTocLossCount();
+  const auto tocLossesAfter = static_cast<uint8_t>(std::min(tocLossesBefore + 1, 255));
+  if (retryLostToc) writeTocLossCount(tocLossesAfter);
 
   const uint32_t indexingStart = millis();
 
@@ -755,6 +807,15 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, BuildArena
     // Continue anyway - book will work without TOC
   }
 
+  // Recorded before book.bin is written, so no book.bin without its TOC outlives the build
+  // unrecorded. A book that declares no TOC has nothing to lose.
+  const bool tocLost = !tocParsed && (!tocNavItem.empty() || !tocNcxItem.empty());
+  if (tocLost && !retryLostToc) {
+    writeTocLossCount(tocLossesAfter);
+  } else if (!tocLost && tocLossesBefore > 0) {
+    Storage.remove((cachePath + TOC_RETRY_FILE).c_str());
+  }
+
   // EPUB 2.01 page-map.xml — only parse if neither NCX <pageList> nor nav page-list
   // wrote a pagelist.bin already (so an explicit NCX/nav printed-page list always wins).
   if (!pageMapItem.empty()) {
@@ -802,8 +863,13 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, BuildArena
     discoverCssFilesFromZip();
     // Parse CSS files after cache reload
     parseCssFiles();
-    removeSpineCaches();
   }
+  // Sections laid out before this build are stale when the CSS was just recompiled, or when a
+  // retry got the TOC back: its anchors start new pages, which also changes the page counts
+  // pages.bin recorded while the book was read without it.
+  const bool tocRecovered = retryLostToc && !tocLost;
+  if (!skipLoadingCss || tocRecovered) removeSpineCaches();
+  if (tocRecovered) SpinePageIndex::discard(cachePath);
 
   // Pin the content this cache was built from (see the staleness check above).
   if (haveFp) writeStoredFingerprint(zipFp);
@@ -812,8 +878,6 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, BuildArena
   LOG_DBG("EBP", "Loaded ePub: %s", filepath.c_str());
   return true;
 }
-
-std::string Epub::metadataSidecarPath(const std::string& bookPath) { return SidecarFiles::metadataPath(bookPath); }
 
 static_assert(SidecarFiles::kMetadataStampBytes >= Epub::MAX_METADATA_SIDECAR_BYTES,
               "the recent-books staleness stamp must hash every sidecar byte applyMetadataSidecar() reads");
@@ -829,38 +893,20 @@ static_assert(SidecarFiles::kMetadataStampBytes >= Epub::MAX_METADATA_SIDECAR_BY
 // partial sidecar cannot blank out good embedded metadata.
 void Epub::applyMetadataSidecar() const {
   if (!bookMetadataCache) return;
-  const std::string path = metadataSidecarPath(filepath);
-  if (path.empty()) return;
-
-  size_t size = 0;
-  {
-    HalFile probe;
-    if (!Storage.openFileForRead("EBP", path, probe)) return;
-    size = probe.fileSize();
-  }
-  if (size == 0 || size > MAX_METADATA_SIDECAR_BYTES) {
-    LOG_DBG("EBP", "Ignoring metadata sidecar, %u bytes: %s", static_cast<unsigned>(size), path.c_str());
-    return;
-  }
-
-  // Null cache: a sidecar carries no real manifest or spine, so no item index
-  // must be built from it. cachePath/contentBasePath are passed because the
-  // parser holds them by reference - they must outlive it, so no temporaries.
-  ContentOpfParser parser(cachePath, contentBasePath, size, nullptr);
-  if (!parser.setup()) return;
-  if (!Storage.readFileToStream(path.c_str(), parser, 1024)) {
-    LOG_DBG("EBP", "Could not read metadata sidecar: %s", path.c_str());
-    return;
-  }
+  MetadataSidecarFields sidecar;
+  if (MetadataSidecar::read(filepath, sidecar) != MetadataSidecar::Result::Read) return;
 
   auto& md = bookMetadataCache->coreMetadata;
-  if (!parser.title.empty()) md.title = parser.title;
-  if (!parser.author.empty()) md.author = parser.author;
-  if (!parser.language.empty()) md.language = parser.language;
-  if (!parser.series.empty()) md.series = parser.series;
-  if (!parser.seriesIndex.empty()) md.seriesIndex = parser.seriesIndex;
-  if (!parser.description.empty()) md.description = parser.description;
-  LOG_DBG("EBP", "Applied metadata sidecar: %s", path.c_str());
+  if (!sidecar.title.empty()) md.title = sidecar.title;
+  if (!sidecar.author.empty()) md.author = sidecar.author;
+  MetadataSidecar::overlayPrimaryAuthor(sidecar, md.primaryAuthor, md.authorSort);
+  if (!sidecar.language.empty()) md.language = sidecar.language;
+  if (!sidecar.series.empty()) md.series = sidecar.series;
+  if (!sidecar.seriesIndex.empty()) md.seriesIndex = sidecar.seriesIndex;
+  if (!sidecar.description.empty()) md.description = sidecar.description;
+  if (!sidecar.isbn.empty()) md.isbn = sidecar.isbn;
+  if (!sidecar.asin.empty()) md.asin = sidecar.asin;
+  LOG_DBG("EBP", "Applied metadata sidecar for %s", filepath.c_str());
 }
 
 // One-entry memo for loadForCover().
@@ -905,6 +951,7 @@ uint32_t coverMemoKeySize(const std::string& path) {
 void Epub::clearCoverMetadataMemo() { g_coverMemo = CoverMetadataMemo{}; }
 
 bool Epub::loadForCover(BuildArena* scratch) {
+  coverKnownAbsent_ = false;
   struct ScratchScope {
     BuildArena*& slot;
     ~ScratchScope() { slot = nullptr; }
@@ -926,7 +973,10 @@ bool Epub::loadForCover(BuildArena* scratch) {
   const uint32_t memoKey = coverMemoKeySize(filepath);
   if (memoKey != 0 && g_coverMemo.valid && g_coverMemo.size == memoKey && g_coverMemo.path == filepath) {
     bookMetadataCache->coreMetadata = g_coverMemo.meta;
-    if (bookMetadataCache->coreMetadata.coverItemHref.empty()) return false;
+    if (bookMetadataCache->coreMetadata.coverItemHref.empty()) {
+      coverKnownAbsent_ = true;
+      return false;
+    }
     bookMetadataCache->markCoverMetadataLoaded();
     applyMetadataSidecar();
     return true;
@@ -942,12 +992,18 @@ bool Epub::loadForCover(BuildArena* scratch) {
   // Memoized even when there is no cover: "this book has none" is exactly the answer the next
   // three calls would otherwise re-parse the OPF to rediscover.
   if (memoKey != 0) {
+    // A fresh entry, not the old one edited: the stored-cover answer (stored / storedOffset /
+    // storedSize) belongs to the book it was asked for. Keeping it handed this book the previous
+    // book's cover location -- decoded at that offset in THIS file, rejected as an unsupported
+    // image, and recorded as a book without a cover for good.
+    g_coverMemo = CoverMetadataMemo{};
     g_coverMemo.path = filepath;
     g_coverMemo.size = memoKey;
     g_coverMemo.meta = bookMetadataCache->coreMetadata;
     g_coverMemo.valid = true;
   }
   if (bookMetadataCache->coreMetadata.coverItemHref.empty()) {
+    coverKnownAbsent_ = true;
     return false;  // no discoverable cover — caller shows a placeholder
   }
   // Mark loaded so ensureCoverImageCached()'s isLoaded() gate passes. Spine/TOC stay empty — the
@@ -957,15 +1013,21 @@ bool Epub::loadForCover(BuildArena* scratch) {
   return true;
 }
 
-bool Epub::loadForMetadata() {
+bool Epub::loadForMetadata(BuildArena* scratch, const bool useBookBin) {
   // Metadata-only load: see the header for why this exists (issue #104 — the series-sequel scan used
   // to full-load every EPUB in the folder). Structured exactly like loadForCover(); the only
   // difference is which field the caller goes on to read, so neither marks the other's data valid.
+  struct ScratchScope {
+    BuildArena*& slot;
+    ~ScratchScope() { slot = nullptr; }
+  } scratchScope{loadScratch_};
+  loadScratch_ = (scratch != nullptr && scratch->valid()) ? scratch : nullptr;
   bookMetadataCache.reset(new BookMetadataCache(cachePath));
   cssParser.reset(new CssParser(cachePath));  // constructed for API symmetry; not parsed here
 
-  // Fast path: an existing book.bin already carries title/author/series, no OPF parse needed.
-  if (bookMetadataCache->load()) {
+  // Fast path: an existing book.bin already carries title/author/series, no OPF parse needed --
+  // unless the caller wants what book.bin does not keep (the primary author and its file-as).
+  if (useBookBin && bookMetadataCache->load()) {
     applyMetadataSidecar();
     return true;
   }
@@ -1081,6 +1143,38 @@ const std::string& Epub::getAuthor() const {
   }
 
   return bookMetadataCache->coreMetadata.author;
+}
+
+const std::string& Epub::getPrimaryAuthor() const {
+  static std::string blank;
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+    return blank;
+  }
+  return bookMetadataCache->coreMetadata.primaryAuthor;
+}
+
+const std::string& Epub::getIsbn() const {
+  static std::string blank;
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+    return blank;
+  }
+  return bookMetadataCache->coreMetadata.isbn;
+}
+
+const std::string& Epub::getAsin() const {
+  static std::string blank;
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+    return blank;
+  }
+  return bookMetadataCache->coreMetadata.asin;
+}
+
+const std::string& Epub::getAuthorSort() const {
+  static std::string blank;
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+    return blank;
+  }
+  return bookMetadataCache->coreMetadata.authorSort;
 }
 
 const std::string& Epub::getLanguage() const {
@@ -1485,7 +1579,8 @@ ThumbResult Epub::generateThumbBmp(int height, bool allowExtract, BuildArena* sc
   return ThumbResult::Ok;
 }
 
-ThumbResult Epub::generateThumbBmp(int width, int height, bool allowExtract, BuildArena* scratch) const {
+ThumbResult Epub::generateThumbBmp(int width, int height, bool allowExtract, BuildArena* scratch,
+                                   const bool crop) const {
   {
     FsFile existing;
     if (Storage.openFileForRead("EBP", getThumbBmpPath(width, height), existing)) {
@@ -1553,10 +1648,10 @@ ThumbResult Epub::generateThumbBmp(int width, int height, bool allowExtract, Bui
   bool success = false;
   if (detectedFormat == ImageFormatDetector::Format::Jpeg) {
     LOG_DBG("EBP", "Generating %dx%d thumb BMP from JPEG cover image", width, height);
-    success = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(coverImage, thumbBmp, width, height, scratch);
+    success = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(coverImage, thumbBmp, width, height, scratch, crop);
   } else {
     LOG_DBG("EBP", "Generating %dx%d thumb BMP from PNG cover image", width, height);
-    success = PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(coverImage, thumbBmp, width, height);
+    success = PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(coverImage, thumbBmp, width, height, crop);
   }
 
   coverImage.close();
@@ -1799,7 +1894,8 @@ uint8_t* Epub::readItemContentsToBytes(const std::string& itemHref, size_t* size
   return content;
 }
 
-bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, const size_t chunkSize) const {
+bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, const size_t chunkSize,
+                                    const bool* stop) const {
   if (itemHref.empty()) {
     LOG_DBG("EBP", "Failed to read item, empty href");
     return false;
@@ -1811,14 +1907,14 @@ bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, con
   if (loadScratch_ != nullptr && loadScratch_->valid()) {
     const size_t wanted = 1024 + InflateReader::ringSizeFor(0) + 2 * alignof(std::max_align_t);
     if (loadScratch_->capacity() - loadScratch_->used() >= wanted) {
-      return readItemContentsToStreamWithArena(itemHref, out, loadScratch_);
+      return readItemContentsToStreamWithArena(itemHref, out, loadScratch_, stop);
     }
   }
 
   const std::string path = FsHelpers::normalisePath(itemHref);
   ZipFile zip(filepath);
   primeZip(zip);
-  const bool ok = zip.readFileToStream(path.c_str(), out, chunkSize);
+  const bool ok = zip.readFileToStream(path.c_str(), out, chunkSize, stop);
   adoptZipDetails(zip);
   return ok;
 }
@@ -1833,7 +1929,8 @@ size_t Epub::readItemHeaderBytes(const std::string& itemHref, uint8_t* outBuf, c
   return got;
 }
 
-bool Epub::readItemContentsToStreamWithArena(const std::string& itemHref, Print& out, BuildArena* arena) const {
+bool Epub::readItemContentsToStreamWithArena(const std::string& itemHref, Print& out, BuildArena* arena,
+                                             const bool* stop) const {
   const std::string path = FsHelpers::normalisePath(itemHref);
   ZipFile zip(filepath);
   primeZip(zip);
@@ -1860,6 +1957,7 @@ bool Epub::readItemContentsToStreamWithArena(const std::string& itemHref, Print&
       LOG_ERR("EBP", "Failed to write all extracted bytes: %s", path.c_str());
       return false;
     }
+    if (stop && *stop) return true;
   }
   return true;
 }
@@ -1923,7 +2021,7 @@ bool Epub::extractItemToFileOnce(const std::string& itemHref, const std::string&
   bool ok;
   {
     BufferedExtractSink sink(destFile, writeBuf, EXTRACT_WRITE_BUFFER_BYTES);
-    ok = arena ? readItemContentsToStreamWithArena(itemHref, sink, arena)
+    ok = arena ? readItemContentsToStreamWithArena(itemHref, sink, arena, nullptr)
                : readItemContentsToStream(itemHref, sink, 1024);
     // Drain before the file is flushed/closed, and let a failed final write fail the extract:
     // a short file would otherwise pass as a complete one and be decoded as garbage.

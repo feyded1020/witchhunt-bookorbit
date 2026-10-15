@@ -44,6 +44,11 @@ class PageListSink {
   // Safe to call multiple times — subsequent calls are no-ops.
   void finalize();
 
+  // Closes the file and removes it, whatever was streamed: for a parse that failed, so no partial
+  // list outlives it and a fallback parser starts from no file. Removing pagelist.bin from outside
+  // instead deleted it under the open handle, which the destructor then patched and closed.
+  void discard();
+
  private:
   std::string path;
   FsFile file;

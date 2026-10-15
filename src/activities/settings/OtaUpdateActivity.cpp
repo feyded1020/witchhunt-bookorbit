@@ -8,18 +8,10 @@
 #include "SilentRestart.h"
 #include "activities/NetworkMemoryTrim.h"
 #include "activities/network/WifiSelectionActivity.h"
-#include "components/ConfirmDialog.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
-#include "network/ReleaseNotesScanner.h"
-
-namespace fui = freeink::ui;
-
-namespace {
-constexpr fui::ActionId ACTION_CANCEL = 1;
-constexpr fui::ActionId ACTION_UPDATE = 2;
-}  // namespace
 
 void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
@@ -38,7 +30,7 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
 
   // Re-trim: the status screens rendered since onEnter can have repopulated the
   // font cache. Idempotent - the secondary buffer is already gone by now.
-  trimMemoryForNetworkSession(renderer, "OTA");
+  releaseMemoryForDownload(renderer, "OTA");
 
   const auto res = updater.checkForUpdate();
   if (res != OtaUpdater::OK) {
@@ -65,18 +57,7 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
     RenderLock lock(*this);
     state = WAITING_CONFIRMATION;
   }
-}
-
-void OtaUpdateActivity::onCancelEvent(const fui::ActionEvent&, void* user) {
-  static_cast<OtaUpdateActivity*>(user)->finish();
-}
-
-void OtaUpdateActivity::onUpdateEvent(const fui::ActionEvent&, void* user) {
-  static_cast<OtaUpdateActivity*>(user)->startUpdate();
-}
-
-void OtaUpdateActivity::confirmScreen(UiScreen& screen, void* user) {
-  static_cast<OtaUpdateActivity*>(user)->buildConfirmScreen(screen);
+  askToUpdate();
 }
 
 namespace {
@@ -130,46 +111,49 @@ std::string plainNotes(const std::string& markdown, const bool truncated) {
 }
 }  // namespace
 
-void OtaUpdateActivity::buildConfirmScreen(UiScreen& screen) {
-  // Two lines in one slot: FUI's layoutText() breaks on \n explicitly
-  // (FreeInkUICore.h), so the current and new versions each get their own line without
-  // needing a second text slot.
-  updateDialogBody = std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION + "\n" +
-                     std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion();
-  // What changed, so the answer to "Update?" is an informed one rather than a leap.
-  // A body that filled the scanner's buffer was almost certainly cut mid-sentence.
-  const std::string& raw = updater.getReleaseNotes();
-  const std::string notes = plainNotes(raw, raw.size() >= ReleaseNotesScanner::NOTES_MAX);
-  if (!notes.empty()) {
-    updateDialogBody += "\n\n" + notes;
+void OtaUpdateActivity::askToUpdate() {
+  ConfirmationActivity::Question question;
+  // With a release title, that is the headline and "New update" its caption; without one, the
+  // dialog reads as it always has.
+  if (updater.getReleaseName().empty()) {
+    question.headline = tr(STR_NEW_UPDATE);
+  } else {
+    question.title = tr(STR_NEW_UPDATE);
+    question.headline = updater.getReleaseName();
+    question.headlineMaxLines = 2;
   }
+  // Several lines in one slot: FUI's layoutText() breaks on \n explicitly and keeps a blank
+  // line (FreeInkUICore.h), so the two versions and, below a gap, the opening lines of the
+  // release notes each start their own line without needing more text slots.
+  question.message = std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION + "\n" +
+                     std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion();
+  if (!updater.getReleaseNotes().empty()) {
+    question.message += "\n\n" + plainNotes(updater.getReleaseNotes(), /*truncated=*/false);
+  }
+  // Two version lines, the gap, and up to five lines of notes; ConfirmDialog takes lines back
+  // if the panel would not fit the screen.
+  question.messageMaxLines = 8;
+  question.acceptLabel = StrId::STR_UPDATE;
 
-  ConfirmDialog::Spec spec;
-  spec.headline = tr(STR_NEW_UPDATE);
-  spec.message = updateDialogBody.c_str();
-  // Two version lines, a blank, then as much of the notes as fits above the buttons.
-  spec.messageMaxLines = 10;
-  spec.cancelLabel = tr(STR_CANCEL);
-  spec.acceptLabel = tr(STR_UPDATE);
-  spec.cancelAction = ACTION_CANCEL;
-  spec.acceptAction = ACTION_UPDATE;
-  ConfirmDialog::draw(screen, spec);
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, std::move(question)),
+                         [this](const ActivityResult& result) {
+                           if (result.isCancelled) {
+                             finish();
+                             return;
+                           }
+                           startUpdate();
+                         });
 }
 
 void OtaUpdateActivity::onEnter() {
   Activity::onEnter();
 
-  resetUi();
-  app.on(ACTION_CANCEL, &OtaUpdateActivity::onCancelEvent, this);
-  app.on(ACTION_UPDATE, &OtaUpdateActivity::onUpdateEvent, this);
-  app.setScreen(&OtaUpdateActivity::confirmScreen, this);
-
   // Free the heap the WiFi stack needs before it is brought up, not after -
-  // association itself is the allocation-heavy step, well ahead of TLS. Matters
-  // most here because SettingsActivity is still on the stack below us with its
-  // per-category SettingInfo vectors resident, fragmenting the heap.
+  // association itself is the allocation-heavy step, well ahead of TLS. That
+  // includes the per-category SettingInfo vectors of the SettingsActivity below
+  // us, which fragment the heap; onExit() reboots, so they are never needed again.
   // WifiSelectionActivity sets WIFI_STA itself, so no radio work happens here.
-  trimMemoryForNetworkSession(renderer, "OTA");
+  releaseMemoryForDownload(renderer, "OTA");
 
   if (WiFi.status() == WL_CONNECTED) {
     onWifiSelectionComplete(true);
@@ -183,7 +167,6 @@ void OtaUpdateActivity::onEnter() {
 }
 
 void OtaUpdateActivity::onExit() {
-  closeRouting();
   Activity::onExit();
 
   if (WiFi.getMode() != WIFI_MODE_NULL) {
@@ -194,12 +177,16 @@ void OtaUpdateActivity::onExit() {
 }
 
 void OtaUpdateActivity::render(RenderLock&&) {
+  // Nothing of our own while asking: the question is the ConfirmationActivity above.
+  if (state == WAITING_CONFIRMATION) return;
+
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect contentRect = UITheme::getContentRect(renderer, true, false);
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), tr(STR_UPDATE));
+  GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
+                 tr(STR_UPDATE));
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = contentRect.y + (contentRect.height - height) / 2;
 
@@ -216,12 +203,6 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
   if (state == CHECKING_FOR_UPDATE) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CHECKING_UPDATE));
-  } else if (state == WAITING_CONFIRMATION) {
-    renderUi();
-    // Still drawn alongside the dialog's own buttons: this labels the PHYSICAL keys, and on a
-    // board with no digitiser it is the only affordance there is.
-    const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_UPDATE), "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == UPDATE_IN_PROGRESS) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATING));
 
@@ -278,6 +259,9 @@ void OtaUpdateActivity::render(RenderLock&&) {
       case OtaUpdater::WRONG_DEVICE_ERROR:
         reason = tr(STR_FIRMWARE_WRONG_DEVICE);
         break;
+      case OtaUpdater::CHECKSUM_ERROR:
+        reason = "Download corrupted (checksum mismatch)";
+        break;
       default:
         break;
     }
@@ -306,6 +290,8 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
 void OtaUpdateActivity::startUpdate() {
   LOG_DBG("OTA", "New update available, starting download...");
+  // The question drew since the check: give its glyph caches back before the transfer.
+  releaseMemoryForDownload(renderer, "OTA");
   // The install now streams in one blocking call; drive the progress bar and
   // Back-to-cancel from inside the download via this callback. Throttle state
   // is a member (the callback outlives this stack frame).
@@ -347,26 +333,6 @@ void OtaUpdateActivity::loop() {
   if (updater.getRender()) {
     requestUpdate();
     updater.clearRender();
-  }
-
-  if (state == WAITING_CONFIRMATION) {
-    // Touch first: a tap answered by a dialog button must not also reach the key tests below.
-    const auto touch = routeTouch(mappedInput);
-    if (touch.routed) {
-      if (app.invalidated()) requestUpdate();
-      if (touch) return;  // a handler ran
-    }
-
-    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-      startUpdate();
-      return;
-    }
-
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-      finish();
-    }
-
-    return;
   }
 
   if (state == UPDATE_IN_PROGRESS) {

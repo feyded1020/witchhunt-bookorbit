@@ -102,6 +102,20 @@ bool SecureHttpClient::ensureConnected(const Url& u) {
   return true;
 }
 
+bool SecureHttpClient::open(const std::string& url) {
+  Url u;
+  if (!parseUrl(url, u)) return false;
+  return ensureConnected(u);
+}
+
+void SecureHttpClient::noteResponse(const ResponseMeta& meta, const std::string& url) {
+  _status = meta.status;
+  _contentLength = meta.contentLength;
+  _hasContentRange = meta.hasContentRange;
+  _contentRange = meta.contentRange;
+  _lastUrl = url;
+}
+
 bool SecureHttpClient::sendRequest(const char* method, const Url& u, const uint8_t* body, size_t bodyLen) {
   const uint16_t defPort = u.https() ? 443 : 80;
   const std::string hostHeader = (u.port == defPort) ? u.host : (u.host + ":" + std::to_string(u.port));
@@ -116,6 +130,7 @@ bool SecureHttpClient::sendRequest(const char* method, const Url& u, const uint8
     req += "Authorization: Basic " + std::string(base64::encode(creds.c_str()).c_str()) + "\r\n";
   }
   for (const std::string& h : _headers) req += h + "\r\n";
+  if (!_rangeHeader.empty()) req += "Range: " + _rangeHeader + "\r\n";
   if (body && bodyLen) req += "Content-Length: " + std::to_string(bodyLen) + "\r\n";
   req += "\r\n";
 
@@ -168,13 +183,13 @@ int SecureHttpClient::transact(const char* method, const Url& u, const uint8_t* 
       logRequestTrace(method, u, ERR_SEND);
       return ERR_SEND;
     }
-    if (!readHeaders(meta.status, meta.contentLength, meta.chunked, meta.keepAlive, meta.location)) {
+    if (!readHeaders(meta)) {
       close();
       if (reusing && attempt == 0) continue;
       logRequestTrace(method, u, ERR_TIMEOUT);
       return ERR_TIMEOUT;
     }
-    logRequestTrace(method, u, meta.status);
+    if (!_quietRequests) logRequestTrace(method, u, meta.status);
     return 0;
   }
   logRequestTrace(method, u, ERR_SEND);
@@ -207,13 +222,13 @@ bool SecureHttpClient::readLine(std::string& line, uint32_t deadline) {
   return false;
 }
 
-bool SecureHttpClient::readHeaders(int& status, long& contentLength, bool& chunked, bool& keepAlive,
-                                   std::string& location) {
-  status = 0;
-  contentLength = -1;
-  chunked = false;
-  keepAlive = true;  // HTTP/1.1 default
-  location.clear();
+bool SecureHttpClient::readHeaders(ResponseMeta& meta) {
+  meta = ResponseMeta{};  // HTTP/1.1 defaults: keep-alive, no length, not chunked
+  int& status = meta.status;
+  long& contentLength = meta.contentLength;
+  bool& chunked = meta.chunked;
+  bool& keepAlive = meta.keepAlive;
+  std::string& location = meta.location;
 
   const uint32_t deadline = millis() + _timeoutMs;
   std::string line;
@@ -240,6 +255,8 @@ bool SecureHttpClient::readHeaders(int& status, long& contentLength, bool& chunk
       if (toLowerAscii(value).find("close") != std::string::npos) keepAlive = false;
     } else if (name == "location") {
       location = value;
+    } else if (name == "content-range") {
+      meta.hasContentRange = http_range::parseContentRange(value.c_str(), meta.contentRange);
     }
   }
   return false;  // ran out before blank line
@@ -320,7 +337,10 @@ int SecureHttpClient::readBody(const BodySink& sink, const ProgressFn& progress,
   // No length, no chunked: read until the peer closes (Connection: close).
   for (;;) {
     const int n = _client->read(buf, sizeof(buf));
-    if (n < 0) return 0;  // treat as end for close-delimited
+    // Over TLS a close reads as 0 (SecureClient::read), so -1 is a real failure, such as a record
+    // that could not be allocated, and must not pass for the end of the body. A plain WiFiClient
+    // reports the peer's close as -1, which is the end here.
+    if (n < 0) return _client == &_secure ? ERR_TRUNCATED : 0;
     if (n == 0) {
       if (!_client->connected() && _client->available() == 0) return 0;  // clean end
       if (static_cast<int32_t>(millis() - idleDeadline) >= 0) return ERR_TIMEOUT;
@@ -340,7 +360,7 @@ int SecureHttpClient::get(const std::string& url, const BodySink& sink, const Pr
     ResponseMeta meta;
     const int trc = transact("GET", u, nullptr, 0, meta);
     if (trc < 0) return trc;
-    _status = meta.status;
+    noteResponse(meta, current);
 
     if (isRedirect(meta.status) && !meta.location.empty()) {
       // Drain the redirect's (usually empty) body to keep the socket usable for
@@ -351,6 +371,7 @@ int SecureHttpClient::get(const std::string& url, const BodySink& sink, const Pr
       // and surface the 3xx to the caller (setAllowRedirectDowngrade opts in).
       Url next;
       if (u.https() && !_allowRedirectDowngrade && parseUrl(current, next) && !next.https()) return meta.status;
+      if (_redirectFilter && !_redirectFilter(current)) return meta.status;
       if (hop == _maxRedirects) return ERR_TOO_MANY_REDIRECTS;
       continue;
     }
@@ -371,7 +392,12 @@ int SecureHttpClient::get(const std::string& url, const BodySink& sink, const Pr
 
 int SecureHttpClient::request(const char* method, const std::string& url, const std::string& body) {
   _body.clear();
+  _bodyTruncated = false;
   auto sink = [this](const uint8_t* d, size_t n) {
+    if (_maxBufferedBody > 0 && _body.size() + n > _maxBufferedBody) {
+      n = _maxBufferedBody - _body.size();
+      _bodyTruncated = true;
+    }
     _body.append(reinterpret_cast<const char*>(d), n);
     return true;
   };
@@ -388,7 +414,7 @@ int SecureHttpClient::request(const char* method, const std::string& url, const 
         transact(activeMethod.c_str(), u, hasBody ? reinterpret_cast<const uint8_t*>(activeBody.data()) : nullptr,
                  activeBody.size(), meta);
     if (trc < 0) return trc;
-    _status = meta.status;
+    noteResponse(meta, current);
 
     if (isRedirect(meta.status) && !meta.location.empty()) {
       // See get(): drain to keep the socket usable, close on a failed drain.
@@ -398,6 +424,7 @@ int SecureHttpClient::request(const char* method, const std::string& url, const 
       // and surface the 3xx to the caller (setAllowRedirectDowngrade opts in).
       Url next;
       if (u.https() && !_allowRedirectDowngrade && parseUrl(current, next) && !next.https()) return meta.status;
+      if (_redirectFilter && !_redirectFilter(current)) return meta.status;
       // 303 always -> GET; 301/302 commonly downgrade POST->GET too. 307/308
       // preserve method + body. When downgrading to GET, drop the request body.
       if (meta.status == 303 || meta.status == 301 || meta.status == 302) {

@@ -1,9 +1,12 @@
 #include "CrossPointWebServer.h"
 
 #include <ArduinoJson.h>
+#include <BoardConfig.h>
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <HalClock.h>
+#include <HalGPIO.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <HalSystem.h>  // feedWatchdog()
 #include <Logging.h>
@@ -11,15 +14,22 @@
 #include <Txt.h>
 #include <WiFi.h>
 #include <Xtc.h>
+#include <XteinkDetect.h>
+#include <esp_sleep.h>
+#include <esp_system.h>
+#include <uri/UriBraces.h>
 
 #include <algorithm>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
 
+#include "BookRelocation.h"
+#include "BootDiagnostics.h"
 #include "ChunkedResponse.h"
 #include "CrossPointSettings.h"
 #include "FontInstaller.h"
+#include "GlobalBookmarkIndex.h"
 #include "HttpFileStreamer.h"
 #include "OpdsServerStore.h"
 #include "ReadingStats.h"
@@ -27,16 +37,14 @@
 #include "SdCardFontRegistry.h"
 #include "SettingsList.h"
 #include "SystemStatus.h"
+#include "UploadStallTolerance.h"
+#include "WebAssets.h"
 #include "WebDAVHandler.h"
+#include "WebPathGuard.h"
 #include "WifiCredentialStore.h"
-#include "html/FilesPageHtml.generated.h"
-#include "html/FontsPageHtml.generated.h"
-#include "html/HomePageHtml.generated.h"
-#include "html/SettingsPageHtml.generated.h"
-#include "html/StatsPageHtml.generated.h"
-#include "html/WelcomePageHtml.generated.h"
-#include "html/js/jszip_minJs.generated.h"
+#include "html/WebSetupPageHtml.generated.h"
 #include "network/HttpDownloader.h"
+#include "util/FontManifestReader.h"
 #include "util/PluginLocations.h"
 
 // Log free heap + max contiguous block at a named point.
@@ -49,7 +57,8 @@
 // silently, producing malformed HTTP that the browser rejects.
 // Minimum maxAlloc to serve a JSON response (sendJson malloc + _prepareHeader String).
 static constexpr uint32_t MIN_HEAP_FOR_JSON = 8192;
-// Minimum maxAlloc to serve a large gzip'd HTML page via send_P.
+// Minimum maxAlloc to serve a gzip'd page: the setup page via send_P, or a
+// bundle page streamed from the card through a 4KB buffer (WebAssets::serve).
 // send_P itself needs no payload heap, but _prepareHeader's String + the two
 // sendHeader RequestArgument nodes + the chunk-size malloc(11) add ~1KB of
 // small allocs that fragment badly on an already-tight heap. The log shows
@@ -70,10 +79,12 @@ static bool rejectIfLowMemory(WebServer* server, uint32_t minAlloc = MIN_HEAP_FO
 }
 
 namespace {
-// Folders/files to hide from the web interface file browser
-// Note: Items starting with "." are automatically hidden
-const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
-constexpr size_t HIDDEN_ITEMS_COUNT = sizeof(HIDDEN_ITEMS) / sizeof(HIDDEN_ITEMS[0]);
+using ProtectedPaths::Target;
+
+// Whether a request may reach into dot-folders: only once the user has chosen to see
+// hidden files, the same switch that decides whether the listing shows them.
+bool hiddenAllowed() { return SETTINGS.showHiddenFiles != 0; }
+
 constexpr uint16_t UDP_PORTS[] = {54982, 48123, 39001, 44044, 59678};
 constexpr uint16_t LOCAL_UDP_PORT = 8134;
 
@@ -103,7 +114,47 @@ String lastDeleteName;
 size_t lastDeleteCount = 0;
 unsigned long lastDeleteAt = 0;
 
+// A cover sidecar ("book.jpg" beside "book.epub") was written: the book's thumbnails were drawn from
+// the old cover. They are rebuilt only when the sidecar is newer than them, which a reader without a
+// set clock cannot tell, and the single-height thumb_<H>.bmp some Home themes draw is never compared
+// at all (docs/sidecar-files.md). Deleting them makes every view draw the new cover.
+void dropThumbnailsForCover(const String& imagePath) {
+  static constexpr const char* kCoverExtensions[] = {".jpg", ".jpeg", ".png", ".bmp"};
+  static constexpr const char* kBookExtensions[] = {".epub", ".xtc", ".xtch", ".txt", ".md"};
+  String lower = imagePath;
+  lower.toLowerCase();
+  const char* const* coverExt = std::find_if(std::begin(kCoverExtensions), std::end(kCoverExtensions),
+                                             [&lower](const char* ext) { return lower.endsWith(ext); });
+  if (coverExt == std::end(kCoverExtensions)) return;
+  const std::string base(imagePath.c_str(), imagePath.length() - strlen(*coverExt));
+
+  for (const char* bookExt : kBookExtensions) {
+    const std::string bookPath = base + bookExt;
+    if (!Storage.exists(bookPath.c_str())) continue;
+    const std::string cacheDir = BookRelocation::cacheDirFor(bookPath);
+    FsFile dir = Storage.open(cacheDir.c_str());
+    if (!dir || !dir.isDirectory()) {
+      if (dir) dir.close();
+      continue;
+    }
+    std::vector<std::string> stale;
+    char name[64];
+    for (FsFile entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+      entry.getName(name, sizeof(name));
+      entry.close();
+      const size_t len = strlen(name);
+      const bool thumb = strncmp(name, "thumb_", 6) == 0 && len > 4 && strcmp(name + len - 4, ".bmp") == 0;
+      if (thumb || strcmp(name, "cover.bmp") == 0) stale.emplace_back(cacheDir + "/" + name);
+    }
+    dir.close();
+    for (const std::string& file : stale) Storage.remove(file.c_str());
+    LOG_DBG("WEB", "New cover for %s: dropped %u cached cover images", bookPath.c_str(),
+            static_cast<unsigned>(stale.size()));
+  }
+}
+
 void clearBookCacheIfNeeded(const String& filePath) {
+  dropThumbnailsForCover(filePath);
   if (FsHelpers::hasEpubExtension(filePath)) {
     Epub(filePath.c_str(), "/.crosspoint").clearCache();
     LOG_DBG("WEB", "Cleared epub cache for: %s", filePath.c_str());
@@ -168,16 +219,12 @@ String normalizeWebPath(const String& inputPath) {
   return result;
 }
 
+// For a client-supplied NAME (a rename target), judged as SdFat will store it. A name
+// that trims to nothing ("..", "...") is refused too: there is nothing to store.
+// Paths go through isProtectedWebPath() instead, which checks every segment.
 bool isProtectedItemName(const String& name) {
-  if (name.startsWith(".")) {
-    return true;
-  }
-  for (size_t i = 0; i < HIDDEN_ITEMS_COUNT; i++) {
-    if (name.equals(HIDDEN_ITEMS[i])) {
-      return true;
-    }
-  }
-  return false;
+  const std::string_view stored = ProtectedPaths::effectiveName(std::string_view(name.c_str(), name.length()));
+  return stored.empty() || ProtectedPaths::isProtectedName(stored);
 }
 
 // True when `s` is usable as a single path component: no separator, and not a
@@ -225,7 +272,7 @@ std::string urlHost(const std::string& url) {
   const size_t at = host.rfind('@');
   if (at != std::string::npos) host = host.substr(at + 1);
   const size_t colon = host.find(':');
-  if (colon != std::string::npos) host = host.substr(0, colon);
+  if (colon != std::string::npos) host.resize(colon);
   return host;
 }
 
@@ -234,9 +281,42 @@ std::string urlHost(const std::string& url) {
 // matches that suffix (".example.org" allows "covers.example.org"). Absent or
 // empty list means nothing is allowed - the relay is opt-in per plugin, and a
 // plugin's reach is readable in its own folder before it is installed.
+bool relayHostAllowed(const String& plugin, const std::string& url);
+
+// The redirect check for the relay and fetch-to-SD: a redirect is followed only to a host the
+// plugin's manifest allows as well, so the allowlist decides where the device actually connects
+// and not merely where the first request went.
+HttpDownloader::RedirectFilter redirectsWithinAllowlist(const String& plugin) {
+  return [plugin](const std::string& next) {
+    if (relayHostAllowed(plugin, next)) return true;
+    LOG_DBG("WEB", "Redirect refused for %s: %s not in allowedHosts", plugin.c_str(), urlHost(next).c_str());
+    return false;
+  };
+}
+
+// A host matches an allowlist entry exactly, or ends with one that starts with a dot.
+bool hostMatches(const std::string& host, const std::string& pattern) {
+  if (pattern.empty()) return false;
+  if (pattern[0] == '.') {
+    return host.size() > pattern.size() && host.compare(host.size() - pattern.size(), pattern.size(), pattern) == 0;
+  }
+  return host == pattern;
+}
+
+// The File Manager's Details dialog is part of the web interface, not a plugin, but its cover search
+// reads Goodreads and Google Books covers through the relay like the plugin it grew from. Its scope
+// carries a ':', which no FAT folder name can, so no plugin can claim this list.
+constexpr char DETAILS_RELAY_SCOPE[] = ":details";
+constexpr const char* DETAILS_RELAY_HOSTS[] = {"www.goodreads.com", ".gr-assets.com", "books.google.com"};
+
 bool relayHostAllowed(const String& plugin, const std::string& url) {
   const std::string host = urlHost(url);
-  if (host.empty() || !isSafePathComponent(plugin)) return false;
+  if (host.empty()) return false;
+  if (plugin == DETAILS_RELAY_SCOPE) {
+    return std::any_of(std::begin(DETAILS_RELAY_HOSTS), std::end(DETAILS_RELAY_HOSTS),
+                       [&host](const char* pattern) { return hostMatches(host, pattern); });
+  }
+  if (!isSafePathComponent(plugin)) return false;
 
   const std::string dir = PluginLocations::findPluginDir(plugin.c_str());
   if (dir.empty()) return false;
@@ -249,13 +329,7 @@ bool relayHostAllowed(const String& plugin, const std::string& url) {
 
   for (JsonVariant entry : m["allowedHosts"].as<JsonArray>()) {
     const char* pattern = entry.as<const char*>();
-    if (!pattern || !*pattern) continue;
-    const std::string pat = pattern;
-    if (pat[0] == '.') {
-      if (host.size() > pat.size() && host.compare(host.size() - pat.size(), pat.size(), pat) == 0) return true;
-    } else if (host == pat) {
-      return true;
-    }
+    if (pattern && hostMatches(host, pattern)) return true;
   }
   return false;
 }
@@ -268,16 +342,12 @@ bool relayHostAllowed(const String& plugin, const std::string& url) {
 // needed - and a textual one would be wrong, because by this point ".." can
 // only survive inside a filename ("my..book.epub"), which is legitimate.
 //
-// The name check is stricter than /upload, which applies none: a plugin may not
-// create a hidden or protected item even though the web UI's own upload can.
+// The protection rule is the one /upload applies to its target: every segment,
+// not just the file name, which on its own let a plugin write into /.crosspoint.
 String pluginWriteTarget(const String& rawPath) {
   String path = normalizeWebPath(rawPath);
   if (path.isEmpty() || path == "/" || path.endsWith("/")) return "";
-
-  const int lastSlash = path.lastIndexOf('/');
-  if (lastSlash < 0) return "";
-  const String name = path.substring(lastSlash + 1);
-  if (name.isEmpty() || isProtectedItemName(name)) return "";
+  if (isProtectedWebPath(path, Target::Item, hiddenAllowed())) return "";
   return path;
 }
 
@@ -287,10 +357,6 @@ constexpr size_t MAX_RELAY_BYTES = 4u * 1024u * 1024u;
 
 }  // namespace
 
-// File listing page template - now using generated headers:
-// - HomePageHtml (from html/HomePage.html)
-// - FilesPageHeaderHtml (from html/FilesPageHeader.html)
-// - FilesPageFooterHtml (from html/FilesPageFooter.html)
 CrossPointWebServer::CrossPointWebServer() {}
 
 CrossPointWebServer::~CrossPointWebServer() { stop(); }
@@ -313,6 +379,7 @@ void CrossPointWebServer::begin() {
 
   // Store AP mode flag for later use (e.g., in handleStatus)
   apMode = isInApMode;
+  WebAssets::forget();
 
   LOG_DBG("WEB", "[MEM] Free heap before begin: %d bytes", ESP.getFreeHeap());
   LOG_DBG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
@@ -338,12 +405,20 @@ void CrossPointWebServer::begin() {
   // Setup routes
   LOG_DBG("WEB", "Setting up routes...");
   server->on("/", HTTP_GET, [this] { handleWelcomePage(); });
+  // The pages come from the SD card (WebAssets.h); this one, in flash, installs them.
+  server->on("/setup", HTTP_GET, [this] { handleWebSetupPage(); });
+  server->on("/api/web/status", HTTP_GET, [this] { handleWebStatus(); });
+  server->on("/api/web/install", HTTP_POST, [this] { handleWebInstall(); });
   server->on("/systeminfo", HTTP_GET, [this] { handleSystemInfoPage(); });
+  server->on("/diagnostics", HTTP_GET, [this] { handleDiagnosticsPage(); });
   server->on("/files", HTTP_GET, [this] { handleRoot(); });
-  server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
+  // The bundle's scripts by name (/js/jszip.min.js, /js/metadata-editor.js, ...), so a new one
+  // needs no route of its own.
+  server->on(UriBraces("/js/{}"), HTTP_GET, [this] { handleBundledScript(); });
 
   server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
   server->on("/api/status/fast", HTTP_GET, [this] { handleStatusFast(); });
+  server->on("/api/diagnostics/boot", HTTP_GET, [this] { handleBootDiagnostics(); });
   server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
   server->on("/download", HTTP_GET, [this] { handleDownload(); });
 
@@ -380,6 +455,9 @@ void CrossPointWebServer::begin() {
   server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
   server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
 
+  // Singular, so it cannot be mistaken for the /dictionaries folder on the card.
+  server->on("/dictionary", HTTP_GET, [this] { handleDictionaryPage(); });
+
   // OPDS server endpoints
   server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
   server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
@@ -391,7 +469,16 @@ void CrossPointWebServer::begin() {
   server->on("/plugin", HTTP_GET, [this] { handlePluginFile(); });
   server->on("/api/relay", HTTP_GET, [this] { handleRelay(); });
   server->on("/api/fetch", HTTP_POST, [this] { handleFetchToSd(); });
-  server->on("/api/plugin-fs", HTTP_POST, [this] { handlePluginFs(); });
+  server->on("/api/plugin-fs", HTTP_POST, [this] { handlePluginFs(); }, [this] { handlePluginFsData(); });
+  server->on("/plugins", HTTP_GET, [this] { handlePluginsPage(); });
+  server->on("/api/book/opf", HTTP_GET, [this] { handleBookOpf(); });
+  server->on("/api/book/replace", HTTP_POST, [this] { handleBookReplace(); }, [this] { handleBookReplaceData(); });
+  server->on("/api/plugins/begin", HTTP_POST, [this] { handlePluginInstallBegin(); });
+  server->on(
+      "/api/plugins/file", HTTP_POST, [this] { handlePluginInstallFile(); }, [this] { handlePluginInstallFileData(); });
+  server->on("/api/plugins/commit", HTTP_POST, [this] { handlePluginInstallCommit(); });
+  server->on("/api/plugins/remove", HTTP_POST, [this] { handlePluginRemove(); });
+  server->on("/api/plugins/enable", HTTP_POST, [this] { handlePluginEnable(); });
 
   server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
   server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
@@ -400,9 +487,12 @@ void CrossPointWebServer::begin() {
   server->onNotFound([this] { handleNotFound(); });
   LOG_DBG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
 
-  // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout"};
-  server->collectHeaders(davHeaders, 6);
+  // Collect the WebDAV headers, If-None-Match for the bundle's ETags (WebAssets::serve()) and
+  // Referer for the upload log, then register the handler. collectHeaders() replaces the list, so
+  // it is called once.
+  const char* collectedHeaders[] = {"Depth",      "Destination", "Overwrite",     "If",
+                                    "Lock-Token", "Timeout",     "If-None-Match", "Referer"};
+  server->collectHeaders(collectedHeaders, sizeof(collectedHeaders) / sizeof(collectedHeaders[0]));
   // Ownership passes to the WebServer, which deletes the handler when stopped.
   // On OOM the HTTP server still comes up; only WebDAV is unavailable.
   if (auto davHandler = makeUniqueNoThrow<WebDAVHandler>()) {
@@ -439,6 +529,18 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "Access at http://%s/", ipAddr.c_str());
   LOG_DBG("WEB", "WebSocket at ws://%s:%d/", ipAddr.c_str(), wsPort);
   LOG_DBG("WEB", "[MEM] Free heap after server.begin(): %d bytes", ESP.getFreeHeap());
+}
+
+// Ported from crosspoint-reader PR #3732 ("fix: let Back leave File Transfer during a slow HTTP
+// upload", Tuan Q. Nguyen / @martinqnguyen). The hook, the per-chunk drop and the END guard below
+// are theirs; what the activity checks inside the hook differs (see startWebServer()).
+bool CrossPointWebServer::dropUploadIfCancelled() const {
+  if (!uploadCancelCheck || !uploadCancelCheck()) return false;
+  // Closing the socket makes WebServer's next body read fail. It then raises UPLOAD_FILE_ABORTED,
+  // whose handler deletes the partial file, and handleClient() returns with the client released.
+  LOG_DBG("WEB", "[UPLOAD] Cancelled on the device, dropping the client");
+  server->client().stop();
+  return true;
 }
 
 void CrossPointWebServer::abortWsUpload(const char* tag) {
@@ -579,11 +681,12 @@ CrossPointWebServer::WsUploadStatus CrossPointWebServer::getWsUploadStatus() con
   return status;
 }
 
-static void sendHtmlContent(WebServer* server, const char* data, size_t len) {
-  if (rejectIfLowMemory(server, MIN_HEAP_FOR_HTML)) return;
+// The setup page is never cached: it answers at "/" only until the web interface
+// is installed, and a cached copy would keep showing there afterwards.
+static void sendSetupPage(WebServer* server) {
   server->sendHeader("Content-Encoding", "gzip");
-  server->sendHeader("Cache-Control", "max-age=3600");
-  server->send_P(200, "text/html", data, len);
+  server->sendHeader("Cache-Control", "no-store");
+  server->send_P(200, "text/html", WebSetupPageHtml, sizeof(WebSetupPageHtml));
 }
 
 // Serialize a JsonDocument to the wire with no String allocation.
@@ -607,35 +710,93 @@ static void sendJson(WebServer* server, int code, const JsonDocument& doc) {
   HalSystem::feedWatchdog();
 }
 
+// A page from the SD card bundle, or a redirect to the setup page while the
+// bundle is not installed.
+void CrossPointWebServer::serveBundlePage(const web_bundle::Index page) const {
+  // Streaming claims a 4KB chunk buffer, same as /download.
+  if (rejectIfLowMemory(server.get(), MIN_HEAP_FOR_HTML)) return;
+  const int32_t t0 = millis();
+  if (!WebAssets::serve(*server, page)) {
+    server->sendHeader("Location", "/setup");
+    server->send(302, "text/plain", "");
+    return;
+  }
+  LOG_DBG("WEB", "Served %s in %d ms", web_bundle::ENTRIES[page].file, static_cast<int>(millis() - t0));
+}
+
 void CrossPointWebServer::handleRoot() const {
   LOG_WEB_MEM("root_enter");
-  int32_t t0 = millis();
-  sendHtmlContent(server.get(), FilesPageHtml, sizeof(FilesPageHtml));
-  int32_t t1 = millis();
+  serveBundlePage(web_bundle::FilesPageHtml);
   LOG_WEB_MEM("root_exit");
-  LOG_DBG("WEB", "Served file manager page in %d ms", t1 - t0);
 }
 
+// "/" is the welcome page once the bundle is installed and the setup page until
+// then. The setup page is never stored and the bundle's pages are revalidated
+// (WebAssets::serve()), so a browser does not keep showing the one it saw last.
 void CrossPointWebServer::handleWelcomePage() const {
-  int32_t t0 = millis();
-  sendHtmlContent(server.get(), WelcomePageHtml, sizeof(WelcomePageHtml));
-  int32_t t1 = millis();
-  LOG_DBG("WEB", "Served welcome page in %d ms", t1 - t0);
+  if (rejectIfLowMemory(server.get(), MIN_HEAP_FOR_HTML)) return;
+  if (WebAssets::serve(*server, web_bundle::WelcomePageHtml)) return;
+  sendSetupPage(server.get());
 }
 
-void CrossPointWebServer::handleSystemInfoPage() const {
-  int32_t t0 = millis();
-  sendHtmlContent(server.get(), HomePageHtml, sizeof(HomePageHtml));
-  int32_t t1 = millis();
-  LOG_DBG("WEB", "Served system info page in %d ms", t1 - t0);
+void CrossPointWebServer::handleWebSetupPage() const {
+  if (rejectIfLowMemory(server.get(), MIN_HEAP_FOR_HTML)) return;
+  sendSetupPage(server.get());
 }
 
-void CrossPointWebServer::handleStatsPage() const {
-  int32_t t0 = millis();
-  sendHtmlContent(server.get(), StatsPageHtml, sizeof(StatsPageHtml));
-  int32_t t1 = millis();
-  LOG_DBG("WEB", "Served stats page in %d ms", t1 - t0);
+void CrossPointWebServer::handleWebStatus() const {
+  if (rejectIfLowMemory(server.get())) return;
+  JsonDocument doc;
+  doc["state"] = WebAssets::stateName(WebAssets::state());
+  doc["release"] = WebAssets::releaseTag();
+  doc["repo"] = WebAssets::repository();
+  doc["asset"] = WebAssets::assetName();
+  doc["online"] = !apMode;
+  doc["onCard"] = WebAssets::bundleOnCard();
+  if (!apMode) doc["rssi"] = WiFi.RSSI();
+  // An upload that broke off: the setup page's browser saw only the connection go.
+  if (const UploadState::Failure& f = upload.failure; f.set) {
+    JsonObject last = doc["lastUpload"].to<JsonObject>();
+    last["name"] = f.name;
+    last["received"] = f.received;
+    last["expected"] = f.expected;
+    last["ms"] = f.ms;
+    last["idleMs"] = f.idleMs;
+    last["reason"] = f.reason;
+    if (!apMode) last["rssi"] = f.rssi;
+  }
+  sendJson(server.get(), 200, doc);
 }
+
+// POST /api/web/install?source=release|card
+void CrossPointWebServer::handleWebInstall() const {
+  if (rejectIfLowMemory(server.get())) return;
+  const String source = server->arg("source");
+  WebAssets::InstallError err;
+  if (source == "card") {
+    err = WebAssets::installFromCard();
+  } else if (source == "release") {
+    if (apMode) {
+      server->send(409, "application/json", "{\"ok\":false,\"error\":\"no internet connection in hotspot mode\"}");
+      return;
+    }
+    err = WebAssets::installFromRelease();
+  } else {
+    server->send(400, "application/json", "{\"ok\":false,\"error\":\"unknown source\"}");
+    return;
+  }
+
+  JsonDocument doc;
+  doc["ok"] = (err == WebAssets::InstallError::None);
+  if (err != WebAssets::InstallError::None) doc["error"] = WebAssets::errorText(err);
+  sendJson(server.get(), err == WebAssets::InstallError::None ? 200 : 500, doc);
+}
+
+void CrossPointWebServer::handleSystemInfoPage() const { serveBundlePage(web_bundle::HomePageHtml); }
+
+void CrossPointWebServer::handleDiagnosticsPage() const { serveBundlePage(web_bundle::DiagnosticsPageHtml); }
+
+void CrossPointWebServer::handleStatsPage() const { serveBundlePage(web_bundle::StatsPageHtml); }
 
 void CrossPointWebServer::handleStatsApi() const {
   if (rejectIfLowMemory(server.get())) return;
@@ -735,12 +896,11 @@ void CrossPointWebServer::handleStatsExport() const {
   response.finish();
 }
 
-void CrossPointWebServer::handleJszip() const {
+void CrossPointWebServer::handleBundledScript() const {
   if (rejectIfLowMemory(server.get(), MIN_HEAP_FOR_HTML)) return;
-  server->sendHeader("Content-Encoding", "gzip");
-  server->sendHeader("Cache-Control", "max-age=3600");
-  server->send_P(200, "application/javascript", jszip_minJs, jszip_minJsCompressedSize);
-  LOG_DBG("WEB", "Served jszip.min.js");
+  // A script, so no redirect to a page: each page copes without one (the File Manager says, for
+  // instance, that Details is not available).
+  if (!WebAssets::serveScript(*server, server->pathArg(0).c_str())) server->send(404, "text/plain", "Not installed");
 }
 
 void CrossPointWebServer::handleNotFound() const {
@@ -839,6 +999,153 @@ void CrossPointWebServer::handleStatusFast() const {
   sendJson(server.get(), 200, doc);
 }
 
+namespace {
+
+// The pieces of GET /api/diagnostics/boot. Same accessors and same untranslated tokens as
+// Settings > System > Boot Diagnostics, so a report saved from the browser reads like a photo
+// of that page and two reports stay comparable.
+void fillBootHardware(JsonDocument& doc) {
+  doc["board"] = BoardConfig::ACTIVE.name;
+  doc["displayController"] = displayControllerName(BoardConfig::ACTIVE.displayController);
+  const auto& probe = freeink::getXteinkDisplayProbeDiag();
+  doc["promotedByProbe"] = probe.promoted;
+  if (probe.valid) {
+    char buf[48];
+    snprintf(buf, sizeof(buf), "ver %02X %02X %02X %02X %02X flg %02X v%u%s", probe.ver[0], probe.ver[1], probe.ver[2],
+             probe.ver[3], probe.ver[4], probe.flg, probe.verdict, probe.mtpValid ? " mtp" : "");
+    doc["panelProbe"] = buf;
+  } else {
+    doc["panelProbe"] = nullptr;  // no probe ran: itself a finding
+  }
+}
+
+void fillThisBoot(JsonDocument& doc, const BootDiag::Record* records, const uint8_t count) {
+  doc["resetReason"] = BootDiag::resetReasonName(static_cast<uint8_t>(esp_reset_reason()));
+  doc["wakeCause"] = BootDiag::wakeCauseName(static_cast<uint8_t>(esp_sleep_get_wakeup_cause()));
+  // BootDiag::previousSessionEndedWithoutSleep() on the records already loaded: two boots in a
+  // row mean the session between them never reached the sleep path. With fewer than two records
+  // (no card, a fresh ring) nothing is known, and null says so instead of "slept".
+  if (count >= 2) {
+    doc["previousSessionSlept"] = !(records[0].kind == BootDiag::KindBoot && records[1].kind == BootDiag::KindBoot);
+  } else {
+    doc["previousSessionSlept"] = nullptr;
+  }
+
+  const auto& check = BootDiag::wakeCheck();
+  const JsonObject gate = doc["wakeGate"].to<JsonObject>();
+  gate["verdict"] = HalGPIO::wakeVerdictName(check.verdict);
+  gate["heldMs"] = check.heldMs;
+  gate["decidedAtMs"] = check.decidedAtMs;
+  gate["requiredMs"] = CrossPointSettings::getPowerWakeHoldDuration();
+
+  doc["firstPaintMs"] = BootDiag::phaseMs(BootDiag::BootPhase::FirstPaint);
+  // Absolute stamps of the phases this boot reached; the page turns them into the per-phase
+  // costs the device shows. Unreached phases are left out there too.
+  const JsonArray phases = doc["phases"].to<JsonArray>();
+  for (uint8_t i = 0; i < static_cast<uint8_t>(BootDiag::BootPhase::Count); i++) {
+    const auto phase = static_cast<BootDiag::BootPhase>(i);
+    if (!BootDiag::phaseReached(phase)) continue;
+    const JsonObject entry = phases.add<JsonObject>();
+    entry["name"] = BootDiag::phaseName(phase);
+    entry["ms"] = BootDiag::phaseMs(phase);
+  }
+
+  // The ring's count and the NVS lifetime count side by side, as on the device: a zero in the
+  // first with a non-zero second means aborts were counted but lost on the way to the card.
+  const BootDiag::AbortCounts counts = BootDiag::abortCounts();
+  const JsonObject aborted = doc["abortedBoots"].to<JsonObject>();
+  aborted["thisRun"] = BootDiag::abortsInCurrentRun(records, count);
+  aborted["lifetime"] = counts.lifetime;
+  aborted["undrained"] = counts.undrained;
+
+  const auto& stats = powerManager.lightSleepStats();
+  const JsonObject light = doc["lightSleep"].to<JsonObject>();
+  light["sleptMs"] = stats.sleptMs;
+  light["awakeMs"] = stats.awakeMs;
+  light["attempts"] = stats.attempts;
+  light["gpioWakes"] = stats.wakeGpio;
+}
+
+// One history line. The record's fields mean different things per kind (BootDiagRing.h), so
+// each kind gets its own names rather than the raw slots.
+void fillBootRecord(JsonDocument& doc, const BootDiag::Record& record) {
+  doc["seq"] = record.seq;
+  switch (record.kind) {
+    case BootDiag::KindSleep:
+      doc["kind"] = "sleep";
+      doc["outcome"] = BootDiag::outcomeName(BootDiag::outcomeOf(record));
+      doc["stage"] = BootDiag::stageName(static_cast<BootDiag::SleepStage>(record.code));
+      doc["trigger"] = BootDiag::triggerName(static_cast<BootDiag::SleepTrigger>(record.reason));
+      doc["latchKept"] = (record.flags & BootDiag::kFlagKeepClock) != 0;
+      doc["fromReader"] = (record.flags & BootDiag::kFlagFromReader) != 0;
+      doc["releaseWaitMs"] = record.msA;
+      doc["releaseTimedOut"] = (record.flags & BootDiag::kFlagReleaseTimeout) != 0;
+      doc["uptimeS"] = record.msB;
+      return;
+    case BootDiag::KindBoot:
+      doc["kind"] = "boot";
+      doc["resetReason"] = BootDiag::resetReasonName(record.reason);
+      doc["wakeCause"] = BootDiag::wakeCauseName(record.flags);
+      doc["gate"] = HalGPIO::wakeVerdictName(static_cast<HalGPIO::WakeVerdict>(record.code));
+      doc["gateDecidedMs"] = record.msA;
+      doc["gateHeldMs"] = record.msB;
+      doc["sdMountMs"] = record.msC;
+      return;
+    case BootDiag::KindAborted:
+      doc["kind"] = "aborted";
+      doc["trigger"] = BootDiag::triggerName(static_cast<BootDiag::SleepTrigger>(record.reason));
+      doc["gate"] = HalGPIO::wakeVerdictName(static_cast<HalGPIO::WakeVerdict>(record.code));
+      doc["count"] = record.msA;
+      doc["capped"] = record.msA >= BootDiag::kAbortCountCap;
+      return;
+    default:
+      doc["kind"] = "unknown";
+      return;
+  }
+}
+
+}  // namespace
+
+// GET /api/diagnostics/boot: this boot's start and the persisted sleep/boot history, for the
+// Diagnostics page and the report it saves.
+void CrossPointWebServer::handleBootDiagnostics() const {
+  if (rejectIfLowMemory(server.get())) return;
+  // The ring's 256 bytes go on the heap, not the stack: handleClient() runs on the loop task
+  // beneath the whole activity call chain (see ChunkedResponse).
+  const auto records = makeUniqueNoThrow<BootDiag::Record[]>(BootDiag::kCapacity);
+  if (!records) {
+    server->send(500, "application/json", "{\"error\":\"OOM\"}");
+    return;
+  }
+  const uint8_t count = BootDiag::loadRecords(records.get(), BootDiag::kCapacity);
+
+  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server->send(200, "application/json", "");
+  ChunkedResponse response(server.get());
+  ChunkedPrint out(response);
+  // One small document per section and per history line, cleared in between as the file
+  // listing does, rather than one holding all sixteen records at once.
+  JsonDocument doc;
+  out.print("{\"hardware\":");
+  fillBootHardware(doc);
+  serializeJson(doc, out);
+
+  doc.clear();
+  out.print(",\"thisBoot\":");
+  fillThisBoot(doc, records.get(), count);
+  serializeJson(doc, out);
+
+  out.print(",\"history\":[");
+  for (uint8_t i = 0; i < count; i++) {
+    doc.clear();
+    fillBootRecord(doc, records[i]);
+    if (i > 0) out.print(',');
+    serializeJson(doc, out);
+  }
+  out.print("]}");
+  response.finish();
+}
+
 void CrossPointWebServer::scanFiles(const char* path, const FileVisitor visitor, void* context) const {
   FsFile root = Storage.open(path);
   if (!root) {
@@ -860,18 +1167,12 @@ void CrossPointWebServer::scanFiles(const char* path, const FileVisitor visitor,
     file.getName(name, sizeof(name));
     auto fileName = String(name);
 
-    // Skip hidden items (starting with ".")
-    bool shouldHide = !SETTINGS.showHiddenFiles && fileName.startsWith(".");
-
-    // Check against explicitly hidden items list
-    if (!shouldHide) {
-      for (size_t i = 0; i < HIDDEN_ITEMS_COUNT; i++) {
-        if (fileName.equals(HIDDEN_ITEMS[i])) {
-          shouldHide = true;
-          break;
-        }
-      }
-    }
+    // Dot items only when the user has asked for hidden files; the system folders never.
+    // The same rules isProtectedWebPath() enforces, so nothing listed here is refused
+    // when clicked, bar the credential stores.
+    const std::string_view entryName(fileName.c_str(), fileName.length());
+    const bool shouldHide =
+        (!hiddenAllowed() && ProtectedPaths::isDotName(entryName)) || ProtectedPaths::isSystemName(entryName);
 
     if (!shouldHide) {
       FileInfo info;
@@ -899,23 +1200,22 @@ void CrossPointWebServer::scanFiles(const char* path, const FileVisitor visitor,
 
 bool CrossPointWebServer::isEpubFile(const String& filename) const { return FsHelpers::hasEpubExtension(filename); }
 
-void CrossPointWebServer::handleFileList() const {
-  sendHtmlContent(server.get(), FilesPageHtml, sizeof(FilesPageHtml));
-}
-
 void CrossPointWebServer::handleFileListData() const {
   if (rejectIfLowMemory(server.get())) return;
   // Get current path from query string (default to root)
   String currentPath = "/";
   if (server->hasArg("path")) {
-    // normalizeWebPath, not a bare startsWith("/"): the naive form leaves ".."
-    // in the string, and the protected-item guards below test the LAST component
-    // of whatever is passed. "/books/../.private/x" reads as component "x" to
-    // those guards while the filesystem resolves it into the dot-folder they
-    // exist to protect. Ported from crosspoint-reader PR #3353 (Sylve / @s0lness).
+    // normalizeWebPath, not a bare startsWith("/"): the naive form leaves ".." in
+    // the string, and "/books/../.private" would pass a check on its components
+    // while the filesystem resolves it into the dot-folder the check exists to
+    // protect. Ported from crosspoint-reader PR #3353 (Sylve / @s0lness).
     currentPath = normalizeWebPath(server->arg("path"));
   }
   LOG_DBG("WEB", "File list request for path: %s", currentPath.c_str());
+  if (isProtectedWebPath(currentPath, Target::Directory, hiddenAllowed())) {
+    server->send(403, "text/plain", "Cannot access protected items");
+    return;
+  }
 
   LOG_WEB_MEM("files_enter");
   HalSystem::feedWatchdog();
@@ -965,24 +1265,16 @@ void CrossPointWebServer::handleDownload() const {
     return;
   }
 
-  // Resolved before the protected-item checks below, which inspect only the last
-  // component -- see handleFileListData. crosspoint-reader PR #3353.
+  // Resolved before the protection check below -- see handleFileListData.
+  // crosspoint-reader PR #3353.
   String itemPath = normalizeWebPath(server->arg("path"));
   if (itemPath.isEmpty() || itemPath == "/") {
     server->send(400, "text/plain", "Invalid path");
     return;
   }
-
-  const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
-  if (itemName.startsWith(".")) {
-    server->send(403, "text/plain", "Cannot access system files");
+  if (isProtectedWebPath(itemPath, Target::Item, hiddenAllowed())) {
+    server->send(403, "text/plain", "Cannot access protected items");
     return;
-  }
-  for (size_t i = 0; i < HIDDEN_ITEMS_COUNT; i++) {
-    if (itemName.equals(HIDDEN_ITEMS[i])) {
-      server->send(403, "text/plain", "Cannot access protected items");
-      return;
-    }
   }
 
   if (!Storage.exists(itemPath.c_str())) {
@@ -1049,8 +1341,21 @@ static bool flushUploadBuffer(CrossPointWebServer::UploadState& state) {
   return true;
 }
 
+// Closes the upload's file and deletes it. A write that failed part-way leaves a file cut short,
+// and the Library and Home would list that truncated book.
+// Ported from CrossInk commit e092f81da ("fix: protect files and reduce unnecessary reader work",
+// Julia Nguyen): there a failed write removes the partial file; the helper is ours.
+static void discardUploadFile(CrossPointWebServer::UploadState& state) {
+  state.file.close();
+  String filePath = state.path;
+  if (!filePath.endsWith("/")) filePath += "/";
+  filePath += state.fileName;
+  Storage.remove(filePath.c_str());
+}
+
 void CrossPointWebServer::handleUpload(UploadState& state) const {
   static size_t lastLoggedSize = 0;
+  static unsigned long lastLoggedAt = 0;
 
   // Reset watchdog at start of every upload callback - HTTP parsing can be slow
   HalSystem::feedWatchdog();
@@ -1061,18 +1366,24 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     return;
   }
 
-  const HTTPUpload& upload = server->upload();
+  const HTTPUpload& up = server->upload();
 
-  if (upload.status == UPLOAD_FILE_START) {
+  if (up.status == UPLOAD_FILE_START) {
     // Reset watchdog - this is the critical 1% crash point
     HalSystem::feedWatchdog();
+    tolerateUploadStalls(*server);
 
-    state.fileName = upload.filename;
+    state.fileName = up.filename;
     state.size = 0;
     state.success = false;
     state.error = "";
+    state.expected = server->clientContentLength();
+    state.cancelled = false;
+    state.failure = {};
     uploadStartTime = millis();
+    state.lastDataAt = uploadStartTime;
     lastLoggedSize = 0;
+    lastLoggedAt = uploadStartTime;
     state.bufferPos = 0;
     totalWriteTime = 0;
     writeCount = 0;
@@ -1096,13 +1407,34 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       state.path = "/";
     }
 
-    LOG_DBG("WEB", "[UPLOAD] START: %s to path: %s", state.fileName.c_str(), state.path.c_str());
-    LOG_DBG("WEB", "[UPLOAD] Free heap: %d bytes", ESP.getFreeHeap());
+    // The page it came from, without the scheme and host: "/setup", "/files?path=/".
+    String from = server->header("Referer");
+    const int scheme = from.indexOf("//");
+    const int pathStart = scheme >= 0 ? from.indexOf('/', scheme + 2) : -1;
+    if (pathStart >= 0) from = from.substring(pathStart);
+    if (from.isEmpty()) from = "?";
+    LOG_DBG("WEB", "[UPLOAD] START: %s (request %u bytes) to path: %s, from %s", state.fileName.c_str(),
+            static_cast<unsigned>(state.expected), state.path.c_str(), from.c_str());
+    if (apMode) {
+      LOG_DBG("WEB", "[UPLOAD] Free heap: %d bytes, hotspot mode", ESP.getFreeHeap());
+    } else {
+      LOG_DBG("WEB", "[UPLOAD] Free heap: %d bytes, Wi-Fi %d dBm", ESP.getFreeHeap(), WiFi.RSSI());
+    }
 
     // Create file path
     String filePath = state.path;
     if (!filePath.endsWith("/")) filePath += "/";
     filePath += state.fileName;
+
+    // Before the overwrite below removes anything. The folder is judged as a folder
+    // and the target as an item, so a dot-named file is refused even where hidden
+    // folders are allowed.
+    if (isProtectedWebPath(state.path, Target::Directory, hiddenAllowed()) ||
+        isProtectedWebPath(filePath, Target::Item, hiddenAllowed())) {
+      state.error = "Cannot write to a protected location";
+      LOG_DBG("WEB", "[UPLOAD] Rejected protected target: %s", filePath.c_str());
+      return;
+    }
 
     // Check if file already exists - SD operations can be slow
     HalSystem::feedWatchdog();
@@ -1122,12 +1454,17 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     HalSystem::feedWatchdog();
 
     LOG_DBG("WEB", "[UPLOAD] File created successfully: %s", filePath.c_str());
-  } else if (upload.status == UPLOAD_FILE_WRITE) {
+  } else if (up.status == UPLOAD_FILE_WRITE) {
+    if (dropUploadIfCancelled()) {
+      state.cancelled = true;
+      return;
+    }
+    state.lastDataAt = millis();
     if (state.file && state.error.isEmpty()) {
       // Buffer incoming data and flush when buffer is full
       // This reduces SD card write operations and improves throughput
-      const uint8_t* data = upload.buf;
-      size_t remaining = upload.currentSize;
+      const uint8_t* data = up.buf;
+      size_t remaining = up.currentSize;
 
       while (remaining > 0) {
         const size_t space = UploadState::UPLOAD_BUFFER_SIZE - state.bufferPos;
@@ -1142,30 +1479,40 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
         if (state.bufferPos >= UploadState::UPLOAD_BUFFER_SIZE) {
           if (!flushUploadBuffer(state)) {
             state.error = "Failed to write to SD card - disk may be full";
-            state.file.close();
+            discardUploadFile(state);
             return;
           }
         }
       }
 
-      state.size += upload.currentSize;
+      state.size += up.currentSize;
 
-      // Log progress every 100KB
-      if (state.size - lastLoggedSize >= 102400) {
-        const unsigned long elapsed = millis() - uploadStartTime;
+      // Progress every 100 KB, and every 5 s on a link too slow for that
+      if (state.size - lastLoggedSize >= 102400 || state.lastDataAt - lastLoggedAt >= 5000) {
+        const unsigned long elapsed = state.lastDataAt - uploadStartTime;
         const float kbps = (elapsed > 0) ? (state.size / 1024.0) / (elapsed / 1000.0) : 0;
         LOG_DBG("WEB", "[UPLOAD] %d bytes (%.1f KB), %.1f KB/s, %d writes", state.size, state.size / 1024.0, kbps,
                 writeCount);
         lastLoggedSize = state.size;
+        lastLoggedAt = state.lastDataAt;
       }
     }
-  } else if (upload.status == UPLOAD_FILE_END) {
+  } else if (up.status == UPLOAD_FILE_END) {
+    // A cancel on the last chunk still reaches END: WebServer raises it on the closing boundary,
+    // then raises ABORTED straight after because the client is gone. ABORTED deletes only a file
+    // that is still open, so finishing it here would keep the file of an aborted upload.
+    if (!server->client().connected()) return;
     if (state.file) {
       // Flush any remaining buffered data
       if (!flushUploadBuffer(state)) {
         state.error = "Failed to write final data to SD card";
       }
-      state.file.close();
+      // close() writes the last cached sector and the directory entry: a failure there also
+      // leaves a file cut short.
+      if (!state.file.close() && state.error.isEmpty()) {
+        state.error = "Failed to write final data to SD card";
+      }
+      if (!state.error.isEmpty()) discardUploadFile(state);
 
       if (state.error.isEmpty()) {
         state.success = true;
@@ -1185,19 +1532,30 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       }
     }
     state.buffer = {};
-  } else if (upload.status == UPLOAD_FILE_ABORTED) {
+  } else if (up.status == UPLOAD_FILE_ABORTED) {
     state.bufferPos = 0;  // Discard buffered data
-    if (state.file) {
-      state.file.close();
-      // Try to delete the incomplete file
-      String filePath = state.path;
-      if (!filePath.endsWith("/")) filePath += "/";
-      filePath += state.fileName;
-      Storage.remove(filePath.c_str());
-    }
+    if (state.file) discardUploadFile(state);
     state.buffer = {};
     state.error = "Upload aborted";
-    LOG_DBG("WEB", "Upload aborted");
+
+    // WebServer gives up on a body that stops arriving -- no byte for UPLOAD_STALL_TIMEOUT_MS
+    // while the connection stays open -- or when the connection closes: the browser's doing, a
+    // lost link, or Back on the device (dropUploadIfCancelled()).
+    UploadState::Failure& f = state.failure;
+    const unsigned long now = millis();
+    f.set = true;
+    f.name = state.fileName;
+    f.received = state.size;
+    f.expected = state.expected;
+    f.ms = now - uploadStartTime;
+    f.idleMs = now - state.lastDataAt;
+    f.reason = state.cancelled ? "cancelled" : server->client().connected() ? "stalled" : "closed";
+    f.rssi = apMode ? 0 : WiFi.RSSI();
+    const float kbps = (f.ms > 0) ? (f.received / 1024.0) / (f.ms / 1000.0) : 0;
+    LOG_DBG("WEB", "[UPLOAD] Aborted (%s): %s, %u of %u bytes in %lu ms (%.1f KB/s), no data for the last %lu ms",
+            f.reason, f.name.c_str(), static_cast<unsigned>(f.received), static_cast<unsigned>(f.expected), f.ms, kbps,
+            f.idleMs);
+    if (!apMode) LOG_DBG("WEB", "[UPLOAD] Wi-Fi %d dBm", f.rssi);
   }
 }
 
@@ -1237,10 +1595,15 @@ void CrossPointWebServer::handleCreateFolder() const {
     server->send(400, "text/plain", "Folder name cannot be empty");
     return;
   }
+  // One component, never "." or "..": SdFat walks a ".." through the directory's own
+  // parent entry, so an unchecked "../.crosspoint/x" would land outside the parent.
+  if (!isSafePathComponent(folderName)) {
+    server->send(400, "text/plain", "Invalid folder name");
+    return;
+  }
 
-  // The name is checked as a single component below; the parent it is joined to
-  // has to be resolved too, or ".." in the parent puts the new folder outside it.
-  // crosspoint-reader PR #3353.
+  // The parent it is joined to has to be resolved too, or ".." in the parent puts
+  // the new folder outside it. crosspoint-reader PR #3353.
   String parentPath = "/";
   if (server->hasArg("path")) {
     parentPath = normalizeWebPath(server->arg("path"));
@@ -1250,6 +1613,12 @@ void CrossPointWebServer::handleCreateFolder() const {
   String folderPath = parentPath;
   if (!folderPath.endsWith("/")) folderPath += "/";
   folderPath += folderName;
+
+  if (isProtectedWebPath(parentPath, Target::Directory, hiddenAllowed()) ||
+      isProtectedWebPath(folderPath, Target::Item, hiddenAllowed())) {
+    server->send(403, "text/plain", "Cannot create a protected folder");
+    return;
+  }
 
   LOG_DBG("WEB", "Creating folder: %s", folderPath.c_str());
 
@@ -1296,11 +1665,11 @@ void CrossPointWebServer::handleRename() const {
     return;
   }
 
-  const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
-  if (isProtectedItemName(itemName)) {
+  if (isProtectedWebPath(itemPath, Target::Item, hiddenAllowed())) {
     server->send(403, "text/plain", "Cannot rename protected item");
     return;
   }
+  const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
   if (newName == itemName) {
     server->send(200, "text/plain", "Name unchanged");
     return;
@@ -1328,22 +1697,31 @@ void CrossPointWebServer::handleRename() const {
   }
   newPath += newName;
 
+  // The new name is ordinary (checked above), but where hidden folders are allowed
+  // it can still land on a credential store's path.
+  if (isProtectedWebPath(newPath, Target::Item, hiddenAllowed())) {
+    file.close();
+    server->send(403, "text/plain", "Cannot rename to protected name");
+    return;
+  }
   if (Storage.exists(newPath.c_str())) {
     file.close();
     server->send(409, "text/plain", "Target already exists");
     return;
   }
 
-  if (isDir) {
-    clearBookCachesInDirectory(itemPath);
-  } else {
-    clearBookCacheIfNeeded(itemPath);
-  }
   const bool success = file.rename(newPath.c_str());
   file.close();
 
   if (success) {
     LOG_DBG("WEB", "Renamed: %s -> %s", itemPath.c_str(), newPath.c_str());
+    // The books keep their reading position, bookmarks and history. They used to lose them: the
+    // caches were cleared before the rename, as if the books were new.
+    if (isDir) {
+      BookRelocation::folderMoved(itemPath.c_str(), newPath.c_str());
+    } else {
+      BookRelocation::bookMoved(itemPath.c_str(), newPath.c_str());
+    }
     server->send(200, "text/plain", "Renamed successfully");
   } else {
     LOG_ERR("WEB", "Failed to rename: %s -> %s", itemPath.c_str(), newPath.c_str());
@@ -1370,7 +1748,16 @@ void CrossPointWebServer::handleMove() const {
   }
 
   const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
-  if (isProtectedItemName(itemName)) {
+  String newPath = destPath;
+  if (!newPath.endsWith("/")) {
+    newPath += "/";
+  }
+  newPath += itemName;
+  // Source, destination folder and where the item lands: a move is a write into
+  // the destination as much as a removal from the source.
+  if (isProtectedWebPath(itemPath, Target::Item, hiddenAllowed()) ||
+      isProtectedWebPath(destPath, Target::Directory, hiddenAllowed()) ||
+      isProtectedWebPath(newPath, Target::Item, hiddenAllowed())) {
     server->send(403, "text/plain", "Cannot move protected item");
     return;
   }
@@ -1415,12 +1802,6 @@ void CrossPointWebServer::handleMove() const {
   }
   destDir.close();
 
-  String newPath = destPath;
-  if (!newPath.endsWith("/")) {
-    newPath += "/";
-  }
-  newPath += itemName;
-
   if (newPath == itemPath) {
     file.close();
     server->send(200, "text/plain", "Already in destination");
@@ -1432,16 +1813,16 @@ void CrossPointWebServer::handleMove() const {
     return;
   }
 
-  if (isDir) {
-    clearBookCachesInDirectory(itemPath);
-  } else {
-    clearBookCacheIfNeeded(itemPath);
-  }
   const bool success = file.rename(newPath.c_str());
   file.close();
 
   if (success) {
     LOG_DBG("WEB", "Moved: %s -> %s", itemPath.c_str(), newPath.c_str());
+    if (isDir) {
+      BookRelocation::folderMoved(itemPath.c_str(), newPath.c_str());
+    } else {
+      BookRelocation::bookMoved(itemPath.c_str(), newPath.c_str());
+    }
     server->send(200, "text/plain", "Moved successfully");
   } else {
     LOG_ERR("WEB", "Failed to move: %s -> %s", itemPath.c_str(), newPath.c_str());
@@ -1493,8 +1874,8 @@ void CrossPointWebServer::handleDelete() const {
   String lastDeletedItem;
 
   for (const auto& p : paths) {
-    // Resolved before the protected-item checks below, which inspect only the last
-    // component -- see handleFileListData. crosspoint-reader PR #3353.
+    // Resolved before the protection check below -- see handleFileListData.
+    // crosspoint-reader PR #3353.
     auto itemPath = normalizeWebPath(p.as<String>());
 
     // Validate path
@@ -1504,26 +1885,8 @@ void CrossPointWebServer::handleDelete() const {
       continue;
     }
 
-    // Security check: prevent deletion of protected items
-    const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
-
-    // Hidden/system files are protected
-    if (itemName.startsWith(".")) {
-      failedItems += itemPath + " (hidden/system file); ";
-      allSuccess = false;
-      continue;
-    }
-
-    // Check against explicitly protected items
-    bool isProtected = false;
-    for (size_t i = 0; i < HIDDEN_ITEMS_COUNT; i++) {
-      if (itemName.equals(HIDDEN_ITEMS[i])) {
-        isProtected = true;
-        break;
-      }
-    }
-    if (isProtected) {
-      failedItems += itemPath + " (protected file); ";
+    if (isProtectedWebPath(itemPath, Target::Item, hiddenAllowed())) {
+      failedItems += itemPath + " (protected item); ";
       allSuccess = false;
       continue;
     }
@@ -1562,7 +1925,7 @@ void CrossPointWebServer::handleDelete() const {
       allSuccess = false;
     } else {
       deletedCount++;
-      lastDeletedItem = itemName;
+      lastDeletedItem = itemPath.substring(itemPath.lastIndexOf('/') + 1);
     }
   }
 
@@ -1579,42 +1942,32 @@ void CrossPointWebServer::handleDelete() const {
   }
 }
 
-void CrossPointWebServer::handleSettingsPage() const {
-  sendHtmlContent(server.get(), SettingsPageHtml, sizeof(SettingsPageHtml));
-  LOG_DBG("WEB", "Served settings page");
-}
+void CrossPointWebServer::handleSettingsPage() const { serveBundlePage(web_bundle::SettingsPageHtml); }
 
 void CrossPointWebServer::handleGetSettings() const {
   if (rejectIfLowMemory(server.get())) return;
   LOG_WEB_MEM("settings_enter");
 
-  // Build the settings list at runtime; this avoids the expensive static global initializer.
-  const auto settings = getSettingsList();
-
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "application/json", "");
   ChunkedJsonArray out(server.get());
 
-  char output[1024];
-  constexpr size_t outputSize = sizeof(output);
   JsonDocument doc;
 
-  auto sendEntry = [&]() {
-    const size_t written = serializeJson(doc, output, outputSize);
-    if (written >= outputSize) {
-      LOG_DBG("WEB", "Settings entry JSON truncated (key=%s)", doc["key"].as<const char*>());
-      return;
-    }
-    out.addEntry(output, written);
-  };
+  // Straight into the response, without a buffer of its own: an entry can be any size. The
+  // timezone row's 86 city names make about 2 KB, more than the 1 KB buffer this used to be
+  // formatted into, so the row was dropped and the web page had no Timezone setting.
+  auto sendEntry = [&]() { serializeJson(doc, out.nextEntry()); };
 
-  for (const auto& sBase : settings) {
-    if (!sBase.key) continue;  // Skip ACTION-only entries
+  // Rows are visited one at a time (forEachSetting()), never held as a list: the whole list is
+  // one 11.5 KB block, and this runs while Wi-Fi holds most of the heap.
+  forEachSetting([&](const SettingInfo& sBase) {
+    if (!sBase.key) return;  // Skip ACTION-only entries
 
     // Enrich font-family entries with current SD card families.
     SettingInfo sLocal;
     const SettingInfo* sPtr = &sBase;
-    if (sBase.key && (std::strcmp(sBase.key, "fontFamily") == 0 || std::strcmp(sBase.key, "txtFontFamily") == 0)) {
+    if (std::strcmp(sBase.key, "fontFamily") == 0 || std::strcmp(sBase.key, "txtFontFamily") == 0) {
       sLocal = sBase;
       const uint8_t n = fontFamilyOptionCount();
       sLocal.enumLabels.clear();
@@ -1707,11 +2060,11 @@ void CrossPointWebServer::handleGetSettings() const {
         break;
       }
       default:
-        continue;
+        return;
     }
 
     sendEntry();
-  }
+  });
 
   // Expose sleepTimeoutMinutes and refreshFrequencyPages as VALUE entries.
   auto appendValueSetting = [&](const char* key, const char* name, const char* category, const char* subcategory,
@@ -1753,13 +2106,15 @@ void CrossPointWebServer::handlePostSettings() {
     return;
   }
 
-  // Iterate the static list by reference — no copy, no 14KB heap spike.
+  // One row at a time, as in handleGetSettings().
   int applied = 0;
-  const auto settings = getSettingsList();
 
-  for (const auto& s : settings) {
-    if (!s.key) continue;
-    if (!doc[s.key].is<JsonVariant>()) continue;
+  const auto isFontFamilyKey = [](const char* key) {
+    return key && (std::strcmp(key, "fontFamily") == 0 || std::strcmp(key, "txtFontFamily") == 0);
+  };
+  const auto applyRow = [&](const SettingInfo& s) {
+    if (!s.key) return;
+    if (!doc[s.key].is<JsonVariant>()) return;
 
     switch (s.type) {
       case SettingType::TOGGLE: {
@@ -1776,12 +2131,11 @@ void CrossPointWebServer::handlePostSettings() {
         const int val = doc[s.key].as<int>();
         // For font-family keys the enumLabels in the static list are empty by design
         // (built lazily by handleGetSettings); use the dynamic option count instead.
-        const bool isFontFamilyKey =
-            s.key && (std::strcmp(s.key, "fontFamily") == 0 || std::strcmp(s.key, "txtFontFamily") == 0);
+        const bool familyKey = isFontFamilyKey(s.key);
         // Otherwise getEnumOptionCount(), for the same reason as the options array above: it is
         // the one definition of how many options a row has, whichever form they come in.
         const int count =
-            isFontFamilyKey ? static_cast<int>(fontFamilyOptionCount()) : static_cast<int>(s.getEnumOptionCount());
+            familyKey ? static_cast<int>(fontFamilyOptionCount()) : static_cast<int>(s.getEnumOptionCount());
         if (val >= 0 && val < count) {
           if (s.valuePtr) {
             SETTINGS.*(s.valuePtr) = static_cast<uint8_t>(val);
@@ -1819,7 +2173,17 @@ void CrossPointWebServer::handlePostSettings() {
       default:
         break;
     }
-  }
+  };
+
+  // Families last. A font-size value is an index into the sizes of the family the page was showing,
+  // which is the one selected now, so it has to be applied before this request changes that
+  // family. Two walks rather than a reordered list: rows are visited one at a time, never held.
+  forEachSetting([&](const SettingInfo& s) {
+    if (!isFontFamilyKey(s.key)) applyRow(s);
+  });
+  forEachSetting([&](const SettingInfo& s) {
+    if (isFontFamilyKey(s.key)) applyRow(s);
+  });
 
   // Handle sleepTimeoutMinutes and refreshFrequencyPages posted as VALUE types.
   if (doc["sleepTimeoutMinutes"].is<int>()) {
@@ -1847,39 +2211,23 @@ void CrossPointWebServer::handlePostSettings() {
 // ---- Font Management API ----
 
 namespace {
-struct RemoteManifestFile {
-  std::string name;
-  size_t size = 0;
-  uint32_t crc32 = 0;
-  bool hasCrc32 = false;
-};
-
-struct RemoteManifestFamily {
-  std::string name;
-  std::string description;
-  std::vector<RemoteManifestFile> files;
-  size_t totalSize = 0;
-  bool installed = false;
-  bool hasUpdate = false;
-};
-
 // Cap chosen so that FONTS_DIR + "/" + family + "__staging/" + filename stays
 // well under the 128-byte path buffers used below. snprintf truncation checks
 // are the actual guard; this just rejects obviously-bogus entries early.
 static constexpr size_t MAX_FONT_FILE_NAME_LEN = 60;
 
-bool isValidFontFileName(const std::string& name) {
-  if (name.empty() || name.size() > MAX_FONT_FILE_NAME_LEN) return false;
+bool isValidFontFileName(const char* name) {
+  const size_t len = strlen(name);
+  if (len == 0 || len > MAX_FONT_FILE_NAME_LEN) return false;
   // Allow '/' for subdirectories of font families, but prevent absolute paths
   if (name[0] == '/') return false;
-  if (name.find('\\') != std::string::npos) return false;
-  if (name.find("..") != std::string::npos) return false;
+  if (strchr(name, '\\') != nullptr) return false;
+  if (strstr(name, "..") != nullptr) return false;
   return true;
 }
 
-bool fetchRemoteFontManifest(HttpDownloader::Session& session, FontInstaller& installer,
-                             std::vector<RemoteManifestFamily>& outFamilies, std::string& outBaseUrl,
-                             std::string& outError) {
+bool fetchRemoteFontManifest(HttpDownloader::Session& session, FontInstaller& installer, FontCatalog& outFamilies,
+                             std::string& outBaseUrl, std::string& outError) {
   static constexpr const char* MANIFEST_TMP = "/fonts_manifest_web.tmp";
 
   auto result = HttpDownloader::downloadToFile(session, FONT_MANIFEST_URL, MANIFEST_TMP, nullptr);
@@ -1896,100 +2244,67 @@ bool fetchRemoteFontManifest(HttpDownloader::Session& session, FontInstaller& in
     return false;
   }
 
-  JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, manifestFile);
+  // Streamed off the card a block at a time, never the whole document: this
+  // runs while Wi-Fi is up, and a whole-document parse of the 24 KB manifest
+  // ran the X3 out of heap. The list is one block, which the install frees
+  // whole before its downloads -- see handleFontDownload().
+  FontManifestReader reader("WEB", FontInstaller::isValidFamilyName, isValidFontFileName);
+  const FontManifestStatus status = reader.read(manifestFile, outFamilies, outBaseUrl);
   manifestFile.close();
   Storage.remove(MANIFEST_TMP);
-  if (err) {
+  if (status == FontManifestStatus::Invalid) {
     outError = "Failed to parse font manifest";
     return false;
   }
-
-  const int version = doc["version"] | 0;
-  // v1 (legacy, no crc32) and v2 (with crc32) — crc check is skipped per-file
-  // when absent. See upstream PR #1904 and scripts/generate-font-manifest.py.
-  if (version != 1 && version != 2) {
+  if (status == FontManifestStatus::UnsupportedVersion) {
     outError = "Unsupported manifest version";
     return false;
   }
+  if (status == FontManifestStatus::OutOfMemory) {
+    LOG_ERR("WEB", "Font manifest: %s", reader.failure());
+    outError = "Failed to read font manifest: out of memory";
+    return false;
+  }
 
-  outBaseUrl = doc["baseUrl"] | "";
-  outFamilies.clear();
-
-  JsonArray familiesArr = doc["families"].as<JsonArray>();
-  outFamilies.reserve(familiesArr.size());
-
-  for (JsonObject fObj : familiesArr) {
-    RemoteManifestFamily family;
-    family.name = fObj["name"] | "";
-    family.description = fObj["description"] | "";
-
-    if (!FontInstaller::isValidFamilyName(family.name.c_str())) {
-      LOG_ERR("WEB", "Manifest entry rejected, invalid family name: %s", family.name.c_str());
-      continue;
-    }
-
-    bool fileNamesOk = true;
-    for (JsonObject fileObj : fObj["files"].as<JsonArray>()) {
-      RemoteManifestFile file;
-      file.name = fileObj["name"] | "";
-      file.size = static_cast<size_t>(fileObj["size"] | 0);
-      if (fileObj["crc32"].is<uint32_t>()) {
-        file.crc32 = fileObj["crc32"].as<uint32_t>();
-        file.hasCrc32 = true;
-      }
-      if (!isValidFontFileName(file.name)) {
-        LOG_ERR("WEB", "Manifest entry rejected, invalid file name in %s: %s", family.name.c_str(), file.name.c_str());
-        fileNamesOk = false;
-        break;
-      }
-      family.totalSize += file.size;
-      family.files.push_back(std::move(file));
-    }
-    if (!fileNamesOk) continue;
-
-    family.installed = installer.isFamilyInstalled(family.name.c_str());
-    family.hasUpdate = false;
-    if (family.installed) {
-      for (const auto& file : family.files) {
-        std::string localFilename = file.name;
-        std::string familyPrefix = family.name + "/";
-        if (localFilename.find(familyPrefix) == 0) {
-          localFilename = localFilename.substr(familyPrefix.length());
-        }
-
+  for (size_t i = 0; i < outFamilies.count(); i++) {
+    const char* familyName = outFamilies.name(i);
+    outFamilies.setInstalled(i, installer.isFamilyInstalled(familyName));
+    outFamilies.setHasUpdate(i, false);
+    if (outFamilies.installed(i)) {
+      for (size_t j = 0; j < outFamilies.fileCount(i); j++) {
         char path[128];
-        FontInstaller::buildFontPath(family.name.c_str(), localFilename.c_str(), path, sizeof(path));
+        FontInstaller::buildFontPath(familyName, outFamilies.fileLocalName(i, j), path, sizeof(path));
         FsFile f;
         if (Storage.openFileForRead("WEB", path, f)) {
           const size_t actual = static_cast<size_t>(f.size());
           f.close();
-          if (actual != file.size) {
-            family.hasUpdate = true;
+          if (actual != outFamilies.fileSize(i, j)) {
+            outFamilies.setHasUpdate(i, true);
             break;
           }
         } else {
-          family.hasUpdate = true;
+          outFamilies.setHasUpdate(i, true);
           break;
         }
       }
     }
-
-    outFamilies.push_back(std::move(family));
   }
 
   return true;
 }
 
-bool installRemoteFamily(HttpDownloader::Session& session, const RemoteManifestFamily& family,
+// Installs the family at `familyIndex` of `families`.
+bool installRemoteFamily(HttpDownloader::Session& session, const FontCatalog& families, const size_t familyIndex,
                          const std::string& baseUrl, FontInstaller& installer, std::string& outError) {
-  if (!FontInstaller::isValidFamilyName(family.name.c_str())) {
+  const char* familyName = families.name(familyIndex);
+  const size_t fileCount = families.fileCount(familyIndex);
+  if (!FontInstaller::isValidFamilyName(familyName)) {
     outError = "Invalid family name";
     return false;
   }
-  for (const auto& file : family.files) {
-    if (!isValidFontFileName(file.name)) {
-      outError = std::string("Invalid file name: ") + file.name;
+  for (size_t j = 0; j < fileCount; j++) {
+    if (!isValidFontFileName(families.fileName(familyIndex, j))) {
+      outError = std::string("Invalid file name: ") + families.fileName(familyIndex, j);
       return false;
     }
   }
@@ -1998,17 +2313,17 @@ bool installRemoteFamily(HttpDownloader::Session& session, const RemoteManifestF
   char stagingDir[128];
   char backupDir[128];
   int n;
-  n = snprintf(liveDir, sizeof(liveDir), "%s/%s", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
+  n = snprintf(liveDir, sizeof(liveDir), "%s/%s", SdCardFontRegistry::FONTS_DIR, familyName);
   if (n < 0 || static_cast<size_t>(n) >= sizeof(liveDir)) {
     outError = "Family path too long";
     return false;
   }
-  n = snprintf(stagingDir, sizeof(stagingDir), "%s/%s__staging", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
+  n = snprintf(stagingDir, sizeof(stagingDir), "%s/%s__staging", SdCardFontRegistry::FONTS_DIR, familyName);
   if (n < 0 || static_cast<size_t>(n) >= sizeof(stagingDir)) {
     outError = "Family path too long";
     return false;
   }
-  n = snprintf(backupDir, sizeof(backupDir), "%s/%s__backup", SdCardFontRegistry::FONTS_DIR, family.name.c_str());
+  n = snprintf(backupDir, sizeof(backupDir), "%s/%s__backup", SdCardFontRegistry::FONTS_DIR, familyName);
   if (n < 0 || static_cast<size_t>(n) >= sizeof(backupDir)) {
     outError = "Family path too long";
     return false;
@@ -2023,18 +2338,18 @@ bool installRemoteFamily(HttpDownloader::Session& session, const RemoteManifestF
 
   // The session is owned by the caller (handleFontInstall) so it can be
   // reused across the manifest fetch and every family install in one batch.
-  for (const auto& file : family.files) {
+  for (size_t j = 0; j < fileCount; j++) {
     HalSystem::feedWatchdog();
     yield();
 
-    std::string localFilename = file.name;
-    std::string familyPrefix = family.name + "/";
-    if (localFilename.find(familyPrefix) == 0) {
-      localFilename = localFilename.substr(familyPrefix.length());
-    }
+    const char* fileName = families.fileName(familyIndex, j);
+    const char* localFilename = families.fileLocalName(familyIndex, j);
+    const uint32_t expectedSize = families.fileSize(familyIndex, j);
+    const bool hasCrc32 = families.fileHasCrc32(familyIndex, j);
+    const uint32_t expectedCrc32 = families.fileCrc32(familyIndex, j);
 
     char stagedPath[128];
-    int sn = snprintf(stagedPath, sizeof(stagedPath), "%s/%s", stagingDir, localFilename.c_str());
+    int sn = snprintf(stagedPath, sizeof(stagedPath), "%s/%s", stagingDir, localFilename);
     if (sn < 0 || static_cast<size_t>(sn) >= sizeof(stagedPath)) {
       // Path-length bugs are not resumable; nuke staging so we don't get stuck.
       Storage.removeDir(stagingDir);
@@ -2047,14 +2362,14 @@ bool installRemoteFamily(HttpDownloader::Session& session, const RemoteManifestF
       FsFile f;
       bool sizeOk = false;
       if (Storage.openFileForRead("WEB", stagedPath, f)) {
-        sizeOk = (static_cast<size_t>(f.size()) == file.size);
+        sizeOk = (static_cast<size_t>(f.size()) == expectedSize);
         f.close();
       }
-      bool crcOk = !file.hasCrc32;
-      if (sizeOk && file.hasCrc32) {
+      bool crcOk = !hasCrc32;
+      if (sizeOk && hasCrc32) {
         uint32_t actualCrc = 0;
         if (FontInstaller::computeFileCrc32(stagedPath, actualCrc)) {
-          crcOk = (actualCrc == file.crc32);
+          crcOk = (actualCrc == expectedCrc32);
         }
       }
       if (sizeOk && crcOk && installer.validateCpfontFile(stagedPath)) {
@@ -2071,28 +2386,28 @@ bool installRemoteFamily(HttpDownloader::Session& session, const RemoteManifestF
       Storage.mkdir(stagedPathStr.substr(0, lastSlash).c_str());
     }
 
-    const std::string url = baseUrl + file.name;
+    const std::string url = baseUrl + fileName;
 
     auto result = HttpDownloader::downloadToFile(session, url, stagedPath, nullptr);
     if (result != HttpDownloader::OK) {
       // Drop just the failed file; keep already-downloaded siblings.
       Storage.remove(stagedPath);
-      outError = std::string("Download failed: ") + file.name;
+      outError = std::string("Download failed: ") + fileName;
       return false;
     }
 
-    if (file.hasCrc32) {
+    if (hasCrc32) {
       uint32_t actualCrc = 0;
-      if (!FontInstaller::computeFileCrc32(stagedPath, actualCrc) || actualCrc != file.crc32) {
+      if (!FontInstaller::computeFileCrc32(stagedPath, actualCrc) || actualCrc != expectedCrc32) {
         Storage.remove(stagedPath);
-        outError = std::string("Checksum mismatch: ") + file.name;
+        outError = std::string("Checksum mismatch: ") + fileName;
         return false;
       }
     }
 
     if (!installer.validateCpfontFile(stagedPath)) {
       Storage.remove(stagedPath);
-      outError = std::string("Invalid font file: ") + file.name;
+      outError = std::string("Invalid font file: ") + fileName;
       return false;
     }
   }
@@ -2124,10 +2439,12 @@ bool installRemoteFamily(HttpDownloader::Session& session, const RemoteManifestF
 }
 }  // namespace
 
-void CrossPointWebServer::handleFontsPage() const {
-  sendHtmlContent(server.get(), FontsPageHtml, sizeof(FontsPageHtml));
-  LOG_DBG("WEB", "Served fonts page");
-}
+void CrossPointWebServer::handleFontsPage() const { serveBundlePage(web_bundle::FontsPageHtml); }
+
+// The page unpacks and checks a dictionary in the browser and writes it through /mkdir,
+// /upload and /delete: the device has neither the heap to inflate a .idx.gz nor any reason
+// to learn archive formats, so serving the page is all the firmware does.
+void CrossPointWebServer::handleDictionaryPage() const { serveBundlePage(web_bundle::DictionaryPageHtml); }
 
 void CrossPointWebServer::handleFontList() {
   if (rejectIfLowMemory(server.get())) return;
@@ -2175,7 +2492,7 @@ void CrossPointWebServer::handleFontManifest() {
   FontInstaller installer(sdFontSystem.registry());
   installer.refreshRegistry();
 
-  std::vector<RemoteManifestFamily> families;
+  FontCatalog families;
   std::string baseUrl;
   std::string error;
   {
@@ -2193,14 +2510,14 @@ void CrossPointWebServer::handleFontManifest() {
   doc["ok"] = true;
   doc["baseUrl"] = baseUrl;
   JsonArray arr = doc["families"].to<JsonArray>();
-  for (const auto& family : families) {
+  for (size_t i = 0; i < families.count(); i++) {
     JsonObject obj = arr.add<JsonObject>();
-    obj["name"] = family.name;
-    obj["description"] = family.description;
-    obj["installed"] = family.installed;
-    obj["hasUpdate"] = family.hasUpdate;
-    obj["totalSize"] = static_cast<unsigned long>(family.totalSize);
-    obj["fileCount"] = static_cast<unsigned>(family.files.size());
+    obj["name"] = families.name(i);
+    obj["description"] = families.description(i);
+    obj["installed"] = families.installed(i);
+    obj["hasUpdate"] = families.hasUpdate(i);
+    obj["totalSize"] = static_cast<unsigned long>(families.totalSize(i));
+    obj["fileCount"] = static_cast<unsigned>(families.fileCount(i));
   }
   LOG_WEB_MEM("font_manifest_exit");
   sendJson(server.get(), 200, doc);
@@ -2215,7 +2532,7 @@ void CrossPointWebServer::handleFontDownload() {
   }
   body.clear();  // Free memory early!
 
-  const bool installAll = req["all"] | false;
+  const bool installAll = req["all"].as<bool>();
   const std::string requestedFamily = req["family"] | "";
   if (!installAll && requestedFamily.empty()) {
     server->send(400, "application/json", "{\"ok\":false,\"error\":\"Missing family\"}");
@@ -2225,10 +2542,10 @@ void CrossPointWebServer::handleFontDownload() {
   FontInstaller installer(sdFontSystem.registry());
   installer.refreshRegistry();
 
-  // Manifest fetch uses a local session that closes before parse, so the
-  // ArduinoJson parse runs on a clean heap. A separate install session is
-  // opened below for the actual family downloads.
-  std::vector<RemoteManifestFamily> families;
+  // The manifest fetch uses its own session, closed at the end of the block
+  // below, before a separate install session is opened for the actual family
+  // downloads.
+  FontCatalog families;
   std::string baseUrl;
   std::string error;
   {
@@ -2242,32 +2559,36 @@ void CrossPointWebServer::handleFontDownload() {
     }
   }  // manifestSession destructor closes the TLS connection here
 
-  std::vector<RemoteManifestFamily*> targets;
+  // The families to install, copied into a block of their own, so the whole
+  // list can be freed before the downloads: their TLS session needs a
+  // contiguous record buffer, and the list's block comes back in one piece.
+  FontCatalog targets;
+  bool copied = false;
   if (installAll) {
-    for (auto& family : families) {
-      if (!family.installed || family.hasUpdate) {
-        targets.push_back(&family);
-      }
-    }
+    copied = targets.copyFrom(
+        families,
+        [](const void*, const FontCatalog& from, const size_t i) { return !from.installed(i) || from.hasUpdate(i); },
+        nullptr);
   } else {
-    for (auto& family : families) {
-      if (family.name == requestedFamily) {
-        targets.push_back(&family);
+    size_t found = families.count();
+    for (size_t i = 0; i < families.count(); i++) {
+      if (requestedFamily == families.name(i)) {
+        found = i;
         break;
       }
     }
-    if (targets.empty()) {
+    if (found == families.count()) {
       server->send(404, "application/json", "{\"ok\":false,\"error\":\"Family not found in manifest\"}");
       return;
     }
-  }
-
-  std::vector<RemoteManifestFamily> targetCopies;
-  for (auto* f : targets) {
-    targetCopies.push_back(*f);
+    copied = targets.copyFamilyFrom(families, found);
   }
   families.clear();
-  families.shrink_to_fit();
+  if (!copied) {
+    LOG_ERR("WEB", "OOM: copy of the fonts to install");
+    server->send(500, "application/json", "{\"ok\":false,\"error\":\"Out of memory\"}");
+    return;
+  }
 
   // One install session covers every family in this batch. TLS handshake
   // happens once on the first file of the first family; subsequent files
@@ -2275,17 +2596,17 @@ void CrossPointWebServer::handleFontDownload() {
   HttpDownloader::Session installSession;
 
   size_t installedCount = 0;
-  for (auto& family : targetCopies) {
+  for (size_t i = 0; i < targets.count(); i++) {
     HalSystem::feedWatchdog();
     yield();
 
-    LOG_DBG("WEB", "Installing font family: %s", family.name.c_str());
+    LOG_DBG("WEB", "Installing font family: %s", targets.name(i));
 
-    if (!installRemoteFamily(installSession, family, baseUrl, installer, error)) {
+    if (!installRemoteFamily(installSession, targets, i, baseUrl, installer, error)) {
       JsonDocument errDoc;
       errDoc["ok"] = false;
       errDoc["error"] = error;
-      errDoc["family"] = family.name;
+      errDoc["family"] = targets.name(i);
       errDoc["installedCount"] = static_cast<unsigned>(installedCount);
       sendJson(server.get(), 500, errDoc);
       return;
@@ -2306,6 +2627,7 @@ void CrossPointWebServer::handleFontUploadData() {
   switch (up.status) {
     case UPLOAD_FILE_START: {
       HalSystem::feedWatchdog();
+      tolerateUploadStalls(*server);
       String family = server->arg("family");
       fontUpload.valid = false;
       fontUpload.magicChecked = false;
@@ -2313,6 +2635,10 @@ void CrossPointWebServer::handleFontUploadData() {
       fontUpload.bytesWritten = 0;
       fontUpload.bufferPos = 0;
       fontUpload.buffer.resize(FontUploadState::BUFFER_SIZE);
+      // The END and ABORTED cases delete filePath whenever the upload is not valid. Left
+      // over from the previous upload, it named that upload's INSTALLED font, so a START
+      // refused below (bad family or file name, no family dir) deleted it.
+      fontUpload.filePath.clear();
 
       if (!FontInstaller::isValidFamilyName(family.c_str())) {
         LOG_ERR("WEB", "Invalid font family name: %s", family.c_str());
@@ -2352,7 +2678,9 @@ void CrossPointWebServer::handleFontUploadData() {
     }
 
     case UPLOAD_FILE_WRITE: {
-      if (!fontUpload.valid) break;
+      // No END guard needed here, unlike /upload: this ABORTED branch deletes the file whether or
+      // not END already closed it.
+      if (dropUploadIfCancelled() || !fontUpload.valid) break;
       HalSystem::feedWatchdog();
 
       if (!fontUpload.magicChecked) {
@@ -2763,19 +3091,29 @@ void CrossPointWebServer::handleDeleteOpdsServer() {
   server->send(200, "text/plain", "OK");
 }
 
-// GET /api/plugins -> [{"name","title","mount"}, ...]
-// Only folders carrying a plugin.js are listed, since the page's whole job is
-// to load that file; manifest.json just supplies the label and mount point.
+// GET /api/plugins -> [{"name","title","mount","description","version","requires","allowedHosts",
+//                       "root","disabled"}, ...]
+// Only folders carrying a plugin.js are listed, since the pages' whole job is
+// to load that file; manifest.json supplies the label, mount point and what the
+// Plugins page shows about it. The pages skip a disabled plugin; the Plugins
+// page lists it with the rest.
 // Streamed rather than assembled: a JsonDocument holding every entry plus a
 // manifest string each would be the largest allocation on this path.
 void CrossPointWebServer::handlePluginList() const {
   if (rejectIfLowMemory(server.get())) return;
 
+  // An entry with a description and a host list can pass 1 KB; on the heap, not the stack.
+  constexpr size_t kEntryBytes = 1536;
+  auto output = makeUniqueNoThrow<char[]>(kEntryBytes);
+  if (!output) {
+    server->send(500, "application/json", "{\"error\":\"OOM\"}");
+    return;
+  }
+
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "application/json", "");
   ChunkedJsonArray out(server.get());
 
-  char output[384];
   JsonDocument doc;
   size_t listed = 0;
 
@@ -2786,6 +3124,8 @@ void CrossPointWebServer::handlePluginList() const {
     doc["name"] = e.name;
     doc["title"] = e.name;      // manifest overrides below
     doc["mount"] = "settings";  // default page
+    doc["root"] = e.root;
+    doc["disabled"] = e.disabled;
 
     std::string manifest;
     if (e.hasManifest &&
@@ -2794,17 +3134,24 @@ void CrossPointWebServer::handlePluginList() const {
       if (deserializeJson(m, manifest) == DeserializationError::Ok) {
         if (m["title"].is<const char*>()) doc["title"] = m["title"];
         if (m["mount"].is<const char*>()) doc["mount"] = m["mount"];
+        if (m["description"].is<const char*>()) doc["description"] = m["description"];
+        if (m["version"].is<const char*>()) doc["version"] = m["version"];
+        // The page refuses a plugin whose required capabilities it lacks (missingCapabilities() in
+        // PluginHost.js.inc), which it can only do if the list says what those are.
+        if (m["requires"].is<JsonArrayConst>()) doc["requires"] = m["requires"];
+        // Shown on the Plugins page, so who a plugin can reach is visible before it is used.
+        if (m["allowedHosts"].is<JsonArrayConst>()) doc["allowedHosts"] = m["allowedHosts"];
       } else {
         LOG_DBG("WEB", "Plugin %s: unparseable manifest.json", e.name.c_str());
       }
     }
 
-    const size_t written = serializeJson(doc, output, sizeof(output));
-    if (written >= sizeof(output)) {
+    const size_t written = serializeJson(doc, output.get(), kEntryBytes);
+    if (written >= kEntryBytes) {
       LOG_DBG("WEB", "Plugin %s: entry too long, skipped", e.name.c_str());
       continue;
     }
-    out.addEntry(output, written);
+    out.addEntry(output.get(), written);
     listed++;
   }
 
@@ -2865,11 +3212,12 @@ void CrossPointWebServer::handlePluginFile() const {
 // fetches on the page's behalf and answers same-origin.
 //
 // That is a real capability, so it is fenced: GET only, and only to hosts the
-// calling plugin declares in its own manifest. Redirects are NOT followed -
-// otherwise an allowed host could 302 anywhere and the host actually fetched
-// would never have been checked, which is how upstream's version could be
-// bypassed. A 3xx is returned to the plugin, which may relay the new location
-// and have it judged on its own merits.
+// calling plugin declares in its own manifest. A redirect is followed only to a
+// host the manifest allows too, and one elsewhere fails the request: otherwise an
+// allowed host could 302 anywhere and the host actually fetched would never have
+// been checked, which is how upstream's version could be bypassed. (Handing the
+// 3xx back for the plugin to follow could not work: a page's fetch() follows
+// redirects itself.)
 //
 // The body is streamed straight through rather than buffered: during a web
 // session the heap has around 110KB free with a ~53KB largest block, and a
@@ -2903,23 +3251,26 @@ void CrossPointWebServer::handleRelay() {
   bool overLimit = false;
   size_t total = 0;
 
-  const bool ok = HttpDownloader::fetchUrl(url, [&](const uint8_t* data, size_t len) {
-    if (total + len > MAX_RELAY_BYTES) {
-      overLimit = true;
-      return false;  // aborts the transfer
-    }
-    if (!headerSent) {
-      // Content type is not forwarded - HttpDownloader does not surface response
-      // headers - so the caller infers it from what it asked for.
-      server->setContentLength(CONTENT_LENGTH_UNKNOWN);
-      server->send(200, "application/octet-stream", "");
-      headerSent = true;
-    }
-    HalSystem::feedWatchdog();
-    server->sendContent(reinterpret_cast<const char*>(data), len);
-    total += len;
-    return true;
-  });
+  const bool ok = HttpDownloader::fetchUrl(
+      url,
+      [&](const uint8_t* data, size_t len) {
+        if (total + len > MAX_RELAY_BYTES) {
+          overLimit = true;
+          return false;  // aborts the transfer
+        }
+        if (!headerSent) {
+          // Content type is not forwarded - HttpDownloader does not surface response
+          // headers - so the caller infers it from what it asked for.
+          server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+          server->send(200, "application/octet-stream", "");
+          headerSent = true;
+        }
+        HalSystem::feedWatchdog();
+        server->sendContent(reinterpret_cast<const char*>(data), len);
+        total += len;
+        return true;
+      },
+      false, "", "", redirectsWithinAllowlist(plugin));
 
   if (!headerSent) {
     server->send(502, "application/json", "{\"error\":\"fetch failed\"}");
@@ -2940,8 +3291,8 @@ void CrossPointWebServer::handleRelay() {
 // would move the file twice over WiFi and hold all of it in browser memory;
 // for a cover that is merely wasteful, for a book it is prohibitive.
 //
-// Same fence as the relay - allowlisted per plugin manifest, no redirects -
-// plus the write target must pass the same check /upload applies.
+// Same fence as the relay - allowlisted per plugin manifest, redirects only within
+// it - plus the write target must pass the same check /upload applies.
 void CrossPointWebServer::handleFetchToSd() {
   if (rejectIfLowMemory(server.get())) return;
 
@@ -2964,7 +3315,8 @@ void CrossPointWebServer::handleFetchToSd() {
   }
 
   LOG_DBG("WEB", "Fetch %s -> %s", url.c_str(), dest.c_str());
-  const HttpDownloader::DownloadError result = HttpDownloader::downloadToFile(url, dest.c_str());
+  const HttpDownloader::DownloadError result = HttpDownloader::downloadToFile(
+      url, dest.c_str(), nullptr, "", "", HttpDownloader::TlsPolicy::Verified, redirectsWithinAllowlist(plugin));
   if (result != HttpDownloader::OK) {
     LOG_ERR("WEB", "Fetch to SD failed (%d): %s", static_cast<int>(result), url.c_str());
     server->send(502, "application/json", "{\"error\":\"download failed\"}");
@@ -2979,51 +3331,370 @@ void CrossPointWebServer::handleFetchToSd() {
   sendJson(server.get(), 200, doc);
 }
 
+// ---- Raw request bodies --------------------------------------------------------------------------
+
+void CrossPointWebServer::RawFileUpload::start(const String& target, const size_t maxBytes) {
+  if (file) file.close();  // left by a request the client dropped mid-body
+  started = true;
+  status = 0;
+  error = "";
+  written = 0;
+  cap = maxBytes;
+  path = target;
+  temp = "";
+  if (path.isEmpty()) {
+    fail(400, "missing or invalid target");
+    return;
+  }
+  temp = path + ".part";
+  if (!Storage.openFileForWrite("WEB", temp.c_str(), file)) {
+    temp = "";
+    fail(500, "could not create file");
+  }
+}
+
+void CrossPointWebServer::RawFileUpload::fail(const int httpStatus, const char* message) {
+  status = httpStatus;
+  error = message;
+  if (file) file.close();
+  if (!temp.isEmpty()) Storage.remove(temp.c_str());
+}
+
+void CrossPointWebServer::RawFileUpload::feed(const HTTPRaw& raw) {
+  switch (raw.status) {
+    case RAW_START:  // start() handles it, once the caller knows the target
+      return;
+    case RAW_WRITE:
+      if (status != 0) return;
+      if (written + raw.currentSize > cap) {
+        fail(413, "file too large");
+        return;
+      }
+      if (file.write(raw.buf, raw.currentSize) != raw.currentSize) {
+        LOG_ERR("WEB", "raw upload short write at %u B to %s", static_cast<unsigned>(written), temp.c_str());
+        fail(500, "short write");
+        return;
+      }
+      written += raw.currentSize;
+      HalSystem::feedWatchdog();
+      return;
+    case RAW_END:
+      if (status != 0) return;
+      file.close();
+      if ((Storage.exists(path.c_str()) && !Storage.remove(path.c_str())) ||
+          !Storage.rename(temp.c_str(), path.c_str())) {
+        fail(500, "could not replace file");
+      }
+      return;
+    case RAW_ABORTED:
+      fail(400, "upload interrupted");
+      return;
+  }
+}
+
+bool CrossPointWebServer::RawFileUpload::answerFailure(WebServer& server) {
+  if (!started) {
+    // A multipart body is parsed as a form and never streams; every other content type does.
+    server.send(415, "application/json", "{\"error\":\"send the file as the raw request body\"}");
+    return true;
+  }
+  started = false;
+  if (status == 0) return false;
+  JsonDocument err;
+  err["error"] = error;
+  sendJson(&server, status, err);
+  return true;
+}
+
 // POST /api/plugin-fs?plugin=<name>&path=<sd path>  (raw body = file contents)
 //
 // Writes one small file to the card. /upload already does this, so this exists
 // for compatibility with plugins written against the upstream API rather than
 // because the web UI needs it - hence the modest cap, which keeps it to the
-// small-file job it advertises and leaves bulk transfers to /upload.
+// small-file job it advertises and leaves bulk transfers to /upload. The body streams through
+// rawUpload, never held whole, so it needs no low-memory gate.
 void CrossPointWebServer::handlePluginFs() {
+  if (rawUpload.answerFailure(*server)) return;
+  LOG_DBG("WEB", "plugin-fs wrote %u bytes to %s", static_cast<unsigned>(rawUpload.written), rawUpload.path.c_str());
+  clearBookCacheIfNeeded(rawUpload.path);
+  JsonDocument doc;
+  doc["ok"] = true;
+  doc["path"] = rawUpload.path.c_str();
+  sendJson(server.get(), 200, doc);
+}
+
+void CrossPointWebServer::handlePluginFsData() {
+  const HTTPRaw& raw = server->raw();
+  if (raw.status == RAW_START) {
+    tolerateUploadStalls(*server);
+    const String plugin = server->arg("plugin");
+    rawUpload.start(isSafePathComponent(plugin) ? pluginWriteTarget(server->arg("path")) : String(),
+                    PLUGIN_FS_MAX_BYTES);
+    return;
+  }
+  rawUpload.feed(raw);
+}
+
+// ---- The Plugins page ----------------------------------------------------------------------------
+//
+// The browser does the fetching and unpacking (from a .zip the user picked, or from the catalog on
+// GitHub, which allows cross-origin reads); the device only stores what it is sent. An install goes
+// into a staging folder file by file and replaces the plugin in one rename, so a half-sent plugin
+// never runs.
+
+namespace {
+
+constexpr size_t PLUGIN_FILE_MAX_BYTES = 512u * 1024u;
+constexpr char PLUGIN_DISABLED_MARKER[] = "disabled";
+
+std::string pluginInstallDir(const String& name) {
+  return std::string(PluginLocations::kInstallRoot) + "/" + name.c_str();
+}
+
+std::string pluginStagingDir(const String& name) { return pluginInstallDir(name) + ".new"; }
+
+}  // namespace
+
+void CrossPointWebServer::handlePluginsPage() const { serveBundlePage(web_bundle::PluginsPageHtml); }
+
+// GET /api/book/opf?path=<epub> -> the OPF package document from inside the book, as it is.
+//
+// What the Details dialog reads a book's own metadata from when no sidecar overrides it. The dialog
+// used to download the whole EPUB, often tens of MB over the device's one connection, to read a few
+// KB of it in the browser.
+void CrossPointWebServer::handleBookOpf() const {
   if (rejectIfLowMemory(server.get())) return;
+  const String path = normalizeWebPath(server->arg("path"));
+  if (!FsHelpers::hasEpubExtension(path) || isProtectedWebPath(path, Target::Item, hiddenAllowed()) ||
+      !Storage.exists(path.c_str())) {
+    server->send(404, "application/json", "{\"error\":\"no such EPUB\"}");
+    return;
+  }
+  const Epub epub(path.c_str(), "/.crosspoint");
+  std::string opfPath;
+  if (!epub.contentOpfPath(&opfPath)) {
+    server->send(422, "application/json", "{\"error\":\"no OPF in this EPUB\"}");
+    return;
+  }
+  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server->send(200, "application/oebps-package+xml", "");
+  ChunkedResponse out(server.get());
+  ChunkedPrint body(out);
+  // A failure from here on reaches the page as truncated XML, which it treats as unreadable and
+  // falls back to downloading the book.
+  if (!epub.readItemContentsToStream(opfPath, body, 1024)) LOG_ERR("WEB", "Reading the OPF of %s failed", path.c_str());
+  out.finish();
+}
 
-  const String plugin = server->arg("plugin");
-  const String path = pluginWriteTarget(server->arg("path"));
-  if (!isSafePathComponent(plugin) || path.isEmpty()) {
-    server->send(400, "application/json", "{\"error\":\"missing plugin or path\"}");
+// POST /api/book/replace?path=<book.epub>[&keep=1]  (raw body = the new book)
+//
+// The File Manager's in-place optimize: it downloads a book, optimizes it in the browser and sends
+// it back here. The new file is written beside the book and swapped in only once complete. The
+// original stays as <book>.bak - unless a .bak is already there, which then holds the older
+// original and is kept. keep=1 means the optimizer left the chapter list as it was: the reading
+// position and the bookmarks stay, and only what the new content makes wrong (laid-out chapters,
+// indexes, thumbnails) goes. Without it the book starts afresh, as after any re-upload.
+
+namespace {
+
+// A book of any size the card holds; the browser cannot send what it could not optimize anyway.
+constexpr size_t BOOK_REPLACE_MAX_BYTES = 512u * 1024u * 1024u;
+
+// The target /api/book/replace accepts: an existing EPUB the web interface may write.
+String bookReplaceTarget(const String& rawPath) {
+  const String path = pluginWriteTarget(rawPath);
+  if (path.isEmpty() || !FsHelpers::hasEpubExtension(path) || !Storage.exists(path.c_str())) return "";
+  return path;
+}
+
+// Everything in the book's cache folder except the reading position and the bookmarks.
+void dropLayoutCache(const String& bookPath) {
+  const std::string cacheDir = Epub(bookPath.c_str(), "/.crosspoint").getCachePath();
+  FsFile dir = Storage.open(cacheDir.c_str());
+  if (!dir || !dir.isDirectory()) {
+    if (dir) dir.close();
+    return;
+  }
+  char name[64];
+  for (FsFile entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+    HalSystem::feedWatchdog();
+    entry.getName(name, sizeof(name));
+    const bool isDir = entry.isDirectory();
+    entry.close();
+    if (strcmp(name, "progress.bin") == 0 || strcmp(name, "bookmarks.bin") == 0) continue;
+    const std::string child = cacheDir + "/" + name;
+    if (isDir ? !Storage.removeDir(child.c_str()) : !Storage.remove(child.c_str())) {
+      LOG_ERR("WEB", "Could not remove %s", child.c_str());
+    }
+  }
+  dir.close();
+}
+
+}  // namespace
+
+void CrossPointWebServer::handleBookReplace() {
+  const String path = bookReplacePath;  // validated in handleBookReplaceData(); rawUpload.path is <path>.new
+  bookReplacePath = "";
+  if (rawUpload.answerFailure(*server)) return;
+  const String fresh = path + ".new";
+  const String backup = path + ".bak";
+  // The upload wrote <path>.new.part and renamed it to <path>.new; now <path> itself moves.
+  const bool keepOlderBackup = Storage.exists(backup.c_str());
+  const bool movedAside = keepOlderBackup ? Storage.remove(path.c_str()) : Storage.rename(path.c_str(), backup.c_str());
+  if (!movedAside) {
+    Storage.remove(fresh.c_str());
+    server->send(500, "application/json", "{\"error\":\"could not set the original aside\"}");
+    return;
+  }
+  if (!Storage.rename(fresh.c_str(), path.c_str())) {
+    LOG_ERR("WEB", "Could not swap in %s", fresh.c_str());
+    if (!keepOlderBackup) Storage.rename(backup.c_str(), path.c_str());
+    server->send(500, "application/json", "{\"error\":\"could not replace the book\"}");
     return;
   }
 
-  // WebServer has already buffered the body; "plain" is the raw payload for a
-  // non-form content type.
-  const String body = server->arg("plain");
-  if (body.length() > PLUGIN_FS_MAX_BYTES) {
-    server->send(413, "application/json", "{\"error\":\"file too large, use /upload\"}");
-    return;
+  const bool keep = server->arg("keep") == "1";
+  if (keep) {
+    dropLayoutCache(path);
+  } else {
+    clearBookCacheIfNeeded(path);
+    GLOBAL_BOOKMARKS.removeBySourcePath(path.c_str());
   }
+  LOG_DBG("WEB", "Replaced %s (%u B, %s)", path.c_str(), static_cast<unsigned>(rawUpload.written),
+          keep ? "reading state kept" : "reading state reset");
 
-  FsFile out;
-  if (!Storage.openFileForWrite("WEB", path.c_str(), out)) {
-    server->send(500, "application/json", "{\"error\":\"could not create file\"}");
-    return;
-  }
-  const size_t written = body.length() ? out.write(body.c_str(), body.length()) : 0;
-  out.close();
-
-  if (written != static_cast<size_t>(body.length())) {
-    LOG_ERR("WEB", "plugin-fs short write: %u of %u to %s", static_cast<unsigned>(written),
-            static_cast<unsigned>(body.length()), path.c_str());
-    server->send(500, "application/json", "{\"error\":\"short write\"}");
-    return;
-  }
-
-  LOG_DBG("WEB", "plugin-fs wrote %u bytes to %s", static_cast<unsigned>(written), path.c_str());
-  clearBookCacheIfNeeded(path);
   JsonDocument doc;
   doc["ok"] = true;
   doc["path"] = path.c_str();
+  doc["backup"] = backup.c_str();
+  doc["keptOlderBackup"] = keepOlderBackup;
+  doc["keptReadingState"] = keep;
   sendJson(server.get(), 200, doc);
+}
+
+void CrossPointWebServer::handleBookReplaceData() {
+  const HTTPRaw& raw = server->raw();
+  if (raw.status == RAW_START) {
+    tolerateUploadStalls(*server);
+    const String target = bookReplaceTarget(server->arg("path"));
+    bookReplacePath = target;
+    rawUpload.start(target.isEmpty() ? target : target + ".new", BOOK_REPLACE_MAX_BYTES);
+    return;
+  }
+  rawUpload.feed(raw);
+}
+
+void CrossPointWebServer::handlePluginInstallBegin() const {
+  const String name = server->arg("name");
+  if (!isSafePathComponent(name)) {
+    server->send(400, "application/json", "{\"error\":\"invalid plugin name\"}");
+    return;
+  }
+  const std::string staging = pluginStagingDir(name);
+  Storage.mkdir(PluginLocations::kInstallRoot);
+  if (Storage.exists(staging.c_str())) Storage.removeDir(staging.c_str());  // left by a cut install
+  if (!Storage.mkdir(staging.c_str())) {
+    server->send(500, "application/json", "{\"error\":\"could not create the staging folder\"}");
+    return;
+  }
+  server->send(200, "application/json", "{\"ok\":true}");
+}
+
+void CrossPointWebServer::handlePluginInstallFile() {
+  if (rawUpload.answerFailure(*server)) return;
+  LOG_DBG("WEB", "plugin file %s (%u B)", rawUpload.path.c_str(), static_cast<unsigned>(rawUpload.written));
+  server->send(200, "application/json", "{\"ok\":true}");
+}
+
+void CrossPointWebServer::handlePluginInstallFileData() {
+  const HTTPRaw& raw = server->raw();
+  if (raw.status == RAW_START) {
+    tolerateUploadStalls(*server);
+    // Flat files only: /plugin serves single path components, so a nested one could never load.
+    const String name = server->arg("name");
+    const String fileName = server->arg("file");
+    const std::string staging = pluginStagingDir(name);
+    const bool valid = isSafePathComponent(name) && isSafePathComponent(fileName) && Storage.exists(staging.c_str());
+    rawUpload.start(valid ? String((staging + "/" + fileName.c_str()).c_str()) : String(), PLUGIN_FILE_MAX_BYTES);
+    return;
+  }
+  rawUpload.feed(raw);
+}
+
+void CrossPointWebServer::handlePluginInstallCommit() const {
+  const String name = server->arg("name");
+  if (!isSafePathComponent(name)) {
+    server->send(400, "application/json", "{\"error\":\"invalid plugin name\"}");
+    return;
+  }
+  const std::string staging = pluginStagingDir(name);
+  if (!Storage.exists((staging + "/plugin.js").c_str())) {
+    server->send(400, "application/json", "{\"error\":\"no plugin.js was sent\"}");
+    return;
+  }
+  const std::string live = pluginInstallDir(name);
+  if ((Storage.exists(live.c_str()) && !Storage.removeDir(live.c_str())) ||
+      !Storage.rename(staging.c_str(), live.c_str())) {
+    server->send(500, "application/json", "{\"error\":\"could not replace the plugin\"}");
+    return;
+  }
+  LOG_INF("WEB", "Plugin %s installed", name.c_str());
+  server->send(200, "application/json", "{\"ok\":true}");
+}
+
+// Removes the plugin from every root, so a copy in another root does not take its place.
+void CrossPointWebServer::handlePluginRemove() const {
+  const String name = server->arg("name");
+  if (!isSafePathComponent(name)) {
+    server->send(400, "application/json", "{\"error\":\"invalid plugin name\"}");
+    return;
+  }
+  bool removed = false;
+  for (const char* root : PluginLocations::kRoots) {
+    const std::string dir = std::string(root) + "/" + name.c_str();
+    if (!Storage.exists(dir.c_str())) continue;
+    if (!Storage.removeDir(dir.c_str())) {
+      server->send(500, "application/json", "{\"error\":\"could not remove the plugin\"}");
+      return;
+    }
+    removed = true;
+  }
+  if (!removed) {
+    server->send(404, "application/json", "{\"error\":\"no such plugin\"}");
+    return;
+  }
+  LOG_INF("WEB", "Plugin %s removed", name.c_str());
+  server->send(200, "application/json", "{\"ok\":true}");
+}
+
+// A disabled plugin keeps its folder and carries a "disabled" marker, which /api/plugins reports and
+// the pages honour: kept on the card rather than in one browser, so it holds for every browser.
+void CrossPointWebServer::handlePluginEnable() const {
+  const String name = server->arg("name");
+  if (!isSafePathComponent(name)) {
+    server->send(400, "application/json", "{\"error\":\"invalid plugin name\"}");
+    return;
+  }
+  const std::string dir = PluginLocations::findPluginDir(name.c_str());
+  if (dir.empty()) {
+    server->send(404, "application/json", "{\"error\":\"no such plugin\"}");
+    return;
+  }
+  const std::string marker = dir + "/" + PLUGIN_DISABLED_MARKER;
+  const bool enable = server->arg("on") != "0";
+  bool ok = true;
+  if (enable) {
+    if (Storage.exists(marker.c_str())) ok = Storage.remove(marker.c_str());
+  } else if (!Storage.exists(marker.c_str())) {
+    FsFile f;
+    ok = Storage.openFileForWrite("WEB", marker.c_str(), f);
+    if (ok) f.close();
+  }
+  if (!ok) {
+    server->send(500, "application/json", "{\"error\":\"could not change the plugin\"}");
+    return;
+  }
+  server->send(200, "application/json", "{\"ok\":true}");
 }
 
 // WebSocket callback trampoline
@@ -3058,7 +3729,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 
     case WStype_TEXT: {
       // Parse control messages
-      String msg = String((char*)payload);
+      String msg = String(reinterpret_cast<const char*>(payload));
       LOG_DBG("WS", "Text from client %u: %s", num, msg.c_str());
 
       if (msg.startsWith("START:")) {
@@ -3108,6 +3779,14 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
           String filePath = wsUploadPath;
           if (!filePath.endsWith("/")) filePath += "/";
           filePath += wsUploadFileName;
+
+          // Before the overwrite below removes anything; same rule as the HTTP upload.
+          if (isProtectedWebPath(wsUploadPath, Target::Directory, hiddenAllowed()) ||
+              isProtectedWebPath(filePath, Target::Item, hiddenAllowed())) {
+            LOG_DBG("WS", "START rejected: protected target '%s'", filePath.c_str());
+            wsServer->sendTXT(num, "ERROR:Cannot write to a protected location");
+            return;
+          }
 
           LOG_DBG("WS", "Starting upload: %s (%d bytes) to %s", wsUploadFileName.c_str(), wsUploadSize,
                   filePath.c_str());

@@ -2,12 +2,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <new>
 
 #include "EpdFont.h"
 #include "EpdFontData.h"
+#include "GlyphProvider.h"
 
 class HalFile;
+class BuildArena;
 
 class SdCardFont {
  public:
@@ -39,6 +42,14 @@ class SdCardFont {
   // overflow handler to load glyph bitmaps from SD at draw time.
   // Returns true on success.
   bool loadFromMmap(const uint8_t* base, size_t size, const char* sdPath);
+
+  // Serve every array this font allocates from `arena` instead of the heap, except the glyph-miss
+  // ring's bitmaps (OverflowEntry::bitmap). Nothing in the arena is freed one array at a time; the
+  // caller reclaims it all by rewinding the arena AFTER this font is destroyed.
+  // Call before load()/loadFromMmap() and never change it afterwards: an array has to be freed the
+  // way it was allocated. The font selector's previews use it (FontSelectionActivity::
+  // loadPreviewFont); the reader never does.
+  void useArena(BuildArena* arena) { arena_ = arena; }
 
   // Pre-read glyphs needed for the given UTF-8 text from SD card.
   // styleMask: bitmask of styles to prewarm (bit 0=regular, 1=bold, 2=italic, 3=bolditalic).
@@ -86,10 +97,6 @@ class SdCardFont {
 
   // Returns the bitmap for an on-demand-loaded (overflow) glyph.
   const uint8_t* getOverflowBitmap(const EpdGlyph* glyph) const;
-
-  // Extract SdCardFont* from an opaque glyphMissCtx pointer.
-  // Used by GfxRenderer::getGlyphBitmap() to recover the SdCardFont from EpdFontData::glyphMissCtx.
-  static SdCardFont* fromMissCtx(void* ctx);
 
   struct Stats {
     uint32_t prewarmTotalMs = 0;
@@ -190,7 +197,7 @@ class SdCardFont {
     uint32_t reportedMisses[MAX_REPORTED_MISSES] = {};
     uint8_t reportedMissCount = 0;
 
-    // Debug counters for on-demand glyph misses (glyphMissHandler). Used to
+    // Debug counters for on-demand glyph misses (StyleProvider::missGlyph). Used to
     // throttle log volume while still preserving visibility into overflow churn.
     uint32_t onDemandMissCount = 0;
     uint16_t onDemandMissLogged = 0;
@@ -220,17 +227,28 @@ class SdCardFont {
 
   char filePath_[128] = {};
 
-  // Overflow context: glyphMissHandler needs to know which style it's serving
-  struct OverflowContext {
-    SdCardFont* self;
-    uint8_t styleIdx;
-  };
-  OverflowContext overflowCtx_[MAX_STYLES] = {};
+  // Each style's EpdFontData points at its own StyleProvider: a miss goes to the shared ring, and
+  // the renderer asks it whether a glyph's bitmap is one the ring holds.
+  class StyleProvider final : public GlyphProvider {
+   public:
+    SdCardFont* self = nullptr;
+    uint8_t styleIdx = 0;
 
-  // Shared on-demand overflow buffer (ring buffer of glyphs loaded via glyphMissHandler)
+    const EpdGlyph* missGlyph(const uint32_t codepoint) override { return SdCardFont::onGlyphMiss(this, codepoint); }
+    bool ownsBitmap(const EpdGlyph* glyph, const uint8_t*& bitmap) const override {
+      if (!self->isOverflowGlyph(glyph)) return false;
+      bitmap = self->getOverflowBitmap(glyph);
+      return true;
+    }
+  };
+  StyleProvider styleProviders_[MAX_STYLES];
+
+  // Shared on-demand overflow buffer (ring of glyphs loaded by StyleProvider::missGlyph)
   static constexpr uint32_t OVERFLOW_CAPACITY = 8;
   struct OverflowEntry {
     EpdGlyph glyph;
+    // Always on the heap, even with an arena (useArena): the ring frees one slot at a time, which a
+    // bump arena cannot, so every eviction would strand its bitmap there until the block is rewound.
     uint8_t* bitmap = nullptr;
     uint32_t codepoint = 0;
     uint8_t styleIdx = 0;
@@ -255,6 +273,29 @@ class SdCardFont {
   // kern matrix) directly from flash without SD I/O.
   const uint8_t* mmapDataBase_ = nullptr;
 
+  // See useArena(). Null: every allocation below is the plain heap call it replaced.
+  BuildArena* arena_ = nullptr;
+  template <typename T>
+  T* allocArray(size_t count);
+  template <typename T>
+  void freeArray(T* p);
+  // A buffer that lives for one call. On the heap it is freed when the scope ends; in an arena it
+  // stays until the caller rewinds the font's block, so the deleter does nothing.
+  template <typename T>
+  struct ScratchDeleter {
+    bool heap = true;
+    void operator()(T* p) const {
+      if (heap) delete[] p;
+    }
+  };
+  template <typename T>
+  using Scratch = std::unique_ptr<T[], ScratchDeleter<T>>;
+  template <typename T>
+  Scratch<T> makeScratch(size_t count);
+  // The biggest single allocation the prewarm bitmap retry can make: the arena's remaining room,
+  // or the heap's largest free block.
+  uint32_t maxAllocatable() const;
+
   // Per-style helpers
   static bool allCpsCovered(const PerStyle& s, const uint32_t* codepoints, uint32_t cpCount);
   void freeStyleMiniData(PerStyle& s);
@@ -276,6 +317,6 @@ class SdCardFont {
   void clearOverflow();
   static void computeStyleFileOffsets(PerStyle& s, uint32_t baseOffset);
 
-  // Static callback for EpdFontData::glyphMissHandler (per-style via OverflowContext)
+  // The miss path behind StyleProvider::missGlyph; ctx is that StyleProvider.
   static const EpdGlyph* onGlyphMiss(void* ctx, uint32_t codepoint);
 };

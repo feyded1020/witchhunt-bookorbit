@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "HttpRange.h"
 #include "SecureClient.h"
 
 namespace crosspoint {
@@ -61,8 +62,31 @@ class SecureHttpClient {
   // the downgrade silently drops transport security; when refused, following
   // stops and the caller sees the 3xx status.
   void setAllowRedirectDowngrade(bool allow) { _allowRedirectDowngrade = allow; }
+  // Asked with the absolute URL of each redirect before it is followed. False
+  // stops there and the caller sees the 3xx status, as for a refused downgrade.
+  // For requests made on someone else's behalf whose reach is fenced to an
+  // allowlist: without it, an allowed host could send the request anywhere.
+  using RedirectFilter = std::function<bool(const std::string& url)>;
+  void setRedirectFilter(RedirectFilter filter) { _redirectFilter = std::move(filter); }
+  // Ask for bytes first..last (inclusive) of the resource: a "Range: bytes=first-last" header on
+  // every request, redirect hops included, until clearRange(). The response is a 206 with a
+  // Content-Range (lastContentRange()), or a 200 from a server that ignores Range.
+  void setRange(size_t first, size_t last) { _rangeHeader = http_range::rangeHeaderValue(first, last); }
+  void clearRange() { _rangeHeader.clear(); }
+  // Leave out the per-request trace line for requests that got a response (failures still log it),
+  // for a transfer made of many small requests that logs one summary instead.
+  void setQuietRequests(bool quiet) { _quietRequests = quiet; }
+  // request() keeps at most this many body bytes (0: no limit) and reads the rest off the
+  // connection without storing it, so the status and the start of the body still arrive.
+  // bodyTruncated() says whether anything was dropped. For callers that expect a small reply but
+  // may be pointed at a server that sends a large page instead.
+  void setMaxBufferedBody(size_t bytes) { _maxBufferedBody = bytes; }
 
   // --- requests ---
+  // Open the connection for url (or keep the matching kept-alive one) without sending anything, so
+  // a caller can see the heap its requests will start from. False on a bad URL or a failed connect.
+  bool open(const std::string& url);
+
   // Streaming GET: body is delivered to sink in chunks. Returns the final HTTP
   // status (after redirects), or a negative SecureHttpError on transport failure.
   int get(const std::string& url, const BodySink& sink, const ProgressFn& progress = nullptr);
@@ -75,8 +99,17 @@ class SecureHttpClient {
   int PUT(const std::string& url, const std::string& body) { return request("PUT", url, body); }
 
   const std::string& getBody() const { return _body; }
+  bool bodyTruncated() const { return _bodyTruncated; }
+  // The current (inside a body sink) or last response: status, Content-Length (-1 when absent),
+  // Content-Range, and the URL it came from after redirects. All set before the first body byte.
   int lastStatus() const { return _status; }
+  long lastContentLength() const { return _contentLength; }
+  bool lastHasContentRange() const { return _hasContentRange; }
+  const http_range::ContentRange& lastContentRange() const { return _contentRange; }
+  const std::string& lastUrl() const { return _lastUrl; }
   bool lastConnectionWasInsecure() const { return _lastInsecure; }
+  // True if the last request failed because a TLS record buffer could not be allocated.
+  bool lastReadOutOfMemory() const { return _secure.lastReadWasOutOfMemory(); }
   // Heap trough sampled across the last TLS handshake (see SecureClient). Only
   // meaningful for https requests; SIZE_MAX if no https handshake occurred.
   size_t lastHandshakeMinFree() const { return _secure.handshakeMinFree(); }
@@ -143,7 +176,11 @@ class SecureHttpClient {
     bool chunked = false;
     bool keepAlive = true;
     std::string location;
+    bool hasContentRange = false;
+    http_range::ContentRange contentRange;
   };
+  // Publishes a response's metadata (lastStatus() and friends) before its body is read.
+  void noteResponse(const ResponseMeta& meta, const std::string& url);
 
   // True when the kept-open connection matches (scheme,host,port) and still
   // looks alive. "Looks" is best-effort: the server may have closed it already,
@@ -158,8 +195,8 @@ class SecureHttpClient {
   int transact(const char* method, const Url& u, const uint8_t* body, size_t bodyLen, ResponseMeta& meta);
   // Send the request line + headers (+ body for POST/PUT). Returns false on write failure.
   bool sendRequest(const char* method, const Url& u, const uint8_t* body, size_t bodyLen);
-  // Read status line + headers. Fills status, and out params for body framing.
-  bool readHeaders(int& status, long& contentLength, bool& chunked, bool& keepAlive, std::string& location);
+  // Read status line + headers into meta (status, body framing, Location, Content-Range).
+  bool readHeaders(ResponseMeta& meta);
   // Stream the body per framing to sink (with progress). Returns 0 on success,
   // or a negative SecureHttpError.
   int readBody(const BodySink& sink, const ProgressFn& progress, long contentLength, bool chunked, bool keepAlive);
@@ -183,12 +220,21 @@ class SecureHttpClient {
   std::string _user;
   std::string _pass;
   std::vector<std::string> _headers;
+  std::string _rangeHeader;  // "bytes=a-b" while a Range is set, else empty
+  bool _quietRequests = false;
+  size_t _maxBufferedBody = 0;
   int _maxRedirects = 5;
   bool _allowRedirectDowngrade = false;
+  RedirectFilter _redirectFilter;
 
   // per-request result
   std::string _body;
+  bool _bodyTruncated = false;
   int _status = 0;
+  long _contentLength = -1;
+  bool _hasContentRange = false;
+  http_range::ContentRange _contentRange;
+  std::string _lastUrl;
   bool _lastInsecure = false;
 
   static constexpr size_t MAX_LINE = 4096;

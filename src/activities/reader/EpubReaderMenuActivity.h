@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../TabbedUiListActivity.h"
+#include "ReaderFontSizes.h"
 #include "activities/settings/SettingInfo.h"
 #include "components/UITheme.h"
 
@@ -40,6 +41,7 @@ class EpubReaderMenuActivity final : public TabbedUiListActivity {
     GO_HOME,
     PULL_REMOTE,
     PUSH_LOCAL,
+    COMPARE_REMOTE,
     STARRED_PAGES,
     STAR_PAGE,
     MARK_AS_READ,
@@ -62,7 +64,6 @@ class EpubReaderMenuActivity final : public TabbedUiListActivity {
                                   const int8_t initialInlineFootnotePreviewsOverride, const bool hasStarredPages,
                                   const bool isCurrentPageStarred, const bool hasPrintedPages);
 
-  void onEnter() override;
   void onExit() override;
 
  private:
@@ -82,9 +83,6 @@ class EpubReaderMenuActivity final : public TabbedUiListActivity {
   int listCount() const override { return static_cast<int>(activeMenuItems().size()); }
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
-  // Each tab keeps its own scroll position and selection, so a reader who steps away to another
-  // tab and back finds the row they left rather than the top of the list.
-  freeink::ui::ListNav& activeNav() override { return tabNav[activeTabIndex()]; }
   int tabCount() const override { return visibleTabCount; }
   const char* tabLabel(int slot) const override;
 #if READER_MENU_TAB_ICONS
@@ -94,8 +92,9 @@ class EpubReaderMenuActivity final : public TabbedUiListActivity {
   void customizeTabBar(UiScreen& screen, freeink::ui::TabBarProps& props) override;
 #endif
   void onBackFromTabs() override { onBackPressed(); }
+  void homeFromList() override { finishWithAction(MenuAction::GO_HOME); }
   void drawChrome() override;
-  void drawFooter() override;
+  [[nodiscard]] const char* footerConfirmLabel() const override;
   [[nodiscard]] std::string getItemValueString(int index) const;
   void onActionSelected(int index);
   void onBackPressed();
@@ -112,7 +111,6 @@ class EpubReaderMenuActivity final : public TabbedUiListActivity {
 
   std::array<std::vector<SettingInfo>, MENU_TAB_COUNT> tabMenuItems;
   std::array<MenuTab, MENU_TAB_COUNT> visibleTabs{};
-  std::array<freeink::ui::ListNav, MENU_TAB_COUNT> tabNav;
   uint8_t visibleTabCount = 0;
 
   static constexpr size_t LIST_WINDOW_CAPACITY = 24;
@@ -130,6 +128,9 @@ class EpubReaderMenuActivity final : public TabbedUiListActivity {
   int8_t pendingFontFamilyOverride = -1;
   std::string pendingSdFontFamilyOverride;
   int8_t pendingFontSizeOverride = -1;
+  // The sizes the pending font family offers. The size row lists these, and a pending size
+  // override is one of them (see ReaderSizeList).
+  ReaderSizeList pendingSizeList() const;
   uint8_t pendingTextDarkness = 1;
   bool pendingBionicReading = false;
   int8_t pendingGuideDotsOverride = -1;

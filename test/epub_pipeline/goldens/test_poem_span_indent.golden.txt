@@ -1,0 +1,116 @@
+BOOK title=Poem Span Indent Test lang=en spine=1 toc=1 reliableToc=1
+SPINE 0 href=OEBPS/chapter1.xhtml pages=1 truncated=0 cssFallback=0
+ PAGE 0 elements=20 footnotes=0
+  LINE y=0 x=0 align=0 mult=1.000 hfid=0 words=3
+   W x=18 s=0 z=100 t=BEFORE
+   W x=82 s=0 z=100 t=the
+   W x=119 s=0 z=100 t=tale.
+  LINE y=24 x=72 align=0 mult=1.000 hfid=0 words=4
+   W x=18 s=0 z=100 t=L01
+   W x=54 s=0 z=100 t=Fury
+   W x=93 s=0 z=100 t=said
+   W x=134 s=0 z=100 t=to
+  LINE y=48 x=72 align=0 mult=1.000 hfid=0 words=4
+   W x=36 s=0 z=100 t=L02
+   W x=73 s=0 z=100 t=a
+   W x=91 s=0 z=100 t=mouse,
+   W x=156 s=0 z=100 t=That
+  LINE y=72 x=72 align=0 mult=1.000 hfid=0 words=5
+   W x=72 s=0 z=100 t=L03
+   W x=110 s=0 z=100 t=he
+   W x=137 s=0 z=100 t=met
+   W x=172 s=0 z=100 t=in
+   W x=195 s=0 z=100 t=the
+  LINE y=96 x=72 align=0 mult=1.000 hfid=0 words=6
+   W x=104 s=0 z=100 t=L04
+   W x=143 s=0 z=100 t=house,
+   W x=210 s=0 z=100 t=Let
+   W x=247 s=0 z=100 t=us
+   W x=273 s=0 z=100 t=both
+   W x=319 s=0 z=100 t=go
+  LINE y=120 x=72 align=0 mult=1.000 hfid=0 words=6
+   W x=129 s=0 z=100 t=L05
+   W x=169 s=0 z=100 t=to
+   W x=197 s=0 z=100 t=law:
+   W x=238 s=0 z=100 t=I
+   W x=253 s=0 z=100 t=will
+   W x=289 s=0 z=100 t=prose-
+  LINE y=144 x=72 align=0 mult=1.000 hfid=0 words=7
+   W x=66 s=0 z=100 t=L06
+   W x=107 s=0 z=100 t=cute
+   W x=150 s=0 z=100 t=you.
+   W x=197 s=0 z=100 t=Come,
+   W x=252 s=0 z=100 t=I
+   W x=267 s=0 z=100 t=will
+   W x=303 s=0 z=100 t=take
+  LINE y=168 x=72 align=0 mult=1.000 hfid=0 words=7
+   W x=50 s=0 z=100 t=L07
+   W x=92 s=0 z=100 t=no
+   W x=121 s=0 z=100 t=denial:
+   W x=190 s=0 z=100 t=We
+   W x=214 s=0 z=100 t=must
+   W x=260 s=0 z=100 t=have
+   W x=311 s=0 z=100 t=the
+  LINE y=192 x=72 align=0 mult=1.000 hfid=0 words=4
+   W x=159 s=0 z=100 t=L08
+   W x=195 s=0 z=100 t=trial;
+   W x=255 s=0 z=100 t=For
+   W x=287 s=0 z=100 t=really
+  LINE y=216 x=72 align=0 mult=1.000 hfid=0 words=5
+   W x=108 s=0 z=100 t=L09
+   W x=149 s=0 z=100 t=this
+   W x=196 s=0 z=100 t=morning
+   W x=275 s=0 z=100 t=I
+   W x=294 s=0 z=100 t=have
+  LINE y=240 x=72 align=0 mult=1.000 hfid=0 words=3
+   W x=0 s=0 z=100 t=nothing
+   W x=79 s=0 z=100 t=to
+   W x=107 s=0 z=100 t=do.
+  LINE y=264 x=72 align=0 mult=1.000 hfid=0 words=5
+   W x=144 s=0 z=100 t=L10
+   W x=180 s=0 z=100 t=Said
+   W x=224 s=0 z=100 t=the
+   W x=261 s=0 z=100 t=mouse
+   W x=318 s=0 z=100 t=to
+  LINE y=288 x=72 align=0 mult=1.000 hfid=0 words=5
+   W x=0 s=0 z=100 t=the
+   W x=73 s=0 z=100 t=cur,
+   W x=149 s=0 z=100 t=Such
+   W x=233 s=0 z=100 t=a
+   W x=287 s=0 z=100 t=trial,
+  LINE y=312 x=72 align=0 mult=1.000 hfid=0 words=5
+   W x=0 s=0 z=100 t=dear
+   W x=82 s=0 z=100 t=sir,
+   W x=158 s=0 z=100 t=with
+   W x=237 s=0 z=100 t=no
+   W x=305 s=0 z=100 t=jury
+  LINE y=336 x=72 align=0 mult=1.000 hfid=0 words=2
+   W x=0 s=0 z=100 t=or
+   W x=26 s=0 z=100 t=judge
+  LINE y=360 x=72 align=0 mult=1.000 hfid=0 words=6
+   W x=36 s=0 z=100 t=L11
+   W x=66 s=0 z=100 t=would
+   W x=118 s=0 z=100 t=be
+   W x=139 s=0 z=100 t=wasting
+   W x=210 s=0 z=100 t=our
+   W x=247 s=0 z=100 t=breath.
+  LINE y=408 x=0 align=0 mult=1.000 hfid=0 words=4
+   W x=216 s=0 z=100 t=INDENTED
+   W x=299 s=0 z=100 t=A
+   W x=315 s=0 z=100 t=paragraph
+   W x=410 s=0 z=100 t=whose
+  LINE y=432 x=0 align=0 mult=1.000 hfid=0 words=4
+   W x=0 s=0 z=100 t=own
+   W x=92 s=0 z=100 t=text-indent
+   W x=255 s=0 z=100 t=pushes
+   W x=374 s=0 z=100 t=its
+  LINE y=456 x=0 align=0 mult=1.000 hfid=0 words=6
+   W x=0 s=0 z=100 t=first
+   W x=93 s=0 z=100 t=line
+   W x=178 s=0 z=100 t=far
+   W x=258 s=0 z=100 t=in,
+   W x=333 s=0 z=100 t=and
+   W x=414 s=0 z=100 t=which
+  LINE y=480 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=0 s=0 z=100 t=simply
+   W x=54 s=0 z=100 t=wraps.

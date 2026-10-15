@@ -93,29 +93,34 @@ void HalPowerManager::setPowerSaving(bool enabled) {
     enabled = false;
   }
 
-  // Relaxed atomic read: a slightly stale value is acceptable (the lock holder
-  // that just won the race will re-call setPowerSaving anyway), but we want
-  // defined semantics rather than relying on compiler behavior for a plain int.
+  // Under modeMutex, as Lock acquisition is. This used to read the lock state relaxed and change the
+  // clock after it, on the theory that a Lock which won the race would call setPowerSaving() again.
+  // It does not: a Lock calls it once, on acquisition. So a downclock decided on "no lock held" and
+  // completed AFTER a Lock's restore stranded that holder at 10 MHz until the next button press --
+  // a 190 ms render took 3.2 s, and the loop task waiting on it 4 s (X3, Covers view). With the
+  // check and the change under the mutex, a Lock either comes first and is seen, or comes after and
+  // finds isLowPower set and restores it.
+  if (modeMutex == nullptr) return;
+  xSemaphoreTake(modeMutex, portMAX_DELAY);
   const LockMode mode = currentLockMode.load(std::memory_order_relaxed);
 
   if (mode == None && enabled && !isLowPower) {
     LOG_DBG("PWR", "Going to low-power mode");
-    if (!setCpuFrequencyMhz(LOW_POWER_FREQ)) {
+    if (setCpuFrequencyMhz(LOW_POWER_FREQ)) {
+      isLowPower = true;
+    } else {
       LOG_DBG("PWR", "Failed to set CPU frequency = %d MHz", LOW_POWER_FREQ);
-      return;
     }
-    isLowPower = true;
-
   } else if ((!enabled || mode != None) && isLowPower) {
     LOG_DBG("PWR", "Restoring normal CPU frequency");
-    if (!setCpuFrequencyMhz(normalFreq)) {
+    if (setCpuFrequencyMhz(normalFreq)) {
+      isLowPower = false;
+    } else {
       LOG_DBG("PWR", "Failed to set CPU frequency = %d MHz", normalFreq);
-      return;
     }
-    isLowPower = false;
   }
-
   // Otherwise, no change needed
+  xSemaphoreGive(modeMutex);
 }
 
 void HalPowerManager::ensureFullSpeedForRadio() {
@@ -385,9 +390,13 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool keepClockAlive) const {
   // Xteink C3 boards only", Justin Mitchell / @itsthisjustin). His fix guards
   // lightSleep()/onEinkBusyWaitSlice(), which this fork does not have; here the
   // same predicate guards the one place we touch GPIO13.
-  const bool gpio13IsBatteryLatch = gpio.isXteinkDevice() && !gpio.deviceIsX3();
+  //
+  // Which boards take the latch branch is the profile's call (PowerConfig::latch0GatesBattery,
+  // set on the X4 alone), not a board-name test: the X4 Pro's latch0 keeps a rail up instead and
+  // is held by the loop further down.
+  const bool gpio13IsBatteryLatch = HalCapabilities::hasButtonGatedBatteryLatch();
   if (gpio13IsBatteryLatch) {
-    constexpr gpio_num_t GPIO_SPIWP = GPIO_NUM_13;
+    const auto GPIO_SPIWP = static_cast<gpio_num_t>(BoardConfig::ACTIVE.power.latch0);  // GPIO13 on the X4
     // Release any GPIO hold from a previous sleep cycle (keepClockAlive=true leaves GPIO13 held after wake).
     // Without this, gpio_set_level() below silently fails and GPIO13 is stuck in its prior state,
     // causing the device to enter a sleep/wake loop that requires a hardware reset to escape.
@@ -561,6 +570,69 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
     _batteryCachedPercent = (_batteryCachedPercent * 9 + sample * 10) / 10;
   }
   return _batteryCachedPercent / 10;
+}
+
+namespace {
+// BQ27220 standard commands, read only for the before/after log lines below. The
+// load itself, and the decision whether one is needed, belong to the SDK.
+constexpr uint8_t BQ27220_FULL_CHARGE_CAPACITY_REG = 0x12;
+constexpr uint8_t BQ27220_DESIGN_CAPACITY_REG = 0x3C;
+
+void logGaugeCapacity(const char* when, const uint8_t addr, const uint16_t profileMah) {
+  uint16_t design = 0;
+  uint16_t fullCharge = 0;
+  if (X3GPIO::readI2CReg16LE(addr, BQ27220_DESIGN_CAPACITY_REG, &design) &&
+      X3GPIO::readI2CReg16LE(addr, BQ27220_FULL_CHARGE_CAPACITY_REG, &fullCharge)) {
+    LOG_INF("PWR", "BQ27220 %s: design %u mAh, full-charge %u mAh (profile %u mAh)", when, design, fullCharge,
+            profileMah);
+  } else {
+    LOG_INF("PWR", "BQ27220 %s: capacity read failed", when);
+  }
+}
+}  // namespace
+
+void HalPowerManager::serviceGaugeCapacityLoad() {
+  if (!_gaugeCapacityPending) return;
+
+  // Ported from crosspoint-reader PR #3730 ("fix: load the X3 battery capacity into
+  // its BQ27220 fuel gauge", Tuan Q. Nguyen / @martinqnguyen), which drives the SDK
+  // sequence from Free-Ink/freeink-sdk#132 by the same author. The gauge keeps Design
+  // Capacity in RAM: one that lost power comes back at TI's 3000 mAh default and then
+  // learns a full-charge capacity for a cell four times the X3's real 650 mAh. The
+  // SDK owns the protocol and decides whether anything needs writing; this drives it.
+  //
+  // Differs from upstream in the lock. They step under a try-RenderLock because their
+  // themes read the gauge while drawing. Every gauge access here already goes through
+  // HalI2cBus (getBatteryPercentage(), the X3's Current() read in HalGPIO), so that is
+  // the lock to hold, and for the whole step: one step can be a block select and its
+  // data read 10 ms apart.
+  //
+  // A deep sleep taken inside the ~8 s window can leave the gauge in CONFIG UPDATE;
+  // the SDK's first step on the next boot closes a load left open, with a reinit.
+  const auto& gauge = BoardConfig::ACTIVE.batteryGauge;
+  if (!_batteryUseI2C || gauge.gaugeType != BoardConfig::GaugeType::Bq27220 || gauge.designCapacityMah == 0) {
+    _gaugeCapacityPending = false;
+    return;
+  }
+
+  const unsigned long now = millis();
+  const bool firstCall = _gaugeCapacityStartMs == 0;
+  if (firstCall) {
+    _gaugeCapacityStartMs = now;
+    logGaugeCapacity("at boot", gauge.gaugeAddr, gauge.designCapacityMah);
+  }
+  {
+    HalI2cBus::Lock i2cLock;
+    _gaugeCapacityPending = BatteryMonitor::loadDesignCapacity();
+  }
+  if (_gaugeCapacityPending) return;
+
+  if (firstCall) {
+    LOG_INF("PWR", "BQ27220 capacity: nothing to load");
+  } else {
+    LOG_INF("PWR", "BQ27220 capacity load finished after %lu ms", now - _gaugeCapacityStartMs);
+    logGaugeCapacity("after load", gauge.gaugeAddr, gauge.designCapacityMah);
+  }
 }
 
 HalPowerManager::Lock::Lock() {

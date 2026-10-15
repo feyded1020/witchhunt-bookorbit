@@ -140,9 +140,20 @@ BmpReaderError Bitmap::parseHeaders() {
 
   for (int i = 0; i < 256; i++) paletteLum[i] = static_cast<uint8_t>(i);
   if (colorsUsed > 0) {
+    // The palette follows the whole DIB header, not the 40 bytes read above: GIMP and ImageMagick
+    // write V4/V5 headers (108/124 bytes), whose masks and colour-space fields were read as colours,
+    // which turned a 1-bit image's black and white into two greys. A palette that claims more
+    // entries than fit before the pixels is cut to the ones that do.
+    // Ported from CrossInk commits 7d49b69fa ("read colors correctly in extended BMP files") and
+    // 99712ef66 ("reject incomplete BMP color palettes"), Julia Nguyen; clamping instead of
+    // rejecting the overlapping palette is ours.
+    const uint64_t paletteStart = 14ULL + biSize;
+    const uint64_t room = bfOffBits > paletteStart ? (bfOffBits - paletteStart) / 4 : 0;
+    if (colorsUsed > room) colorsUsed = static_cast<uint32_t>(room);
+    if (!file.seek(static_cast<size_t>(paletteStart))) return BmpReaderError::SeekPixelDataFailed;
     for (uint32_t i = 0; i < colorsUsed; i++) {
       uint8_t rgb[4];
-      file.read(rgb, 4);  // Read B, G, R, Reserved in one go
+      if (file.read(rgb, 4) != 4) return BmpReaderError::FileInvalid;  // B, G, R, reserved
       paletteLum[i] = (77u * rgb[2] + 150u * rgb[1] + 29u * rgb[0]) >> 8;
     }
   }
@@ -203,6 +214,52 @@ BmpReaderError Bitmap::parseHeaders() {
   }
 
   return BmpReaderError::Ok;
+}
+
+void Bitmap::oneBitExpansion(uint16_t table[256]) const {
+  // readNextRow()'s packPixel() for a native palette with no ditherer, which is every 1-bit image.
+  uint8_t color[2];
+  for (int index = 0; index < 2; ++index) {
+    const int adjusted = adjustPixel(applyAdaptiveTone(paletteLum[index]));
+    color[index] = static_cast<uint8_t>(adjusted >> 6);
+  }
+  for (int b = 0; b < 256; ++b) {
+    uint8_t high = 0;
+    uint8_t low = 0;
+    for (int bit = 0; bit < 8; ++bit) {
+      const uint8_t c = color[(b >> (7 - bit)) & 1];
+      if (bit < 4) {
+        high |= static_cast<uint8_t>(c << (6 - 2 * bit));
+      } else {
+        low |= static_cast<uint8_t>(c << (6 - 2 * (bit - 4)));
+      }
+    }
+    table[b] = static_cast<uint16_t>((high << 8) | low);
+  }
+}
+
+BmpReaderError Bitmap::readRawRows(uint8_t* buffer, const int rows) const {
+  const size_t bytes = static_cast<size_t>(rows) * static_cast<size_t>(rowBytes);
+  if (rows <= 0) return BmpReaderError::Ok;
+  if (file.read(buffer, bytes) != static_cast<int>(bytes)) return BmpReaderError::ShortReadRow;
+  prevRowY += rows;
+  return BmpReaderError::Ok;
+}
+
+void Bitmap::expandOneBitRow(const uint16_t table[256], const uint8_t* raw, uint8_t* out, const int width) {
+  const int fullBytes = width / 8;
+  for (int i = 0; i < fullBytes; ++i) {
+    const uint16_t pair = table[raw[i]];
+    out[2 * i] = static_cast<uint8_t>(pair >> 8);
+    out[2 * i + 1] = static_cast<uint8_t>(pair);
+  }
+  const int rest = width % 8;
+  if (rest == 0) return;
+  // The first `rest` pixels of the last byte; the padding after them stays 0.
+  const auto keep = static_cast<uint16_t>(0xFFFFu << (16 - 2 * rest));
+  const uint16_t pair = table[raw[fullBytes]] & keep;
+  out[2 * fullBytes] = static_cast<uint8_t>(pair >> 8);
+  if (rest > 4) out[2 * fullBytes + 1] = static_cast<uint8_t>(pair);
 }
 
 uint8_t Bitmap::applyAdaptiveTone(const uint8_t luminance) const {

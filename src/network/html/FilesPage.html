@@ -4,90 +4,33 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Files - CrossPoint Reader</title>
+  <!--#include file="shared/ThemeInit.html.inc" -->
+  <title>Files - %%CROSSPOINT%%</title>
   <script src="/js/jszip.min.js"></script>
   <style>
-    html {
-      scrollbar-gutter: stable;
-    }
-
-    :root {
-      --font-color: #333;
-      --bg: #f5f5f5;
-      --title-color: #2c3e50;
-      --card-bg: #FFF;
-      --label-color: #7f8c8d;
-      --border-color: #eee;
-      --accent-color: rgb(110, 154, 130);
-      --accent-color-10: rgba(110, 154, 130, 0.1);
-      --accent-hover-color: #5a8c73;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --font-color: #f5f5f5;
-        --bg: #333;
-        --title-color: #ecf0f1;
-        --card-bg: #444;
-        --label-color: #bdc3c7;
-        --border-color: #555;
-        color-scheme: dark;
-      }
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-        Oxygen, Ubuntu, sans-serif;
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 20px;
-      background-color: var(--bg);
-      color: var(--font-color);
-    }
-
-    h1 {
-      color: var(--title-color);
-      margin-bottom: 5px;
-    }
-
-    h2 {
-      color: var(--title-color);
-      margin-top: 0;
-    }
-
-    .card {
-      background: var(--card-bg);
-      border-radius: 8px;
-      padding: 20px;
-      margin: 15px 0;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
+    <!--#include file="shared/Theme.css.inc" -->
+    <!--#include file="shared/NavLinks.css.inc" -->
 
     .page-header {
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-end;
       flex-wrap: wrap;
-      gap: 15px;
-      margin-bottom: 20px;
-      padding-bottom: 15px;
-      border-bottom: 2px solid var(--accent-color);
+      gap: 12px 16px;
+      margin-bottom: 16px;
     }
 
     .page-header-left {
-      display: flex;
-      align-items: baseline;
-      gap: 12px;
-      flex-wrap: wrap;
+      min-width: 0;
     }
 
     .breadcrumb-inline {
-      color: var(--label-color);
-      font-size: 1.1em;
+      color: var(--text-muted);
+      overflow-wrap: anywhere;
     }
 
     .breadcrumb-inline a {
-      color: var(--accent-color);
+      color: var(--accent-text);
       text-decoration: none;
     }
 
@@ -97,92 +40,18 @@
 
     .breadcrumb-inline .sep {
       margin: 0 6px;
-      color: var(--border-color);
+      color: var(--text-muted);
     }
 
     .breadcrumb-inline .current {
-      color: var(--title-color);
+      color: var(--text-strong);
       font-weight: 500;
     }
 
-    .nav-links {
-      margin: 20px 0;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-
-    .nav-links a {
-      padding: 10px 20px;
-      color: var(--font-color);
-      text-decoration: none;
-      border-radius: 4px;
-    }
-
-    .nav-links a.active {
-      background-color: var(--accent-color);
-      color: white;
-    }
-
-    .nav-links a:not(.active):hover {
-      background-color: var(--accent-hover-color);
-      color: white;
-    }
-
-    /* Action buttons */
     .action-buttons {
       display: flex;
-      gap: 10px;
-    }
-
-    .action-btn {
-      color: white;
-      padding: 10px 16px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 0.95em;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .upload-action-btn {
-      background-color: #27ae60;
-    }
-
-    .upload-action-btn:hover {
-      background-color: #219a52;
-    }
-
-    .folder-action-btn {
-      background-color: #f39c12;
-    }
-
-    .folder-action-btn:hover {
-      background-color: #d68910;
-    }
-
-    .move-action-btn {
-      background-color: #2980b9;
-    }
-
-    .move-action-btn:hover {
-      background-color: #2471a3;
-    }
-
-    .delete-action-btn {
-      background-color: #e74c3c;
-    }
-
-    .delete-action-btn:hover {
-      background-color: #c0392b;
-    }
-
-    .action-btn:disabled {
-      opacity: 0.35;
-      cursor: not-allowed;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
     .plugin-error {
@@ -199,7 +68,7 @@
       right: 0;
       bottom: 0;
       background: rgba(52, 152, 219, 0.15);
-      border: 4px dashed #3498db;
+      border: 4px dashed var(--accent);
       z-index: 300;
       justify-content: center;
       align-items: center;
@@ -212,7 +81,7 @@
 
     .drop-overlay-message {
       background: var(--card-bg);
-      color: #3498db;
+      color: var(--accent-text);
       padding: 24px 40px;
       border-radius: 12px;
       font-size: 1.4em;
@@ -239,14 +108,15 @@
     }
 
     .modal {
-      background: var(--card-bg);
-      border-radius: 8px;
-      padding: 25px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
       max-width: 450px;
       width: 90%;
       max-height: 90vh;
       overflow-y: auto;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+      box-shadow: var(--shadow-raised);
     }
 
     .modal.picker-mode {
@@ -319,7 +189,7 @@
 
     .modal h3 {
       margin: 0 0 15px 0;
-      color: var(--title-color);
+      color: var(--text-strong);
     }
 
     .modal-close {
@@ -360,10 +230,12 @@
 
     .file-table th {
       font-weight: 600;
-      color: var(--label-color);
+      font-size: 0.85rem;
+      color: var(--text-muted);
       position: sticky;
       top: 0;
-      background: var(--card-bg);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
       z-index: 10;
     }
 
@@ -389,31 +261,36 @@
     }
 
     .file-table tbody tr:nth-child(even) {
-      background-color: rgba(0, 0, 0, 0.03);
+      background-color: transparent;
     }
 
     .file-table tr:hover {
-      background-color: var(--accent-color-10);
+      background-color: var(--surface-2);
     }
 
     .epub-badge {
       display: inline-block;
-      padding: 2px 8px;
-      background-color: #27ae60;
-      color: white;
-      border-radius: 10px;
-      font-size: 0.75em;
+      padding: 1px 8px;
+      background-color: var(--accent-soft);
+      color: var(--accent-text);
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
       margin-left: 8px;
+      vertical-align: 1px;
     }
 
     .folder-badge {
       display: inline-block;
-      padding: 2px 8px;
-      background-color: #f39c12;
-      color: white;
-      border-radius: 10px;
-      font-size: 0.75em;
+      padding: 1px 8px;
+      background-color: var(--surface-2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
       margin-left: 8px;
+      vertical-align: 1px;
     }
 
     .file-icon {
@@ -422,14 +299,14 @@
 
     .folder-link,
     .file-link {
-      color: var(--accent-color);
+      color: var(--text-strong);
       text-decoration: none;
       cursor: pointer;
     }
 
     .folder-link:hover,
     .file-link:hover {
-      color: var(--accent-hover-color);
+      color: var(--accent-text);
       text-decoration: underline;
     }
 
@@ -443,7 +320,7 @@
     }
 
     .upload-form input[type="file"]::file-selector-button {
-      background-color: #27ae60;
+      background-color: var(--accent);
       color: white;
       border: none;
       padding: 6px 14px;
@@ -454,35 +331,36 @@
     }
 
     .upload-form input[type="file"].has-files::file-selector-button {
-      background-color: #95a5a6;
+      background-color: var(--text-muted);
     }
 
     .upload-btn {
-      background-color: #27ae60;
-      color: white;
+      background-color: var(--accent);
+      color: var(--on-accent);
+      border: 1px solid var(--accent);
       padding: 10px 20px;
-      border: none;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
-      font-size: 1em;
+      font: inherit;
+      font-weight: 600;
       width: 100%;
       margin-top: 12px;
     }
 
     .upload-btn:hover {
-      background-color: #219a52;
+      background-color: var(--accent-hover);
     }
 
     .upload-btn.optimize {
-      background-color: #9b59b6;
+      background-color: var(--accent);
     }
 
     .upload-btn.optimize:hover {
-      background-color: #8e44ad;
+      background-color: var(--accent-hover);
     }
 
     .upload-btn:disabled {
-      background-color: #95a5a6;
+      background-color: var(--text-muted);
       cursor: not-allowed;
     }
 
@@ -629,7 +507,8 @@
     }
 
     .setting-label {
-      flex-shrink: 0;
+      flex: 1 1 auto;
+      min-width: 0;
     }
 
     .setting-controls {
@@ -637,6 +516,7 @@
       flex-direction: column;
       align-items: flex-end;
       gap: 8px;
+      flex-shrink: 0;
     }
 
     .setting-row-header {
@@ -771,7 +651,7 @@
     }
 
     .quality-preset:hover {
-      background: var(--accent-color-10);
+      background: var(--accent-soft);
       color: var(--accent-color);
     }
 
@@ -863,7 +743,7 @@
     }
 
     .rotation-btn:hover {
-      background: var(--accent-color-10);
+      background: var(--accent-soft);
       color: var(--accent-color);
     }
 
@@ -900,7 +780,7 @@
     }
 
     .overlap-btn:hover {
-      background: var(--accent-color-10);
+      background: var(--accent-soft);
       color: var(--accent-color);
     }
 
@@ -1151,7 +1031,7 @@
       border: 1px solid var(--btn-color);
       border-radius: 4px;
       background: transparent;
-      color: var(--text-color);
+      color: var(--text);
       cursor: pointer;
       transition: all 0.15s;
       font-size: inherit;
@@ -1181,9 +1061,8 @@
 
     .no-files {
       text-align: center;
-      color: #95a5a6;
+      color: var(--text-muted);
       padding: 40px;
-      font-style: italic;
     }
 
     .message {
@@ -1193,15 +1072,15 @@
     }
 
     .message.success {
-      background-color: #d4edda;
-      color: #155724;
-      border: 1px solid #c3e6cb;
+      background-color: var(--accent-soft);
+      color: var(--ok-text);
+      border: 1px solid var(--accent-soft);
     }
 
     .message.error {
-      background-color: #f8d7da;
-      color: #721c24;
-      border: 1px solid #f5c6cb;
+      background-color: var(--danger-soft);
+      color: var(--danger);
+      border: 1px solid var(--danger-soft);
     }
 
     .contents-header {
@@ -1238,7 +1117,7 @@
 
     #progress-fill {
       height: 100%;
-      background-color: #27ae60;
+      background-color: var(--accent);
       width: 0%;
       transition: width 0.3s;
     }
@@ -1269,18 +1148,19 @@
     }
 
     .folder-btn {
-      background-color: #f39c12;
-      color: white;
+      background-color: var(--accent);
+      color: var(--on-accent);
+      border: 1px solid var(--accent);
       padding: 10px 20px;
-      border: none;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
-      font-size: 1em;
+      font: inherit;
+      font-weight: 600;
       width: 100%;
     }
 
     .folder-btn:hover {
-      background-color: #d68910;
+      background-color: var(--accent-hover);
     }
 
     .folder-btn:disabled {
@@ -1291,7 +1171,8 @@
     /* Action button styles */
     .delete-btn,
     .rename-btn,
-    .move-btn {
+    .move-btn,
+    .details-btn {
       background: none;
       border: none;
       cursor: pointer;
@@ -1302,47 +1183,54 @@
     }
 
     .delete-btn {
-      color: #95a5a6;
+      color: var(--text-muted);
     }
 
     .delete-btn:hover {
-      background-color: #fee;
-      color: #e74c3c;
+      background-color: var(--danger-soft);
+      color: var(--danger);
     }
 
     .rename-btn {
-      color: #2980b9;
+      color: var(--text-muted);
     }
 
     .rename-btn:hover {
-      background-color: #e8f4fd;
+      background-color: var(--surface-2);
     }
 
     .move-btn {
-      color: #16a085;
+      color: var(--text-muted);
     }
 
     .move-btn:hover {
-      background-color: #e6f7f4;
+      background-color: var(--surface-2);
     }
 
-    .actions-col {
-      width: 140px;
-      text-align: center;
+    .details-btn:hover {
+      background-color: #e8f4fd;
+    }
+
+    /* Two classes: .file-table td (text-align: left) outranks one. Right-aligned, a folder's three
+       actions line up under a file's last three. */
+    .file-table .actions-col {
+      width: 180px;
+      text-align: right;
     }
 
     .action-icon-group {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
+      justify-content: flex-end;
       gap: 6px;
     }
 
     /* Failed uploads banner */
     .failed-uploads-banner {
-      background-color: #fff3cd;
-      border: 1px solid #ffc107;
-      border-radius: 4px;
+      background-color: var(--warn-soft);
+      color: var(--warn-text);
+      border: 1px solid var(--warn-border);
+      border-radius: var(--radius);
       padding: 15px;
       margin-bottom: 15px;
       display: none;
@@ -1407,39 +1295,76 @@
     }
 
     .retry-btn {
-      background-color: #ffc107;
-      color: #533f03;
-      border: none;
+      background-color: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--control-border);
       padding: 6px 12px;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
+      font: inherit;
       font-size: 0.9em;
       font-weight: 600;
     }
 
     .retry-btn:hover {
-      background-color: #e0a800;
+      background-color: var(--border);
     }
 
     .retry-all-btn {
-      background-color: #ffc107;
-      color: #533f03;
-      border: none;
+      background-color: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--control-border);
       padding: 8px 16px;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
-      font-size: 0.95em;
+      font: inherit;
       font-weight: 600;
       margin-top: 10px;
     }
 
     .retry-all-btn:hover {
-      background-color: #e0a800;
+      background-color: var(--border);
     }
 
     /* Delete modal */
+    .optimize-list {
+      max-height: 260px;
+      overflow: auto;
+      margin: 4px 0 12px;
+    }
+
+    .optimize-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 7px 0;
+      border-top: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+
+    .optimize-name {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      color: var(--text-strong);
+    }
+
+    .optimize-state {
+      flex: none;
+      max-width: 55%;
+      text-align: right;
+      color: var(--text-muted);
+    }
+
+    .optimize-state.done {
+      color: var(--ok-text);
+    }
+
+    .optimize-state.failed {
+      color: var(--danger);
+    }
+
     .delete-warning {
-      color: #e74c3c;
+      color: var(--danger);
       font-weight: 600;
       margin: 10px 0;
     }
@@ -1451,64 +1376,73 @@
     }
 
     .delete-btn-confirm {
-      background-color: #e74c3c;
-      color: white;
+      background-color: var(--danger);
+      color: #fff;
+      border: 1px solid var(--danger);
       padding: 10px 20px;
-      border: none;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
-      font-size: 1em;
+      font: inherit;
+      font-weight: 600;
       width: 100%;
     }
 
     .delete-btn-confirm:hover {
-      background-color: #c0392b;
+      background-color: var(--danger-hover);
     }
 
     .delete-btn-cancel {
-      background-color: #95a5a6;
-      color: white;
+      background-color: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--control-border);
       padding: 10px 20px;
-      border: none;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
-      font-size: 1em;
+      font: inherit;
+      font-weight: 600;
       width: 100%;
       margin-top: 10px;
     }
 
     .delete-btn-cancel:hover {
-      background-color: var(--label-color);
+      background-color: var(--border);
     }
 
     .rename-btn-confirm {
-      background-color: #3498db;
-      color: white;
+      background-color: var(--accent);
+      color: var(--on-accent);
+      border: 1px solid var(--accent);
       padding: 10px 20px;
-      border: none;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
-      font-size: 1em;
+      font: inherit;
+      font-weight: 600;
       width: 100%;
     }
 
     .rename-btn-confirm:hover {
-      background-color: #2e86c1;
+      background-color: var(--accent-hover);
     }
 
     .move-btn-confirm {
-      background-color: #16a085;
-      color: white;
+      background-color: var(--accent);
+      color: var(--on-accent);
+      border: 1px solid var(--accent);
       padding: 10px 20px;
-      border: none;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
-      font-size: 1em;
+      font: inherit;
+      font-weight: 600;
       width: 100%;
     }
 
-    .move-btn-confirm:hover {
-      background-color: #138d75;
+    .move-btn-confirm:hover:not(:disabled) {
+      background-color: var(--accent-hover);
+    }
+
+    .move-btn-confirm:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
     }
 
     .loader-container {
@@ -1541,9 +1475,15 @@
 
     /* Mobile responsive styles */
     @media (max-width: 600px) {
-      body {
-        padding: 10px;
-        font-size: 14px;
+      /* The Type column repeats what the badge and the extension say; the folder icon says FOLDER. */
+      .file-table th:nth-child(3),
+      .file-table td:nth-child(3),
+      .folder-badge {
+        display: none;
+      }
+
+      .file-table td:nth-child(2) {
+        overflow-wrap: anywhere;
       }
 
       .card {
@@ -1567,12 +1507,6 @@
 
       .breadcrumb-inline {
         font-size: 0.95em;
-      }
-
-      .nav-links a {
-        padding: 8px 12px;
-        margin-right: 6px;
-        font-size: 0.9em;
       }
 
       .action-buttons {
@@ -1627,8 +1561,8 @@
         font-size: 1.1em;
       }
 
-      .actions-col {
-        width: 120px;
+      .file-table .actions-col {
+        width: 112px;
       }
 
       .delete-btn,
@@ -1848,27 +1782,22 @@
 </head>
 
 <body>
-  <div class="nav-links">
-    <a href="/files" class="active">File Manager</a>
-    <a href="/settings">Settings</a>
-    <a href="/fonts">Font Manager</a>
-    <a href="/stats">Reading Stats</a>
-    <a href="/systeminfo">System Info</a>
-  </div>
+  <!--#include file="shared/PageHeader.html.inc" -->
 
+  <main class="page">
   <div class="page-header">
     <div class="page-header-left">
-      <h1>📁 File Manager</h1>
+      <h1>File Manager</h1>
       <div class="breadcrumb-inline" id="directory-breadcrumbs"></div>
     </div>
 
     <div class="action-buttons">
-      <button class="action-btn upload-action-btn" onclick="openUploadModal()">📤 Upload</button>
-      <button class="action-btn folder-action-btn" onclick="openFolderModal()">📁 New Folder</button>
-      <button id="moveActionBtn" class="action-btn move-action-btn" onclick="openMoveSelectedModal()" disabled>➡️
-        Move</button>
-      <button id="deleteActionBtn" class="action-btn delete-action-btn" onclick="openDeleteSelectedModal()" disabled>🗑️
-        Delete</button>
+      <button type="button" class="btn btn-primary" onclick="openUploadModal()">Upload</button>
+      <button type="button" class="btn" onclick="openFolderModal()">New folder</button>
+      <button type="button" id="optimizeActionBtn" class="btn" onclick="openOptimizeSelectedModal()" disabled
+        title="Optimize the selected EPUBs for the reader, in place">Optimize</button>
+      <button type="button" id="moveActionBtn" class="btn" onclick="openMoveSelectedModal()" disabled>Move</button>
+      <button type="button" id="deleteActionBtn" class="btn btn-danger" onclick="openDeleteSelectedModal()" disabled>Delete</button>
     </div>
   </div>
 
@@ -1901,12 +1830,7 @@
   </div>
 
   <div id="plugin-container"></div>
-
-  <div class="card">
-    <p style="text-align: center; color: #95a5a6; margin: 0;">
-      CrossPoint E-Reader • Open Source
-    </p>
-  </div>
+  </main>
 
   <!-- Upload Modal -->
   <div class="modal-overlay" id="uploadModal">
@@ -2014,6 +1938,32 @@
                   </div>
                 </div>
               </div>
+              <!-- The cover keeps its colors -->
+              <div class="advanced-setting-row">
+                <div class="setting-label">
+                  <div class="setting-title">🎨 Keep Cover in Color</div>
+                  <div class="setting-desc">Only resized to fit the screen, not turned to grayscale</div>
+                </div>
+                <div class="setting-controls">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="preserveCoverColorToggle" onchange="updateUploadSettingsPersistence()">
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
+              <!-- Long chapters are cut into several spine files -->
+              <div class="advanced-setting-row">
+                <div class="setting-label">
+                  <div class="setting-title">✂️ Split Long Chapters</div>
+                  <div class="setting-desc">Over 8,000 words or 32 KB: several files, cut at headings or breaks</div>
+                </div>
+                <div class="setting-controls">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="splitLongSectionsToggle" checked onchange="updateUploadSettingsPersistence()">
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
               <!-- Conversion Log Export -->
               <div class="advanced-setting-row">
                 <div class="setting-label">
@@ -2022,7 +1972,20 @@
                 </div>
                 <div class="setting-controls">
                   <label class="toggle-switch">
-                    <input type="checkbox" id="export-log-checkbox">
+                    <input type="checkbox" id="export-log-checkbox" onchange="updateUploadSettingsPersistence()">
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
+              <!-- Remember the upload options in this browser -->
+              <div class="advanced-setting-row">
+                <div class="setting-label">
+                  <div class="setting-title">💾 Remember These Options</div>
+                  <div class="setting-desc">Saved in this browser for the next upload</div>
+                </div>
+                <div class="setting-controls">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="rememberUploadSettings" onchange="updateUploadSettingsPersistence()">
                     <span class="toggle-slider"></span>
                   </label>
                 </div>
@@ -2120,6 +2083,39 @@
     </div>
   </div>
 
+  <!-- Optimize books already on the card -->
+  <div class="modal-overlay" id="optimizeModal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeOptimizeModal()">&times;</button>
+      <h3>Optimize on the card</h3>
+      <div class="folder-form">
+        <p class="file-info">Each book is downloaded, optimized in this browser with the options under
+          Upload, Advanced Mode, and put back in its place.</p>
+        <p class="file-info">The original stays beside it as <strong>name.epub.bak</strong> (an older one is
+          kept). If long chapters get split, the book's reading position and bookmarks start over; otherwise
+          they stay.</p>
+        <div id="optimizeList" class="optimize-list"></div>
+        <button class="move-btn-confirm" id="optimizeStartBtn" onclick="optimizeSelected()">Optimize</button>
+        <button class="delete-btn-cancel" id="optimizeCancelBtn" onclick="closeOptimizeModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload clash: the target folder already has a file of that name -->
+  <div class="modal-overlay" id="clashModal">
+    <div class="modal">
+      <h3>⚠️ File Already Exists</h3>
+      <div class="folder-form">
+        <p class="file-info"><strong id="clashName"></strong> is already in <strong id="clashFolder"></strong>.</p>
+        <label style="display:block; margin:8px 0;"><input type="checkbox" id="clashApplyAll"> Do the same for the
+          other files that already exist</label>
+        <button class="delete-btn-confirm" onclick="answerUploadClash('replace')">Replace</button>
+        <button class="folder-btn" onclick="answerUploadClash('keep')">Keep both</button>
+        <button class="delete-btn-cancel" onclick="answerUploadClash('skip')">Skip</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Rename Modal -->
   <div class="modal-overlay" id="renameModal">
     <div class="modal">
@@ -2170,7 +2166,7 @@
     const currentPath = decodeURIComponent(new URLSearchParams(window.location.search).get('path') || '/');
     if (currentPath !== '/') {
       const leaf = currentPath.split('/').filter(Boolean).pop();
-      if (leaf) document.title = leaf + ' - Files - CrossPoint Reader';
+      if (leaf) document.title = leaf + ' - Files - %%CROSSPOINT%%';
     }
     
     // Network status monitoring
@@ -2276,8 +2272,11 @@
             if (overlay.id === 'uploadModal') return closeUploadModal();
             if (overlay.id === 'folderModal') return closeFolderModal();
             if (overlay.id === 'deleteModal') return closeDeleteModal();
+            if (overlay.id === 'optimizeModal') return closeOptimizeModal();
             if (overlay.id === 'renameModal') return closeRenameModal();
             if (overlay.id === 'moveModal') return closeMoveModal();
+            // The upload is waiting on this answer; a click beside the dialog is not one.
+            if (overlay.id === 'clashModal') return;
             if (overlay.id === 'imagePreviewModal') return closeImagePreview();
             overlay.classList.remove('open');
           }
@@ -2441,6 +2440,9 @@
           fileTableContent += `<td>${file.name.includes('.') ? file.name.split('.').pop().toUpperCase() : '-'}</td>`;
           fileTableContent += `<td>${formatFileSize(file.size)}</td>`;
           fileTableContent += `<td class="actions-col"><div class="action-icon-group">`;
+          if (isBookFile(file.name)) {
+            fileTableContent += `<button class="details-btn" data-action="details" data-name="${escapeHtml(file.name)}" data-path="${escapeHtml(filePath)}" data-is-folder="false" title="Title, author, series and cover">ℹ️</button>`;
+          }
           fileTableContent += `<button class="move-btn" data-action="move" data-name="${escapeHtml(file.name)}" data-path="${escapeHtml(filePath)}" data-is-folder="false" title="Move file">📂</button>`;
           fileTableContent += `<button class="rename-btn" data-action="rename" data-name="${escapeHtml(file.name)}" data-path="${escapeHtml(filePath)}" data-is-folder="false" title="Rename file">✏️</button>`;
           fileTableContent += `<button class="delete-btn" data-action="delete" data-name="${escapeHtml(file.name)}" data-path="${escapeHtml(filePath)}" data-is-folder="false" title="Delete file">🗑️</button>`;
@@ -2451,10 +2453,20 @@
 
       fileTableContent += '</tbody></table>';
       fileTable.innerHTML = fileTableContent;
-      document.getElementById('file-table').addEventListener('change', function (e) {
+      attachFileTableListeners(fileTable);
+      updateToolbarState();
+    }
+
+    // Delegated, so they survive the innerHTML swaps above -- and attached once: #file-table itself
+    // is never replaced, so adding them on every render stacked a copy per sort or refresh, and one
+    // click on Move, Rename or Delete then opened its dialog that many times.
+    function attachFileTableListeners(fileTable) {
+      if (fileTable.dataset.listening) return;
+      fileTable.dataset.listening = '1';
+      fileTable.addEventListener('change', function (e) {
         if (e.target.classList.contains('select-item')) updateToolbarState();
       });
-      document.getElementById('file-table').addEventListener('click', function (e) {
+      fileTable.addEventListener('click', function (e) {
         const btn = e.target.closest('button[data-action]');
         if (!btn) return;
         const name = btn.dataset.name;
@@ -2464,30 +2476,40 @@
         if (action === 'move') openMoveModalForItem(name, path, isFolder);
         else if (action === 'rename') openRenameModal(name, path, isFolder);
         else if (action === 'delete') openDeleteModal(name, path, isFolder);
+        else if (action === 'details') openDetails(path);
       });
-      updateToolbarState();
+    }
+
+    // The formats the reader opens; must stay in step with js/metadata-editor.js.
+    function isBookFile(name) {
+      return /\.(epub|xtc|xtch|txt|md)$/i.test(name);
+    }
+
+    // The Details dialog (js/metadata-editor.js) loads on first use: most visits never open it. The page
+    // reloads when the dialog saved something, so the new sidecar files show in the list.
+    function openDetails(path) {
+      const show = () => window.MetadataEditor.open(path, () => window.location.reload());
+      if (window.MetadataEditor) return show();
+      const script = document.createElement('script');
+      script.src = '/js/metadata-editor.js';
+      script.onload = show;
+      script.onerror = () => alert('The Details dialog could not be loaded. Reinstall the web interface at /setup.');
+      document.head.appendChild(script);
     }
 
     // Modal functions
     function openUploadModal() {
       // Clear any staged folder drop; prepareFolderDrop re-arms it after this.
       pendingFolderUpload = null;
-      // Reset converter variables to defaults
-      ENABLE_GRAYSCALE = true;
-      JPEG_QUALITY = 85;
-      HANDEDNESS = 'right';
-      OVERLAP_PERCENT = 5;
       imageStates = {};
+      // The defaults, or the options remembered from an earlier visit.
+      restoreUploadSettingsFromStorage();
 
       // Hide convert options when opening modal (no files selected initially)
       const convertOptions = document.getElementById('convertOptions');
       if (convertOptions) {
         convertOptions.style.display = 'none';
       }
-
-      // Reset rotation and overlap UI
-      setHandedness('right');
-      setOverlap(5);
 
       // Hide log section from previous session
       const logSection = document.getElementById('log-section');
@@ -2519,7 +2541,7 @@
       const progressFill = document.getElementById('progress-fill');
       const progressText = document.getElementById('progress-text');
       progressFill.style.width = '0%';
-      progressFill.style.backgroundColor = '#e74c3c';
+      progressFill.style.backgroundColor = 'var(--danger)';
       progressText.style.color = '#e74c3c';
       progressText.textContent = 'Upload cancelled by User!';
       // Re-enable the action button (uploadBtn is always visible at this point;
@@ -2545,7 +2567,6 @@
       document.getElementById('progress-container').style.display = 'none';
       document.getElementById('progress-fill').style.width = '0%';
       document.getElementById('progress-fill').style.backgroundColor = '#27ae60';
-      document.getElementById('convertBeforeUpload').checked = false;
       document.getElementById('convertInfo').style.display = 'none';
       document.getElementById('convertWarning').style.display = 'none';
       // Clear image picker cache and reset layout
@@ -2567,13 +2588,8 @@
         advancedOptionsToggle.style.opacity = '0.5';
         advancedOptionsToggle.style.pointerEvents = 'none';
       }
-      // Reset to defaults
-      document.getElementById('qualitySlider').value = 85;
-      document.getElementById('qualityInput').value = 85;
-      setHandedness('right');
-      setOverlap(5);
-      // Update converter variables
-      updateQualitySettings();
+      // Back to the defaults; what is remembered stays stored for the next open.
+      applyUploadSettings();
     }
 
     function updateBatchModeUI(isBatch) {
@@ -2610,6 +2626,7 @@
         advancedOptionsToggle.style.opacity = checked ? '1' : '0.5';
         advancedOptionsToggle.style.pointerEvents = checked ? 'auto' : 'none';
       }
+      updateUploadSettingsPersistence();
     }
 
     function toggleAdvancedOptions() {
@@ -2672,6 +2689,7 @@
       // Update converter variables (used by processImage and applyGrayscale)
       JPEG_QUALITY = parseInt(quality, 10);
       ENABLE_GRAYSCALE = true; // Always grayscale for e-ink
+      updateUploadSettingsPersistence();
     }
 
     function setHandedness(value) {
@@ -2684,6 +2702,7 @@
       if (document.getElementById('imagePickerSection').style.display !== 'none') {
         renderImageGrid();
       }
+      updateUploadSettingsPersistence();
     }
 
     function setOverlap(value) {
@@ -2692,6 +2711,7 @@
       document.querySelectorAll('.overlap-btn').forEach(btn => {
         btn.classList.toggle('active', parseInt(btn.dataset.value) === value);
       });
+      updateUploadSettingsPersistence();
     }
 
     // ============================================================================
@@ -3299,8 +3319,14 @@
       }
 
       if (qualitySlider && qualityInput) {
-        // Initialize converter variables with UI default values
-        updateQualitySettings();
+        // Initialize converter variables with UI default values, without overwriting the
+        // remembered settings (the Remember switch is still off until the dialog opens).
+        suppressUploadSettingsSave = true;
+        try {
+          updateQualitySettings();
+        } finally {
+          suppressUploadSettingsSave = false;
+        }
 
         // Deselect all presets when slider is manually changed
         const deselectPresets = function () {
@@ -3548,6 +3574,113 @@
       const folderCount = items.filter(it => it.isFolder).length;
       document.getElementById('deleteActionBtn').disabled = items.length === 0;
       document.getElementById('moveActionBtn').disabled = fileCount === 0 || folderCount > 0;
+      document.getElementById('optimizeActionBtn').disabled = optimizeCandidates(items).length === 0;
+    }
+
+    // ---- Optimize books already on the card ------------------------------------------------------
+    //
+    // Each selected EPUB is downloaded, run through convertEpubFile() with the upload dialog's
+    // options, and sent to /api/book/replace, which swaps it in and keeps the original as .bak.
+    // keep=1 when the chapter list stayed as it was: the reading position and bookmarks still fit.
+    // One book at a time - the reader serves one connection at a time.
+    let optimizeItems = [];
+    let optimizeRunning = false;
+    let optimizeFinished = false;  // the run is over: the start button reads Done and closes
+    let optimizeChanged = false;
+
+    function optimizeCandidates(items) {
+      return items.filter(it => !it.isFolder && /\.epub$/i.test(it.name));
+    }
+
+    function openOptimizeSelectedModal() {
+      optimizeItems = optimizeCandidates(getSelectedItems());
+      if (optimizeItems.length === 0) return;
+      const list = document.getElementById('optimizeList');
+      list.replaceChildren(...optimizeItems.map((it, i) => {
+        const row = document.createElement('div');
+        row.className = 'optimize-row';
+        const name = document.createElement('span');
+        name.className = 'optimize-name';
+        name.textContent = it.name;
+        const state = document.createElement('span');
+        state.className = 'optimize-state';
+        state.id = 'optimizeState' + i;
+        state.textContent = 'Waiting';
+        row.append(name, state);
+        return row;
+      }));
+      const start = document.getElementById('optimizeStartBtn');
+      start.disabled = false;
+      start.textContent = optimizeItems.length === 1 ? 'Optimize' : `Optimize ${optimizeItems.length} books`;
+      const cancel = document.getElementById('optimizeCancelBtn');
+      cancel.textContent = 'Cancel';
+      cancel.hidden = false;
+      optimizeFinished = false;
+      optimizeChanged = false;
+      document.getElementById('optimizeModal').classList.add('open');
+    }
+
+    function closeOptimizeModal() {
+      if (optimizeRunning) {
+        operationCancelled = true;  // the current book stops at its next step
+        return;
+      }
+      document.getElementById('optimizeModal').classList.remove('open');
+      if (optimizeChanged) window.location.reload();
+    }
+
+    async function optimizeSelected() {
+      if (optimizeFinished) return closeOptimizeModal();
+      if (optimizeRunning) return;
+      optimizeRunning = true;
+      operationCancelled = false;
+      document.getElementById('optimizeStartBtn').disabled = true;
+      document.getElementById('optimizeCancelBtn').textContent = 'Stop';
+      for (let i = 0; i < optimizeItems.length; i++) {
+        const it = optimizeItems[i];
+        const state = document.getElementById('optimizeState' + i);
+        if (operationCancelled) {
+          state.textContent = 'Not started';
+          continue;
+        }
+        try {
+          state.textContent = 'Downloading…';
+          const got = await fetch('/download?path=' + encodeURIComponent(it.path));
+          if (!got.ok) throw new Error('could not download it (' + got.status + ')');
+          const original = new File([await got.blob()], it.name, { type: 'application/epub+zip' });
+          const report = {};
+          const optimized = await convertEpubFile(original, (percent) => {
+            state.textContent = `Optimizing ${Math.round(percent)}%`;
+          }, report);
+          if (operationCancelled) throw new Error('Cancelled by user');
+          state.textContent = 'Saving…';
+          const put = await fetch('/api/book/replace?path=' + encodeURIComponent(it.path) +
+            '&keep=' + (report.spineChanged ? '0' : '1'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/epub+zip' },
+            body: optimized
+          });
+          if (!put.ok) {
+            let message = 'the reader answered ' + put.status;
+            try { message = (await put.json()).error || message; } catch (e) { /* not JSON */ }
+            throw new Error(message);
+          }
+          optimizeChanged = true;
+          state.textContent = `${formatBytes(original.size)} → ${formatBytes(optimized.size)}` +
+            (report.spineChanged ? ', reading position reset' : '');
+          state.classList.add('done');
+        } catch (e) {
+          state.textContent = e.message === 'Cancelled by user' ? 'Stopped' : 'Failed: ' + e.message;
+          state.classList.add('failed');
+        }
+      }
+      optimizeRunning = false;
+      optimizeFinished = true;
+      operationCancelled = false;
+      const done = document.getElementById('optimizeStartBtn');
+      done.textContent = 'Done';
+      done.disabled = false;
+      document.getElementById('optimizeCancelBtn').hidden = true;
     }
 
     // Open delete modal for currently selected checkboxes
@@ -3661,15 +3794,15 @@
       const hasEpub = Array.from(files).some(f => f.name.toLowerCase().endsWith('.epub'));
       if (files.length > 0 && hasEpub) {
         convertOptions.style.display = 'block';
+        toggleConvertOptions();
       } else {
         convertOptions.style.display = 'none';
-        // Clear stale checkbox state so the "Optimize & Upload" button doesn't linger
-        // when the user re-picks a non-EPUB after having ticked Optimize for an EPUB.
-        const cb = document.getElementById('convertBeforeUpload');
-        if (cb && cb.checked) {
-          cb.checked = false;
-          toggleConvertOptions();
-        }
+        // Optimize only applies to EPUBs: the button and notes say plain "Upload" for anything
+        // else, while the ticked box itself is kept (it may be a remembered choice).
+        uploadBtn.textContent = 'Upload';
+        uploadBtn.classList.remove('optimize');
+        document.getElementById('convertInfo').style.display = 'none';
+        document.getElementById('convertWarning').style.display = 'none';
         if (files.length === 0) clearImagePicker();
       }
 
@@ -3748,6 +3881,84 @@
     let HANDEDNESS = 'right'; // 'right' = clockwise (right-handed), 'left' = counter-clockwise (left-handed)
     let OVERLAP_PERCENT = 5; // Minimum overlap percentage for splits (5%, 10%, 15%)
 
+    // Ported from CrossInk (uxjulia/CrossInk) web/pages/files.js @1b1156027, MIT, by Julia Nguyen.
+    // The upload options, remembered in this browser when "Remember These Options" is on, and
+    // restored each time the upload dialog opens. Every storage access may throw (private
+    // windows, blocked site data), so each is guarded and the page falls back to the defaults.
+    const UPLOAD_SETTINGS_STORAGE_KEY = 'filesUploadSettings.v1';
+    const DEFAULT_UPLOAD_SETTINGS = Object.freeze({
+      convertBeforeUpload: false,
+      splitLongSections: true,
+      preserveCoverColor: false,
+      quality: DEFAULT_JPEG_QUALITY,
+      deviceTarget: 'auto',
+      handedness: 'right',
+      overlap: 5,
+      exportLog: false,
+    });
+    let suppressUploadSettingsSave = false;
+
+    function getCurrentUploadSettings() {
+      return {
+        convertBeforeUpload: !!document.getElementById('convertBeforeUpload')?.checked,
+        splitLongSections: !!document.getElementById('splitLongSectionsToggle')?.checked,
+        preserveCoverColor: !!document.getElementById('preserveCoverColorToggle')?.checked,
+        quality: parseInt(document.getElementById('qualitySlider')?.value || JPEG_QUALITY, 10),
+        deviceTarget: DEVICE_TARGET,
+        handedness: HANDEDNESS,
+        overlap: OVERLAP_PERCENT,
+        exportLog: !!document.getElementById('export-log-checkbox')?.checked,
+      };
+    }
+
+    // Puts settings (missing ones from the defaults) into the dialog and the converter, without
+    // saving them back.
+    function applyUploadSettings(settings = {}) {
+      const merged = { ...DEFAULT_UPLOAD_SETTINGS, ...settings };
+      suppressUploadSettingsSave = true;
+      try {
+        document.getElementById('convertBeforeUpload').checked = !!merged.convertBeforeUpload;
+        document.getElementById('splitLongSectionsToggle').checked = !!merged.splitLongSections;
+        document.getElementById('preserveCoverColorToggle').checked = !!merged.preserveCoverColor;
+        document.getElementById('export-log-checkbox').checked = !!merged.exportLog;
+        document.getElementById('rememberUploadSettings').checked = !!settings.rememberSettings;
+
+        setQualityPreset(Math.max(1, Math.min(95, parseInt(merged.quality, 10) || DEFAULT_JPEG_QUALITY)));
+        setDeviceTarget(['auto', 'X3', 'X4'].includes(merged.deviceTarget) ? merged.deviceTarget : 'auto');
+        setHandedness(merged.handedness === 'left' ? 'left' : 'right');
+        setOverlap([5, 10, 15].includes(Number(merged.overlap)) ? Number(merged.overlap) : 5);
+        toggleConvertOptions();
+      } finally {
+        suppressUploadSettingsSave = false;
+      }
+    }
+
+    function restoreUploadSettingsFromStorage() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(UPLOAD_SETTINGS_STORAGE_KEY) || 'null');
+        applyUploadSettings(saved?.rememberSettings ? saved : undefined);
+      } catch (error) {
+        console.warn('Could not read remembered upload settings:', error);
+        applyUploadSettings();
+      }
+    }
+
+    // Called by every option's change: stores all options while "Remember" is on, and forgets
+    // them the moment it is switched off.
+    function updateUploadSettingsPersistence() {
+      if (suppressUploadSettingsSave) return;
+      try {
+        if (!document.getElementById('rememberUploadSettings')?.checked) {
+          localStorage.removeItem(UPLOAD_SETTINGS_STORAGE_KEY);
+          return;
+        }
+        const settings = { ...getCurrentUploadSettings(), rememberSettings: true };
+        localStorage.setItem(UPLOAD_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+      } catch (error) {
+        console.warn('Could not save upload settings:', error);
+      }
+    }
+
     // ============================================================================
     // Image Picker State Management
     // ============================================================================
@@ -3824,8 +4035,16 @@
           crosspointVersion = data.version || 'Unknown';
           if (data.deviceType === 'X3' || data.deviceType === 'X4') {
             DETECTED_DEVICE = data.deviceType;
-            applyDeviceTarget();
+          } else if (data.deviceType && data.displayWidth > 0 && data.displayHeight > 0) {
+            // Another reader (the X4 Pro, the T5 S3, ...): Auto sizes for its own screen, upright.
+            DEVICE_PROFILES[data.deviceType] = {
+              width: Math.min(data.displayWidth, data.displayHeight),
+              height: Math.max(data.displayWidth, data.displayHeight),
+              label: data.deviceType
+            };
+            DETECTED_DEVICE = data.deviceType;
           }
+          if (DETECTED_DEVICE) applyDeviceTarget();
         }
       } catch (e) {
         console.error('Failed to fetch version:', e);
@@ -3869,6 +4088,7 @@
     function setDeviceTarget(value) {
       DEVICE_TARGET = value;
       applyDeviceTarget();
+      updateUploadSettingsPersistence();
     }
 
     // Batch logging system for multiple files
@@ -4158,7 +4378,7 @@
       }
       // Extract text from log entries
       const entries = logContainer.querySelectorAll('.log-entry');
-      let logText = `CrossPoint Reader ${crosspointVersion} - EPUB Conversion Log\n`;
+      let logText = `%%CROSSPOINT%% ${crosspointVersion} - EPUB Conversion Log\n`;
       logText += `Generated: ${new Date().toLocaleString()}\n`;
       logText += `${'='.repeat(60)}\n\n`;
 
@@ -4207,6 +4427,8 @@
     // EPUB Utilities — ported from EPUB Optimizer Pro
     // ═══════════════════════════════════════════════════════════════════
 
+    const DEFLATE_OPTS = { compression: 'DEFLATE', compressionOptions: { level: 8 }, createFolders: false };
+
     /** Defensive CSS injected into every XHTML <head> — prevents e-ink overflow. */
     const DEFENSIVE_STYLE = '<style type="text/css">img,svg{max-width:100%;height:auto}body{overflow-wrap:break-word}table{max-width:100%;table-layout:fixed}pre,code{white-space:pre-wrap;word-wrap:break-word}*{box-sizing:border-box}</style>';
 
@@ -4224,6 +4446,127 @@
     function decodeHref(href) {
       try { return decodeURIComponent(href); }
       catch (e) { return href; }
+    }
+
+    // Ported from CrossInk (uxjulia/CrossInk) web/pages/files.js @1b1156027, MIT, by Julia Nguyen.
+    // Invisible code points that carry no text: C0/C1 controls (not tab/LF/CR), zero-width
+    // space/joiners, bidi marks and embeddings, word joiner and invisible operators, variation
+    // selectors and the BOM. Zero-width watermarking fills chapters with long runs of them; the
+    // reader already draws none of them, so removing them only saves bytes and parse time.
+    // Unlike CrossInk, U+00AD SOFT HYPHEN is kept: this reader breaks lines on it and draws the
+    // hyphen (lib/Utf8/Utf8.h, utf8IsDefaultIgnorable), so it is an author's hyphenation hint.
+    const SCRUBBED_BLANK_CODEPOINT_RANGES = [
+      [0x0000, 0x0008],
+      [0x000B, 0x000C],
+      [0x000E, 0x001F],
+      [0x007F, 0x009F],
+      [0x034F, 0x034F],
+      [0x061C, 0x061C],
+      [0x180B, 0x180F],
+      [0x200B, 0x200F],
+      [0x202A, 0x202E],
+      [0x2060, 0x2064],
+      [0x2066, 0x206F],
+      [0xFE00, 0xFE0F],
+      [0xFEFF, 0xFEFF],
+    ];
+    const SCRUBBED_BLANK_CODEPOINT_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F͏؜᠋-᠏​-‏‪-‮⁠-⁤⁦-⁯︀-️﻿]/g;
+    const NUMERIC_CHARACTER_REFERENCE_RE = /&#(?:x([0-9A-Fa-f]+)|([0-9]+));/g;
+
+    function isScrubbedBlankCodepoint(codePoint) {
+      return SCRUBBED_BLANK_CODEPOINT_RANGES.some(([start, end]) => codePoint >= start && codePoint <= end);
+    }
+
+    // Removes the code points above, both as literal characters and as numeric character
+    // references (&#x200B; / &#8203;). Returns { text, count }.
+    function scrubBlankCodepoints(text) {
+      let count = 0;
+      const withoutLiterals = text.replace(SCRUBBED_BLANK_CODEPOINT_RE, () => {
+        count++;
+        return '';
+      });
+
+      const cleaned = withoutLiterals.replace(NUMERIC_CHARACTER_REFERENCE_RE, (match, hexValue, decimalValue) => {
+        const rawValue = hexValue || decimalValue;
+        const codePoint = Number.parseInt(rawValue, hexValue ? 16 : 10);
+        if (Number.isFinite(codePoint) && isScrubbedBlankCodepoint(codePoint)) {
+          count++;
+          return '';
+        }
+        return match;
+      });
+
+      return { text: cleaned, count };
+    }
+
+    function scrubEpubTextResource(path, text) {
+      const scrubbed = scrubBlankCodepoints(text);
+      if (scrubbed.count > 0) {
+        logFix('Blank codepoints', `${escapeHtml(path.split('/').pop())} (${scrubbed.count} removed)`);
+      }
+      return scrubbed.text;
+    }
+
+    // Removes XML comments from XHTML source text, leaving CDATA sections, processing
+    // instructions and the DOCTYPE (with any internal subset) untouched. Returns
+    // { text, count, bytes }: bytes is the UTF-8 size of what was removed.
+    function stripComments(xml) {
+      const skippedSections = [
+        { open: '<![CDATA[', close: ']]>' },
+        { open: '<?', close: '?>' },
+      ];
+      const encoder = new TextEncoder();
+      const out = [];
+      let index = 0;
+      let count = 0;
+      let bytes = 0;
+
+      const doctypeEnd = (from) => {
+        const gt = xml.indexOf('>', from);
+        const subset = xml.indexOf('[', from);
+        if (subset < 0 || (gt >= 0 && subset > gt)) return gt < 0 ? xml.length : gt + 1;
+        const close = xml.indexOf(']>', subset);
+        return close < 0 ? xml.length : close + 2;
+      };
+
+      while (index < xml.length) {
+        const next = xml.indexOf('<', index);
+        if (next < 0) {
+          out.push(xml.slice(index));
+          break;
+        }
+        if (next > index) out.push(xml.slice(index, next));
+
+        if (xml.startsWith('<!--', next)) {
+          const close = xml.indexOf('-->', next + 4);
+          const end = close < 0 ? xml.length : close + 3;
+          count++;
+          bytes += encoder.encode(xml.slice(next, end)).length;
+          index = end;
+          continue;
+        }
+
+        if (xml.startsWith('<!DOCTYPE', next)) {
+          const end = doctypeEnd(next + 9);
+          out.push(xml.slice(next, end));
+          index = end;
+          continue;
+        }
+
+        const skipped = skippedSections.find((section) => xml.startsWith(section.open, next));
+        if (skipped) {
+          const close = xml.indexOf(skipped.close, next + skipped.open.length);
+          const end = close < 0 ? xml.length : close + skipped.close.length;
+          out.push(xml.slice(next, end));
+          index = end;
+          continue;
+        }
+
+        out.push('<');
+        index = next + 1;
+      }
+
+      return { text: out.join(''), count, bytes };
     }
 
     /**
@@ -4313,6 +4656,659 @@
       result = result.replace(/ ns\d+:/g, ' ');
 
       return result;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Chapter structure: empty stubs and long chapters
+    // Ported from CrossInk (uxjulia/CrossInk) web/pages/files.js @1b1156027, MIT, by Julia Nguyen.
+    // ═══════════════════════════════════════════════════════════════════
+
+    function localName(node) {
+      return (node && (node.localName || node.nodeName || '')).toLowerCase();
+    }
+
+    function dirname(path) {
+      const index = path.lastIndexOf('/');
+      return index === -1 ? '' : path.substring(0, index);
+    }
+
+    function basename(path) {
+      const index = path.lastIndexOf('/');
+      return index === -1 ? path : path.substring(index + 1);
+    }
+
+    // Zip path of toPath as seen from the file fromFile ('../Text/ch2.xhtml').
+    function relativeZipPath(fromFile, toPath) {
+      const fromParts = dirname(fromFile).split('/').filter(Boolean);
+      const toParts = toPath.split('/').filter(Boolean);
+      while (fromParts.length && toParts.length && fromParts[0] === toParts[0]) {
+        fromParts.shift();
+        toParts.shift();
+      }
+      return [...fromParts.map(() => '..'), ...toParts].join('/') || basename(toPath);
+    }
+
+    // relativeZipPath as an href: escapes the characters a file name may hold but an href may
+    // not carry raw (%, #, ?, space). Everything else stays as it is in the name. (Not in
+    // CrossInk, which writes the bare path.)
+    function relativeZipHref(fromFile, toPath) {
+      return relativeZipPath(fromFile, toPath).replace(/[%#? ]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+    }
+
+    // A chapter's identity as a reader sees it: its body id and title. Two consecutive spine
+    // files that share both are one chapter split in two (Kindle conversions do this).
+    function readerSectionIdentity(content) {
+      const doc = new DOMParser().parseFromString(content, 'application/xhtml+xml');
+      if (doc.querySelector('parsererror') || !doc.body) return null;
+      const id = doc.body.getAttribute('id') || '';
+      const title = doc.querySelector('title')?.textContent?.trim() || '';
+      return id && title ? `${id}\u0000${title}` : null;
+    }
+
+    // Whether a chapter shows anything: text or an image outside script/style/svg/metadata and
+    // outside elements Amazon marked as removed. Unparseable files count as having content.
+    function hasReaderContent(content) {
+      const doc = new DOMParser().parseFromString(content, 'application/xhtml+xml');
+      if (doc.querySelector('parsererror') || !doc.body) return true;
+      const body = doc.body.cloneNode(true);
+      body.querySelectorAll('script,style,svg,metadata,[data-AmznRemoved-M8]').forEach((node) => node.remove());
+      return !!(body.textContent || '').trim() || !!body.querySelector('img');
+    }
+
+    // Drops from the spine every chapter that shows nothing and is followed by the rest of the
+    // same chapter (same body id and title), which the reader would show as a blank page.
+    // The stub stays in the manifest; redirects maps its path to the next chapter's so links can
+    // follow. Returns { opfContent, redirects }.
+    function collapseReaderEmptySpineItems(xhtmlFiles, opfContent, opfPath) {
+      const redirects = new Map();
+      if (!opfContent) return { opfContent, redirects };
+      const doc = new DOMParser().parseFromString(opfContent, 'application/xml');
+      if (doc.querySelector('parsererror')) return { opfContent, redirects };
+      const manifestById = new Map(
+        Array.from(doc.getElementsByTagNameNS('*', 'item')).map((item) => [item.getAttribute('id'), item]));
+      const spine = doc.getElementsByTagNameNS('*', 'spine')[0];
+      if (!spine) return { opfContent, redirects };
+      const refs = Array.from(spine.getElementsByTagNameNS('*', 'itemref'));
+      for (let index = 0; index + 1 < refs.length; index++) {
+        const item = manifestById.get(refs[index].getAttribute('idref'));
+        const nextItem = manifestById.get(refs[index + 1].getAttribute('idref'));
+        const href = item?.getAttribute('href');
+        const nextHref = nextItem?.getAttribute('href');
+        if (!href || !nextHref) continue;
+        const path = resolvePath(opfPath, decodeHref(href.split('#')[0]));
+        const nextPath = resolvePath(opfPath, decodeHref(nextHref.split('#')[0]));
+        const content = xhtmlFiles[path];
+        const nextContent = xhtmlFiles[nextPath];
+        if (!content || !nextContent || hasReaderContent(content) || !hasReaderContent(nextContent)) continue;
+        const identity = readerSectionIdentity(content);
+        if (!identity || identity !== readerSectionIdentity(nextContent)) continue;
+        redirects.set(path, nextPath);
+        spine.removeChild(refs[index]);
+      }
+      // Unlike CrossInk, an untouched OPF is returned as it was rather than re-serialized.
+      return { opfContent: redirects.size ? safeSerialize(doc, opfContent) : opfContent, redirects };
+    }
+
+    // Points every link (href, src, xlink:href) at a collapsed stub to the chapter that replaced
+    // it, keeping the fragment. Returns the content unchanged when nothing pointed there.
+    function rewriteCollapsedSpineReferences(content, sourcePath, redirects) {
+      if (redirects.size === 0) return content;
+      const doc = new DOMParser().parseFromString(content, 'application/xml');
+      if (doc.querySelector('parsererror')) return content;
+      let changed = false;
+      for (const element of Array.from(doc.getElementsByTagName('*'))) {
+        for (const attribute of ['href', 'src', 'xlink:href']) {
+          const value = element.getAttribute(attribute);
+          if (!value || value.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(value)) continue;
+          const [href, fragment = ''] = value.split(/#(.*)/s, 2);
+          const target = redirects.get(resolvePath(sourcePath, decodeHref(href)));
+          if (!target) continue;
+          element.setAttribute(attribute, `${relativeZipHref(sourcePath, target)}${fragment ? `#${fragment}` : ''}`);
+          changed = true;
+        }
+      }
+      return changed ? safeSerialize(doc, content) : content;
+    }
+
+    // Long chapters are what strain the reader: one spine file is laid out at a time, so a
+    // chapter far past these sizes is cut into several spine files. A part prefers to stay under
+    // both preferred sizes; it may run up to the lookahead past them to reach an author's break
+    // (a heading, <hr>, page break), and never past the hard limit where a break is possible.
+    const SECTION_SPLIT_WORD_THRESHOLD = 8000;
+    const SECTION_SPLIT_BYTE_THRESHOLD = 32768;
+    const SECTION_SPLIT_HARD_BYTE_LIMIT = 49152;
+    const SECTION_SPLIT_NATURAL_BOUNDARY_LOOKAHEAD_BYTES = 8192;
+    const OPF_NS = 'http://www.idpf.org/2007/opf';
+    const UTF8_ENCODER = new TextEncoder();
+
+    function utf8ByteLength(text) {
+      return UTF8_ENCODER.encode(text).length;
+    }
+
+    function getElementsByLocalName(root, name) {
+      const seen = new Set();
+      const elements = [];
+      for (const element of [...root.getElementsByTagNameNS('*', name), ...root.getElementsByTagName(name)]) {
+        if (seen.has(element)) continue;
+        seen.add(element);
+        elements.push(element);
+      }
+      return elements;
+    }
+
+    // Zip paths of the spine in reading order; DOMParser first, regex fallback.
+    function parseOpfSpineHrefs(opfContent, opfPath) {
+      const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+      const opfBasePath = opfDir ? `${opfDir}/content.opf` : 'content.opf';
+
+      try {
+        const doc = new DOMParser().parseFromString(opfContent, 'application/xml');
+        if (!doc.querySelector('parsererror')) {
+          const manifest = {};
+          for (const item of getElementsByLocalName(doc, 'item')) {
+            const id = item.getAttribute('id');
+            const href = item.getAttribute('href');
+            if (id && href) manifest[id] = resolvePath(opfBasePath, decodeHref(href.split('#')[0]));
+          }
+
+          const spineHrefs = [];
+          for (const itemref of getElementsByLocalName(doc, 'itemref')) {
+            const idref = itemref.getAttribute('idref');
+            if (idref && manifest[idref]) spineHrefs.push(manifest[idref]);
+          }
+          if (spineHrefs.length > 0) return spineHrefs;
+        }
+      } catch (e) { /* fall through to regex parser */ }
+
+      const manifest = {};
+      const itemRegex = /<(?:\w+:)?item\b[^>]*>/gi;
+      let match;
+      while ((match = itemRegex.exec(opfContent)) !== null) {
+        const tag = match[0];
+        const idMatch = tag.match(/\bid=["']([^"']+)["']/i);
+        const hrefMatch = tag.match(/\bhref=["']([^"']+)["']/i);
+        if (idMatch && hrefMatch) manifest[idMatch[1]] = resolvePath(opfBasePath, decodeHref(hrefMatch[1].split('#')[0]));
+      }
+
+      const spineHrefs = [];
+      const itemrefRegex = /<(?:\w+:)?itemref\b[^>]*idref=["']([^"']+)["'][^>]*>/gi;
+      while ((match = itemrefRegex.exec(opfContent)) !== null) {
+        if (manifest[match[1]]) spineHrefs.push(manifest[match[1]]);
+      }
+      return spineHrefs;
+    }
+
+    // Zip paths of the EPUB 3 navigation documents (manifest items with properties="nav").
+    // Not in CrossInk: the reader takes the table of contents from that one file, so it is
+    // never split, or every entry after its first part would vanish from the TOC.
+    function parseOpfNavPaths(opfContent, opfPath) {
+      const paths = new Set();
+      const doc = new DOMParser().parseFromString(opfContent, 'application/xml');
+      if (doc.querySelector('parsererror')) {
+        for (const tag of opfContent.match(/<(?:\w+:)?item\b[^>]*>/gi) || []) {
+          const props = tag.match(/\bproperties=["']([^"']+)["']/i);
+          const href = tag.match(/\bhref=["']([^"']+)["']/i);
+          if (props && href && props[1].split(/\s+/).includes('nav')) paths.add(resolvePath(opfPath, decodeHref(href[1].split('#')[0])));
+        }
+        return paths;
+      }
+      for (const item of getElementsByLocalName(doc, 'item')) {
+        const href = item.getAttribute('href');
+        if (href && (item.getAttribute('properties') || '').split(/\s+/).includes('nav')) {
+          paths.add(resolvePath(opfPath, decodeHref(href.split('#')[0])));
+        }
+      }
+      return paths;
+    }
+
+    // What a reader shows of a chapter: body text without script, style, SVG and metadata.
+    // (CrossInk's extractLocationText, which its page-location feature shares.)
+    function extractSectionText(xhtmlContent) {
+      for (const type of ['application/xhtml+xml', 'text/html']) {
+        try {
+          const doc = new DOMParser().parseFromString(xhtmlContent, type);
+          if (doc.querySelector('parsererror')) continue;
+          doc.querySelectorAll('script,style,svg,metadata').forEach((el) => el.remove());
+          return (doc.body || doc.documentElement).textContent || '';
+        } catch (e) { /* next parser */ }
+      }
+      return xhtmlContent.replace(/<[^>]+>/g, ' ');
+    }
+
+    // Words as runs of letters and digits, joined by apostrophes or hyphens.
+    // (CrossInk's countLocationWords.)
+    function countSectionWords(text) {
+      const normalized = text.replace(/\s+/g, ' ').trim();
+      if (!normalized) return 0;
+      try {
+        return (normalized.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu) || []).length;
+      } catch (e) {
+        return (normalized.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/g) || []).length;
+      }
+    }
+
+    // A part may start at block-level elements only (and at bare text between them).
+    function isSafeSectionSplitElement(node) {
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) return true;
+      return ['p', 'div', 'section', 'article', 'aside', 'blockquote', 'ul', 'ol', 'li',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr'].includes(localName(node));
+    }
+
+    function isHeadingElement(node) {
+      return node && node.nodeType === Node.ELEMENT_NODE && /^h[1-6]$/i.test(localName(node));
+    }
+
+    function isIgnorableSectionSplitNode(node) {
+      return node?.nodeType === Node.TEXT_NODE && !(node.textContent || '').trim();
+    }
+
+    // An author's page break inside or on the node: <hr>, epub:type/role pagebreak, or a
+    // page-break-before/after (or break-before/after) style that forces a page.
+    function hasNaturalSectionPageBoundary(node) {
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+      const elements = [node, ...node.querySelectorAll('*')];
+      return elements.some((element) => {
+        const name = localName(element);
+        if (name === 'hr') return true;
+        const epubType = element.getAttributeNS?.('http://www.idpf.org/2007/ops', 'type') || element.getAttribute('epub:type') || '';
+        const role = element.getAttribute('role') || '';
+        const style = element.getAttribute('style') || '';
+        return /(^|\s)pagebreak(\s|$)/i.test(epubType) ||
+          /(^|\s)doc-pagebreak(\s|$)/i.test(role) ||
+          /(?:^|;)\s*(?:-epub-)?(?:page-break|break)-(?:before|after)\s*:\s*(?:always|page|left|right|recto|verso)\b/i.test(style);
+      });
+    }
+
+    function isNaturalSectionSplitBoundary(previous, next) {
+      return hasNaturalSectionPageBoundary(previous) || hasNaturalSectionPageBoundary(next) || isHeadingElement(next);
+    }
+
+    // Looking forward from where a part got too long: the first author's break within the
+    // lookahead, or candidateIndex when there is none.
+    function findNaturalSectionSplitIndex(splitChildren, candidateIndex, current, currentBytes, serializer) {
+      const byteLimit = Math.min(
+        SECTION_SPLIT_HARD_BYTE_LIMIT,
+        Math.max(currentBytes, SECTION_SPLIT_BYTE_THRESHOLD) + SECTION_SPLIT_NATURAL_BOUNDARY_LOOKAHEAD_BYTES);
+      let projectedBytes = currentBytes;
+      for (let index = candidateIndex; index < splitChildren.length; index++) {
+        if (index > candidateIndex) {
+          projectedBytes += utf8ByteLength(serializer.serializeToString(splitChildren[index - 1]));
+        }
+        if (projectedBytes > byteLimit) break;
+        const priorNodes = current.concat(splitChildren.slice(candidateIndex, index));
+        const previous = [...priorNodes].reverse().find((node) => !isIgnorableSectionSplitNode(node));
+        const next = splitChildren[index];
+        const canBreakBefore = !!previous && isSafeSectionSplitElement(next) &&
+          !shouldKeepSectionSplitCluster(next) && !isHeadingElement(previous);
+        if (canBreakBefore && isNaturalSectionSplitBoundary(previous, next)) return index;
+      }
+      return candidateIndex;
+    }
+
+    // Looking back over the part being filled: an author's break within the lookahead from its
+    // end, as an offset into current, or -1.
+    function findNaturalSectionSplitOffsetInCurrent(current, serializer) {
+      let trailingBytes = 0;
+      for (let offset = current.length - 1; offset > 0; offset--) {
+        trailingBytes += utf8ByteLength(serializer.serializeToString(current[offset]));
+        if (trailingBytes > SECTION_SPLIT_NATURAL_BOUNDARY_LOOKAHEAD_BYTES) break;
+        const previous = [...current.slice(0, offset)].reverse().find((node) => !isIgnorableSectionSplitNode(node));
+        const next = current[offset];
+        const canBreakBefore = !!previous && isSafeSectionSplitElement(next) &&
+          !shouldKeepSectionSplitCluster(next) && !isHeadingElement(previous);
+        if (canBreakBefore && isNaturalSectionSplitBoundary(previous, next)) return offset;
+      }
+      return -1;
+    }
+
+    // Whether a run of nodes shows anything (text or an image), the way hasReaderContent asks
+    // it of a whole chapter. A part that would show nothing joins its neighbour.
+    function chunkHasReaderContent(nodes) {
+      const visit = (node, hidden) => {
+        if (node.nodeType === Node.TEXT_NODE) return !hidden && !!(node.textContent || '').trim();
+        if (node.nodeType !== Node.ELEMENT_NODE) return false;
+        const name = localName(node);
+        const nextHidden = hidden || node.hasAttribute('data-AmznRemoved-M8') || ['script', 'style', 'svg', 'metadata'].includes(name);
+        if (nextHidden) return false;
+        if (name === 'img') return true;
+        return Array.from(node.childNodes).some((child) => visit(child, nextHidden));
+      };
+      return nodes.some((node) => visit(node, false));
+    }
+
+    // Tables, figures and SVG are never cut, and a part never starts at one.
+    function shouldKeepSectionSplitCluster(node) {
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+      const name = localName(node);
+      return ['table', 'figure', 'svg'].includes(name) || !!node.querySelector?.('table,figure,svg');
+    }
+
+    function isAtomicSectionSplitContainer(node) {
+      return node?.nodeType === Node.ELEMENT_NODE && ['table', 'figure', 'svg'].includes(localName(node));
+    }
+
+    // The element whose children are cut into parts: body, or the first descendant with two or
+    // more element children when body holds a single wrapper (<div class="chapter">). childPath
+    // finds it again in a clone. null when there is nothing to cut.
+    function findSectionSplitContainer(body) {
+      let container = body;
+      const childPath = [];
+      while (true) {
+        const children = Array.from(container.childNodes);
+        const elementChildren = children
+          .map((child, index) => ({ child, index }))
+          .filter(({ child }) => child.nodeType === Node.ELEMENT_NODE);
+        if (elementChildren.length >= 2) return { container, childPath };
+        if (elementChildren.length !== 1 || isAtomicSectionSplitContainer(elementChildren[0].child)) return null;
+        childPath.push(elementChildren[0].index);
+        container = elementChildren[0].child;
+      }
+    }
+
+    // The nodes a chapter is cut between, in document order, each with the wrappers it sits in.
+    // CrossInk cuts only between the container's own children, so a chapter shaped
+    // <h2/> + <div>all of the text</div> (Calibre's and many publishers' template) could not be
+    // cut at all. Here a child too big for one part is opened when it is a plain wrapper around
+    // block content, and its children are cut instead; every part then repeats a shallow copy of
+    // the wrapper around its share. (Not in CrossInk.) Returns [{ node, wrappers }].
+    function collectSectionSplitUnits(container, serializer, wrappers = []) {
+      const units = [];
+      for (const node of Array.from(container.childNodes)) {
+        if (isOpenableSectionSplitWrapper(node, serializer)) {
+          units.push(...collectSectionSplitUnits(node, serializer, [...wrappers, node]));
+        } else {
+          units.push({ node, wrappers });
+        }
+      }
+      return units;
+    }
+
+    // A div, section, article, aside, blockquote or main past the preferred part size that holds
+    // block elements (two or more, or one that is itself such a wrapper). Lists are not opened
+    // (a continued <ol> would restart its numbering), nor anything holding only inline content.
+    function isOpenableSectionSplitWrapper(node, serializer) {
+      if (node?.nodeType !== Node.ELEMENT_NODE) return false;
+      if (!['div', 'section', 'article', 'aside', 'blockquote', 'main'].includes(localName(node))) return false;
+      const elementChildren = Array.from(node.children);
+      const blockChildren = elementChildren.filter((child) => isSafeSectionSplitElement(child));
+      const holdsBlocks = blockChildren.length >= 2 ||
+        (elementChildren.length === 1 && isOpenableSectionSplitWrapper(elementChildren[0], serializer));
+      if (!holdsBlocks) return false;
+      return utf8ByteLength(serializer.serializeToString(node)) > SECTION_SPLIT_BYTE_THRESHOLD ||
+        countSectionWords(node.textContent || '') > SECTION_SPLIT_WORD_THRESHOLD;
+    }
+
+    // ch.xhtml -> ch.xhtml, ch__ci_section_002.xhtml, ch__ci_section_003.xhtml, ...
+    function makeSectionSplitPath(path, partIndex) {
+      if (partIndex === 0) return path;
+      const dot = path.lastIndexOf('.');
+      const suffix = `__ci_section_${String(partIndex + 1).padStart(3, '0')}`;
+      return dot > 0 ? `${path.substring(0, dot)}${suffix}${path.substring(dot)}` : `${path}${suffix}.xhtml`;
+    }
+
+    // makeSectionSplitPath, avoiding names already taken: a book optimized before already holds
+    // ch__ci_section_002.xhtml, and splitting its ch.xhtml again must not overwrite that.
+    // (Not in CrossInk.)
+    function makeUniqueSectionSplitPath(path, partIndex, takenPaths) {
+      const base = makeSectionSplitPath(path, partIndex);
+      if (partIndex === 0) return base;
+      const dot = base.lastIndexOf('.');
+      let candidate = base;
+      for (let attempt = 2; takenPaths.has(candidate); attempt++) {
+        candidate = `${base.substring(0, dot)}_${attempt}${base.substring(dot)}`;
+      }
+      takenPaths.add(candidate);
+      return candidate;
+    }
+
+    // Cuts every spine chapter past the preferred sizes into parts, between its container's
+    // children (and those of oversized wrappers inside it, see collectSectionSplitUnits).
+    // Returns { files, splitSections, anchorTargets, partOrigins }:
+    //   files          the XHTML map with each cut chapter replaced by its parts (the first part
+    //                  keeps the chapter's path)
+    //   splitSections  chapter path -> [part paths], in reading order
+    //   anchorTargets  chapter path -> Map(id or a@name -> part path holding it)
+    //   partOrigins    part path -> chapter path, for every part
+    function splitLongXhtmlSections(xhtmlFiles, opfContent, opfPath, enabled) {
+      const none = { files: xhtmlFiles, splitSections: {}, anchorTargets: new Map(), partOrigins: new Map() };
+      if (!enabled || !opfContent) return none;
+
+      const parser = new DOMParser();
+      const serializer = new XMLSerializer();
+      const out = {};
+      const splitSections = {};
+      const anchorTargets = new Map();
+      const partOrigins = new Map();
+      const spinePaths = new Set(parseOpfSpineHrefs(opfContent, opfPath));
+      const navPaths = parseOpfNavPaths(opfContent, opfPath);
+      const takenPaths = new Set(Object.keys(xhtmlFiles));
+
+      for (const [path, content] of Object.entries(xhtmlFiles)) {
+        if (!spinePaths.has(path) || navPaths.has(path)) {
+          out[path] = content;
+          continue;
+        }
+        const totalBytes = utf8ByteLength(content);
+        if (totalBytes <= SECTION_SPLIT_BYTE_THRESHOLD &&
+            countSectionWords(extractSectionText(content)) <= SECTION_SPLIT_WORD_THRESHOLD) {
+          out[path] = content;
+          continue;
+        }
+
+        const doc = parser.parseFromString(content, 'application/xhtml+xml');
+        if (doc.querySelector('parsererror') || !doc.body) {
+          out[path] = content;
+          continue;
+        }
+        const splitContainer = findSectionSplitContainer(doc.body);
+        if (!splitContainer) {
+          out[path] = content;
+          continue;
+        }
+        const units = collectSectionSplitUnits(splitContainer.container, serializer);
+        const splitChildren = units.map((unit) => unit.node);
+        const wrappersOf = new Map(units.map((unit) => [unit.node, unit.wrappers]));
+        // What every part repeats: the head and the wrappers around the container.
+        const fixedBytes = Math.max(0,
+          totalBytes - splitChildren.reduce((sum, child) => sum + utf8ByteLength(serializer.serializeToString(child)), 0));
+
+        const chunks = [];
+        let current = [];
+        let currentWords = 0;
+        let currentBytes = fixedBytes;
+        const flush = () => {
+          if (current.length === 0) return;
+          chunks.push(current);
+          current = [];
+          currentWords = 0;
+          currentBytes = fixedBytes;
+        };
+
+        for (let childIndex = 0; childIndex < splitChildren.length; childIndex++) {
+          const child = splitChildren[childIndex];
+          const childWords = countSectionWords(child.textContent || '');
+          const childBytes = utf8ByteLength(serializer.serializeToString(child));
+          const lastContentNode = [...current].reverse().find((node) => !isIgnorableSectionSplitNode(node));
+          const wouldExceed = !!lastContentNode &&
+            (currentWords + childWords > SECTION_SPLIT_WORD_THRESHOLD || currentBytes + childBytes > SECTION_SPLIT_BYTE_THRESHOLD);
+          const canBreakBefore = !!lastContentNode && isSafeSectionSplitElement(child) &&
+            !shouldKeepSectionSplitCluster(child) && !isHeadingElement(lastContentNode);
+          const naturalSplitOffset = wouldExceed && currentBytes <= SECTION_SPLIT_HARD_BYTE_LIMIT
+            ? findNaturalSectionSplitOffsetInCurrent(current, serializer)
+            : -1;
+          if (naturalSplitOffset > 0) {
+            const completed = current.splice(0, naturalSplitOffset);
+            chunks.push(completed);
+            currentWords = current.reduce((sum, node) => sum + countSectionWords(node.textContent || ''), 0);
+            currentBytes = fixedBytes + current.reduce((sum, node) => sum + utf8ByteLength(serializer.serializeToString(node)), 0);
+          } else if (wouldExceed && canBreakBefore) {
+            const naturalSplitIndex = findNaturalSectionSplitIndex(splitChildren, childIndex, current, currentBytes, serializer);
+            if (naturalSplitIndex > childIndex) {
+              for (let index = childIndex; index < naturalSplitIndex; index++) {
+                const node = splitChildren[index];
+                current.push(node);
+                currentWords += countSectionWords(node.textContent || '');
+                currentBytes += utf8ByteLength(serializer.serializeToString(node));
+              }
+              flush();
+              childIndex = naturalSplitIndex - 1;
+              continue;
+            }
+            flush();
+          }
+
+          current.push(child);
+          currentWords += childWords;
+          currentBytes += childBytes;
+
+          const canBreakAfter = !isIgnorableSectionSplitNode(child) && isSafeSectionSplitElement(child) &&
+            !shouldKeepSectionSplitCluster(child) && !isHeadingElement(child);
+          if (currentBytes >= SECTION_SPLIT_HARD_BYTE_LIMIT && canBreakAfter) flush();
+        }
+        flush();
+
+        // A part that would show nothing (only anchors, empty wrappers) joins the next one.
+        const mergedChunks = [];
+        let pending = [];
+        for (const chunk of chunks) {
+          if (chunkHasReaderContent(chunk)) {
+            mergedChunks.push([...pending, ...chunk]);
+            pending = [];
+          } else {
+            pending.push(...chunk);
+          }
+        }
+        if (pending.length && mergedChunks.length) mergedChunks[mergedChunks.length - 1].push(...pending);
+
+        if (mergedChunks.length < 2) {
+          out[path] = content;
+          continue;
+        }
+
+        splitSections[path] = [];
+        const sectionAnchors = new Map();
+        anchorTargets.set(path, sectionAnchors);
+        mergedChunks.forEach((chunk, partIndex) => {
+          const partPath = makeUniqueSectionSplitPath(path, partIndex, takenPaths);
+          const partDoc = doc.cloneNode(true);
+          let partContainer = partDoc.body;
+          for (const childIndex of splitContainer.childPath) partContainer = partContainer.childNodes[childIndex];
+          while (partContainer.firstChild) partContainer.removeChild(partContainer.firstChild);
+          // Each node goes inside shallow copies of the wrappers it was opened from, one copy per
+          // wrapper per part, so the part keeps the structure (and the wrappers' styles).
+          const originalOf = new Map();
+          for (const node of chunk) {
+            let parent = partContainer;
+            for (const wrapper of wrappersOf.get(node) || []) {
+              const last = parent.lastChild;
+              if (last && originalOf.get(last) === wrapper) {
+                parent = last;
+              } else {
+                const copy = partDoc.importNode(wrapper, false);
+                originalOf.set(copy, wrapper);
+                parent.appendChild(copy);
+                parent = copy;
+              }
+            }
+            parent.appendChild(partDoc.importNode(node, true));
+          }
+          for (const element of Array.from(partDoc.getElementsByTagName('*'))) {
+            const anchor = element.getAttribute('id') || (localName(element) === 'a' ? element.getAttribute('name') : null);
+            if (anchor && !sectionAnchors.has(anchor)) sectionAnchors.set(anchor, partPath);
+          }
+          out[partPath] = safeSerialize(partDoc, content);
+          splitSections[path].push(partPath);
+          partOrigins.set(partPath, path);
+        });
+      }
+
+      return { files: out, splitSections, anchorTargets, partOrigins };
+    }
+
+    // Lists each part after its chapter: a manifest item per part, and in the spine an itemref
+    // per part right after the chapter's, in order. A chapter marked linear="no" passes that on
+    // to its parts (not in CrossInk).
+    function addSplitSectionsToOpf(opfContent, opfPath, splitSections) {
+      if (Object.keys(splitSections).length === 0) return opfContent;
+
+      const doc = new DOMParser().parseFromString(opfContent, 'application/xml');
+      if (doc.querySelector('parsererror')) return opfContent;
+      const manifest = doc.getElementsByTagNameNS('*', 'manifest')[0];
+      const spine = doc.getElementsByTagNameNS('*', 'spine')[0];
+      if (!manifest || !spine) return opfContent;
+
+      const byPath = new Map();
+      const items = Array.from(doc.getElementsByTagNameNS('*', 'item'));
+      for (const item of items) {
+        const id = item.getAttribute('id');
+        const href = item.getAttribute('href');
+        if (id && href) byPath.set(resolvePath(opfPath, decodeHref(href.split('#')[0])), { id, item });
+      }
+      const usedIds = new Set(items.map((item) => item.getAttribute('id') || ''));
+
+      for (const [originalPath, parts] of Object.entries(splitSections)) {
+        const original = byPath.get(originalPath);
+        if (!original || parts.length < 2) continue;
+
+        const addedIds = [];
+        for (let index = 1; index < parts.length; index++) {
+          let id = `${original.id}-ci-${index + 1}`;
+          while (usedIds.has(id)) id += 'x';
+          usedIds.add(id);
+
+          const item = doc.createElementNS(manifest.namespaceURI || OPF_NS, 'item');
+          item.setAttribute('id', id);
+          item.setAttribute('href', relativeZipHref(opfPath, parts[index]));
+          item.setAttribute('media-type', 'application/xhtml+xml');
+          manifest.appendChild(item);
+          addedIds.push(id);
+        }
+
+        const itemref = Array.from(doc.getElementsByTagNameNS('*', 'itemref')).find(
+          (ref) => ref.getAttribute('idref') === original.id);
+        if (!itemref) continue;
+        const linear = itemref.getAttribute('linear');
+        let insertAfter = itemref;
+        for (const id of addedIds) {
+          const ref = doc.createElementNS(spine.namespaceURI || OPF_NS, 'itemref');
+          ref.setAttribute('idref', id);
+          if (linear) ref.setAttribute('linear', linear);
+          if (insertAfter.nextSibling) spine.insertBefore(ref, insertAfter.nextSibling);
+          else spine.appendChild(ref);
+          insertAfter = ref;
+        }
+      }
+
+      return safeSerialize(doc, opfContent);
+    }
+
+    // Points every link with a fragment that now lives in another part (href, xlink:href, and
+    // src for NCX <content>) at that part. Differences from CrossInk, which only looked at href
+    // and xlink:href and read a bare "#id" as the part the link sits in:
+    //   - NCX entries (<content src="ch.xhtml#id">) are rewritten too;
+    //   - a bare "#id" in a part is looked up in the chapter the part was cut from, so a note
+    //     reference in part 2 still reaches its note at the end of part 5;
+    //   - a link that already reaches the right document is left as the author wrote it.
+    function rewriteSplitSectionReferences(content, sourcePath, anchorTargets, partOrigins = new Map()) {
+      if (anchorTargets.size === 0) return content;
+      const doc = new DOMParser().parseFromString(content, 'application/xml');
+      if (doc.querySelector('parsererror')) return content;
+      let changed = false;
+      for (const element of Array.from(doc.getElementsByTagName('*'))) {
+        for (const attribute of ['href', 'src', 'xlink:href']) {
+          const value = element.getAttribute(attribute);
+          if (!value || /^[a-z][a-z0-9+.-]*:/i.test(value)) continue;
+          const [href, fragment = ''] = value.split(/#(.*)/s, 2);
+          if (!fragment) continue;
+          const reaches = href ? resolvePath(sourcePath, decodeHref(href)) : sourcePath;
+          const chapterPath = href ? reaches : (partOrigins.get(sourcePath) || sourcePath);
+          const partPath = anchorTargets.get(chapterPath)?.get(decodeHref(fragment));
+          if (!partPath || partPath === reaches) continue;
+          element.setAttribute(attribute, `${relativeZipHref(sourcePath, partPath)}#${fragment}`);
+          changed = true;
+        }
+      }
+      return changed ? safeSerialize(doc, content) : content;
     }
 
     /**
@@ -4720,9 +5716,75 @@
       });
     }
 
+    // Ported from CrossInk (uxjulia/CrossInk) web/pages/files.js @1b1156027, MIT, by Julia Nguyen.
+    // The zip paths of the book's cover image and of every image on its cover page: the image the
+    // OPF names (meta name="cover", properties="cover-image", or an image item called "cover"),
+    // and the images of the cover page (an item called "cover", the guide's cover reference, or
+    // the first spine item when the OPF names a cover image).
+    async function findEpubCoverImagePaths(zip) {
+      const opfPath = await findOPFPath(zip);
+      const entry = opfPath && zip.files[opfPath];
+      if (!entry) return new Set();
+      const doc = new DOMParser().parseFromString(await safeReadText(entry), 'application/xml');
+      if (doc.getElementsByTagName('parsererror').length) return new Set();
+
+      const coverId = Array.from(doc.getElementsByTagName('meta'))
+        .find((meta) => meta.getAttribute('name') === 'cover')
+        ?.getAttribute('content');
+      const items = Array.from(doc.getElementsByTagName('item'));
+      const coverItem = (coverId && items.find((item) => item.getAttribute('id') === coverId)) ||
+        items.find((item) => (item.getAttribute('properties') || '').split(/\s+/).includes('cover-image')) ||
+        items.find((item) => {
+          const properties = item.getAttribute('properties') || '';
+          const id = item.getAttribute('id') || '';
+          const href = item.getAttribute('href') || '';
+          return !properties.includes('cover-image') &&
+            (item.getAttribute('media-type') || '').startsWith('image/') && /cover/i.test(`${id} ${href}`);
+        });
+      const coverPaths = new Set();
+      const href = coverItem?.getAttribute('href');
+      if (href) coverPaths.add(resolvePath(opfPath, decodeHref(href.split('#')[0])));
+
+      const coverPagePaths = new Set(
+        items
+          .filter((item) => {
+            const itemHref = item.getAttribute('href') || '';
+            const id = item.getAttribute('id') || '';
+            const mediaType = item.getAttribute('media-type') || '';
+            const hasCoverToken = /(?:^|[-_])cover(?:[-_]|$)/i.test(id) ||
+              /(?:^|\/)cover(?:[-_][^/]*)?\.(?:x?html?)$/i.test(itemHref);
+            return /(?:xhtml|html)/i.test(mediaType) && hasCoverToken;
+          })
+          .map((item) => resolvePath(opfPath, decodeHref((item.getAttribute('href') || '').split('#')[0]))));
+      for (const reference of Array.from(doc.getElementsByTagName('reference'))) {
+        if ((reference.getAttribute('type') || '').toLowerCase() === 'cover') {
+          const pageHref = reference.getAttribute('href');
+          if (pageHref) coverPagePaths.add(resolvePath(opfPath, decodeHref(pageHref.split('#')[0])));
+        }
+      }
+      if (coverPaths.size > 0) {
+        const firstSpineId = doc.getElementsByTagName('itemref')[0]?.getAttribute('idref');
+        const firstSpineItem = firstSpineId && items.find((item) => item.getAttribute('id') === firstSpineId);
+        const firstSpineHref = firstSpineItem?.getAttribute('href');
+        if (firstSpineHref) coverPagePaths.add(resolvePath(opfPath, decodeHref(firstSpineHref.split('#')[0])));
+      }
+      for (const pagePath of coverPagePaths) {
+        const page = zip.files[pagePath];
+        if (!page) continue;
+        const pageDoc = new DOMParser().parseFromString(await safeReadText(page), 'application/xhtml+xml');
+        if (pageDoc.getElementsByTagName('parsererror').length) continue;
+        for (const image of Array.from(pageDoc.querySelectorAll('img, image'))) {
+          const imageHref = image.getAttribute('src') || image.getAttribute('href') || image.getAttribute('xlink:href');
+          if (imageHref) coverPaths.add(resolvePath(pagePath, decodeHref(imageHref.split('#')[0])));
+        }
+      }
+      return coverPaths;
+    }
+
     // Process single image - returns array of {data, suffix} objects
+    // preserveColor (the cover, with "Keep Cover in Color"): only resized to fit the screen.
     const IMAGE_LOAD_TIMEOUT_MS = 30000; // 30 second timeout for image loading
-    async function processImage(data, imageState = 0, imagePath = '') {
+    async function processImage(data, imageState = 0, imagePath = '', preserveColor = false) {
       return new Promise((resolve, reject) => {
         const url = URL.createObjectURL(new Blob([data]));
         const img = new Image();
@@ -4737,6 +5799,31 @@
           clearTimeout(timeoutId);
           URL.revokeObjectURL(url);
           const origW = img.width, origH = img.height;
+
+          // Ported from CrossInk: keep the colours, fit the screen, re-encode as baseline JPEG.
+          // CrossInk fits 480×792 whatever the device; this fits the target device's screen,
+          // as every other image here does.
+          if (preserveColor) {
+            const scale = Math.min(1, MAX_WIDTH / origW, MAX_HEIGHT / origH);
+            const width = Math.max(1, Math.round(origW * scale));
+            const height = Math.max(1, Math.round(origH * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const context = canvas.getContext('2d');
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'high';
+            context.fillStyle = '#FFF';
+            context.fillRect(0, 0, width, height);
+            context.drawImage(img, 0, 0, width, height);
+            const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', JPEG_QUALITY / 100));
+            const output = await blob.arrayBuffer();
+            resolve({
+              parts: [{ data: output, suffix: '', width, height, size: output.byteLength }],
+              meta: { origW, origH, origSize, wasSplit: false, rotated: false, finalW: width, finalH: height, finalSize: output.byteLength, imageState: 0 },
+            });
+            return;
+          }
 
           // imageState: 0=Normal, 1=H-Split (CW/CCW), 2=V-Split, 3=Rotate & Fit
           // ========================================================================
@@ -5075,8 +6162,11 @@
       });
     }
 
-    // Convert EPUB file - returns converted blob
-    async function convertEpubFile(file, progressCallback) {
+    // Convert EPUB file - returns converted blob. `report`, when given, is filled in with what changed
+    // beyond the images: chapters split (splitChapters, splitParts) and empty stubs collapsed
+    // (collapsedStubs); spineChanged is true when either changed the chapter list, which is what
+    // decides whether an optimized book keeps its reading position (optimizeSelected()).
+    async function convertEpubFile(file, progressCallback, report) {
       const startTime = Date.now();
       const originalSize = file.size;
 
@@ -5087,6 +6177,7 @@
       log(`Quality: ${JPEG_QUALITY}% | Overlap: ${OVERLAP_PERCENT}% | Rotation: ${HANDEDNESS === 'right' ? 'CW' : 'CCW'} | Grayscale: ${ENABLE_GRAYSCALE ? 'ON' : 'OFF'}`, '', 'INFO');
 
       const zip = await JSZip.loadAsync(file);
+      await assertEpubHasNoContentEncryption(zip);
       const renamed = {};
       zip.forEach(p => {
         const l = p.toLowerCase();
@@ -5097,8 +6188,14 @@
 
       const out = new JSZip();
       const entries = Object.entries(zip.files);
+      const coverImagePaths = document.getElementById('preserveCoverColorToggle')?.checked
+        ? await findEpubCoverImagePaths(zip)
+        : new Set();
       const splitImages = {};
       const xhtmlFiles = {};
+      // Rewritten XHTML is held until the whole book has been seen, so later passes can
+      // still change the set of files before anything is written.
+      let processedXhtmlFiles = {};
       let opfPath = null, opfContent = null;
       let mainIdentifier = null;
 
@@ -5121,7 +6218,7 @@
 
           let result;
           try {
-            result = await processImage(data, imageState, path);
+            result = await processImage(data, imageState, path, coverImagePaths.has(path));
           } catch (imageError) {
             // Log error but continue with original image
             console.error(`Failed to process image ${path}:`, imageError);
@@ -5161,6 +6258,9 @@
           const imgName = path.split('/').pop();
           const origFormat = path.split('.').pop();
           logImage(imgName, meta.origW, meta.origH, origFormat, meta.origSize, meta.finalW, meta.finalH, meta.finalSize, meta.wasSplit, meta.splitCount || 0, parts, meta.imageState || 0);
+          if (coverImagePaths.has(path) && !meta.processingError) {
+            log(`<strong>${escapeHtml(imgName)}</strong> <span class="log-detail">kept in color (cover)</span>`, '', 'INFO');
+          }
 
           if (parts.length === 1 && parts[0].suffix === '') {
             const newPath = renamed[path] || path.replace(/\.[^.]+$/, newExt);
@@ -5203,7 +6303,14 @@
       // Second pass: update XHTML using DOMParser
       for (const [xhtmlPath, content] of Object.entries(xhtmlFiles)) {
         if (operationCancelled) throw new Error('Cancelled by user');
-        let t = content;
+        let t = scrubEpubTextResource(xhtmlPath, content);
+
+        const stripped = stripComments(t);
+        if (stripped.count) {
+          t = stripped.text;
+          logFix(`Comments (${stripped.count}, ${formatBytes(stripped.bytes)})`, escapeHtml(xhtmlPath.split('/').pop()));
+        }
+
         const r = fixSvgCover(t);
         if (r.fixed) { t = r.c; logFix('SVG cover', xhtmlPath.split('/').pop()); }
 
@@ -5357,7 +6464,52 @@
           t = t.replace('</head>', DEFENSIVE_STYLE + '</head>');
         }
 
-        out.file(xhtmlPath, t, { compression: 'DEFLATE', compressionOptions: { level: 8 }, createFolders: false });
+        processedXhtmlFiles[xhtmlPath] = t;
+      }
+
+      // Empty chapter stubs: drop them from the spine and send their links to the chapter that
+      // follows (ported from CrossInk, see collapseReaderEmptySpineItems).
+      const collapseResult = collapseReaderEmptySpineItems(processedXhtmlFiles, opfContent, opfPath);
+      opfContent = collapseResult.opfContent;
+      for (const [xhtmlPath, content] of Object.entries(processedXhtmlFiles)) {
+        processedXhtmlFiles[xhtmlPath] = rewriteCollapsedSpineReferences(content, xhtmlPath, collapseResult.redirects);
+      }
+      if (collapseResult.redirects.size > 0) {
+        logFix('EPUB sections', `Collapsed ${collapseResult.redirects.size} empty chapter stubs`);
+      }
+
+      // Long chapters: cut into parts at natural breaks, then point every link with a fragment
+      // at the part that now holds its target (ported from CrossInk, see splitLongXhtmlSections).
+      const splitLongSections = !!document.getElementById('splitLongSectionsToggle')?.checked;
+      const sectionSplitResult = splitLongXhtmlSections(processedXhtmlFiles, opfContent, opfPath, splitLongSections);
+      processedXhtmlFiles = sectionSplitResult.files;
+      for (const [xhtmlPath, content] of Object.entries(processedXhtmlFiles)) {
+        processedXhtmlFiles[xhtmlPath] = rewriteSplitSectionReferences(
+          content, xhtmlPath, sectionSplitResult.anchorTargets, sectionSplitResult.partOrigins);
+      }
+      const splitChapterCount = Object.keys(sectionSplitResult.splitSections).length;
+      const splitPartCount = Object.values(sectionSplitResult.splitSections).reduce((sum, parts) => sum + parts.length, 0);
+      if (splitChapterCount > 0) {
+        logFix('EPUB sections', `${splitPartCount} parts from ${splitChapterCount} long sections`);
+      }
+      if (report) {
+        report.splitChapters = splitChapterCount;
+        report.splitParts = splitPartCount;
+        report.collapsedStubs = collapseResult.redirects.size;
+        report.spineChanged = splitChapterCount > 0 || collapseResult.redirects.size > 0;
+      }
+
+      // The NCX and other XML/SVG files can point into chapters too: scrub them and redirect
+      // their links here, before the OPF pass; the copy loop below writes them.
+      const extraTextFiles = {};
+      for (const [path, fileObj] of entries) {
+        if (fileObj.dir || path === 'mimetype') continue;
+        const low = path.toLowerCase();
+        if (low.endsWith('.ncx') || low.match(/\.(xml|svg)$/)) {
+          const content = rewriteCollapsedSpineReferences(
+            scrubEpubTextResource(path, await safeReadText(fileObj)), path, collapseResult.redirects);
+          extraTextFiles[path] = rewriteSplitSectionReferences(content, path, sectionSplitResult.anchorTargets);
+        }
       }
 
       // Extract main identifier from OPF using DOMParser with regex fallback
@@ -5367,14 +6519,20 @@
 
       // Third pass: update OPF using fixOPF (DOMParser with regex fallback)
       if (opfContent) {
-        let t = opfContent;
+        let t = scrubEpubTextResource(opfPath, opfContent);
         for (const [o, n] of Object.entries(renamed)) {
           t = t.split(o.split('/').pop()).join(n.split('/').pop());
         }
         const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
         t = fixOPF(t, opfContent, opfDir, splitImages);
+        t = addSplitSectionsToOpf(t, opfPath, sectionSplitResult.splitSections);
+        t = rewriteSplitSectionReferences(t, opfPath, sectionSplitResult.anchorTargets);
         if (t !== opfContent) logFix('OPF', 'manifest updated');
-        out.file(opfPath, t, { compression: 'DEFLATE', compressionOptions: { level: 8 }, createFolders: false });
+        out.file(opfPath, t, DEFLATE_OPTS);
+      }
+
+      for (const [xhtmlPath, content] of Object.entries(processedXhtmlFiles)) {
+        out.file(xhtmlPath, content, DEFLATE_OPTS);
       }
 
       // Copy remaining files
@@ -5386,13 +6544,13 @@
 
         let data = await fileObj.async('arraybuffer');
         if (low.endsWith('.css')) {
-          let t = await safeReadText(fileObj);
+          let t = scrubEpubTextResource(path, await safeReadText(fileObj));
           for (const [o, n] of Object.entries(renamed)) {
             t = t.split(o.split('/').pop()).join(n.split('/').pop());
           }
           data = new TextEncoder().encode(t);
         } else if (low.endsWith('.ncx')) {
-          let t = await safeReadText(fileObj);
+          let t = extraTextFiles[path];
           for (const [o, n] of Object.entries(renamed)) {
             t = t.split(o.split('/').pop()).join(n.split('/').pop());
           }
@@ -5400,8 +6558,12 @@
           t = syncNCXIdentifier(t, mainIdentifier);
           if (t !== oldT) logFix('NCX identifier', 'Synced with OPF');
           data = new TextEncoder().encode(t);
+        } else if (low.match(/\.(xml|svg)$/)) {
+          // Re-encoded only when something changed; otherwise the bytes pass through.
+          const t = extraTextFiles[path];
+          if (t !== await safeReadText(fileObj)) data = new TextEncoder().encode(t);
         }
-        out.file(path, data, { compression: 'DEFLATE', compressionOptions: { level: 8 }, createFolders: false });
+        out.file(path, data, DEFLATE_OPTS);
       }
 
       if (progressCallback) progressCallback(100);
@@ -5423,6 +6585,39 @@
       }
 
       return newBlob;
+    }
+
+    // Ported from CrossInk (uxjulia/CrossInk) web/pages/files.js @1b1156027, MIT, by Julia Nguyen.
+    // Refuses a book whose content is encrypted (DRM): its XHTML and images are ciphertext, so
+    // optimizing it would only produce a broken copy. Font obfuscation (IDPF and Adobe) is not
+    // DRM: it scrambles only the first bytes of an embedded font, which the optimizer copies
+    // untouched, so such a book is accepted. The caller logs the message and uploads the original.
+    async function assertEpubHasNoContentEncryption(zip) {
+      const encryptionEntry = Object.entries(zip.files).find(
+        ([path, fileObj]) => !fileObj.dir && path.toLowerCase() === 'meta-inf/encryption.xml');
+      if (!encryptionEntry) return;
+
+      const [, encryptionFile] = encryptionEntry;
+      const encryptionXml = await safeReadText(encryptionFile);
+      const encryptionDoc = new DOMParser().parseFromString(encryptionXml, 'application/xml');
+      if (encryptionDoc.querySelector('parsererror')) {
+        throw new Error('This EPUB has invalid encryption metadata and cannot be optimized safely.');
+      }
+
+      const fontObfuscationAlgorithms = new Set([
+        'http://www.idpf.org/2008/embedding',
+        'http://ns.adobe.com/pdf/enc#RC',
+      ]);
+      for (const encryptedData of encryptionDoc.getElementsByTagNameNS('*', 'EncryptedData')) {
+        const method = encryptedData.getElementsByTagNameNS('*', 'EncryptionMethod')[0];
+        const algorithm = method?.getAttribute('Algorithm');
+
+        // Publishers often store obfuscated fonts as .dat files, so the algorithm
+        // is the reliable signal; their filename is not.
+        if (!fontObfuscationAlgorithms.has(algorithm)) {
+          throw new Error('This EPUB is DRM-protected. Please remove DRM before optimizing it.');
+        }
+      }
     }
 
     // Get WebSocket URL based on current page location
@@ -5595,6 +6790,74 @@
       });
     }
 
+    // A file of the same name in the target folder. The device overwrites it on upload -- the Calibre
+    // plugin and scripts re-send a book to update it, so /upload must keep doing that -- which means
+    // the page is where to ask: Replace, Keep both (the upload takes a free "name (2).ext"), or Skip.
+    // One upload asks once per clash unless the answer is applied to the rest.
+    let uploadClash = null;
+    let clashAnswer = null;
+
+    function beginUploadClashes() {
+      uploadClash = { folders: new Map(), applyToAll: null };
+    }
+
+    // Lower-cased names already in `folder`, fetched once per upload and kept up to date as this upload
+    // adds to it. FAT names are case-insensitive, so "Book.epub" and "book.epub" are the same file.
+    async function namesInFolder(folder) {
+      if (!uploadClash.folders.has(folder)) {
+        const names = new Set();
+        try {
+          const response = await fetch('/api/files?path=' + encodeURIComponent(folder) + '&_=' + Date.now());
+          if (response.ok) (await response.json()).forEach(f => names.add(f.name.toLowerCase()));
+        } catch (e) {
+          console.warn('[Upload] Could not list ' + folder + ' for name clashes:', e);
+        }
+        uploadClash.folders.set(folder, names);
+      }
+      return uploadClash.folders.get(folder);
+    }
+
+    function freeNameIn(names, fileName) {
+      const dot = fileName.lastIndexOf('.');
+      const stem = dot > 0 ? fileName.slice(0, dot) : fileName;
+      const ext = dot > 0 ? fileName.slice(dot) : '';
+      for (let n = 2; ; n++) {
+        const candidate = `${stem} (${n})${ext}`;
+        if (!names.has(candidate.toLowerCase())) return candidate;
+      }
+    }
+
+    function askUploadClash(fileName, folder) {
+      document.getElementById('clashName').textContent = fileName;
+      document.getElementById('clashFolder').textContent = folder;
+      document.getElementById('clashApplyAll').checked = false;
+      document.getElementById('clashModal').classList.add('open');
+      return new Promise(resolve => { clashAnswer = resolve; });
+    }
+
+    function answerUploadClash(action) {
+      document.getElementById('clashModal').classList.remove('open');
+      if (document.getElementById('clashApplyAll').checked) uploadClash.applyToAll = action;
+      const resolve = clashAnswer;
+      clashAnswer = null;
+      if (resolve) resolve(action);
+    }
+
+    // The file to upload in place of `file` (renamed for Keep both), or null to skip it.
+    async function resolveUploadClash(file, folder) {
+      const names = await namesInFolder(folder);
+      let upload = file;
+      if (names.has(file.name.toLowerCase())) {
+        const action = uploadClash.applyToAll || await askUploadClash(file.name, folder);
+        if (action === 'skip') return null;
+        if (action === 'keep') {
+          upload = new File([file], freeNameIn(names, file.name), { type: file.type, lastModified: file.lastModified });
+        }
+      }
+      names.add(upload.name.toLowerCase());
+      return upload;
+    }
+
     function uploadFile() {
       const fileInput = document.getElementById('fileInput');
       const files = Array.from(fileInput.files);
@@ -5624,6 +6887,8 @@
       let useWebSocket = true; // Try WebSocket first
       const stagedFolders = pendingFolderUpload;
 
+      beginUploadClashes();
+
       // Check if we should use batch logging mode
       const epubFilesToConvert = files.filter(f => f.name.toLowerCase().endsWith('.epub') && convertEnabled);
       const useBatchLog = epubFilesToConvert.length > 1 && exportLogCheckbox && exportLogCheckbox.checked;
@@ -5638,7 +6903,7 @@
         if (currentIndex >= files.length) {
           // All files processed - show summary
           if (failedFiles.length === 0) {
-            progressFill.style.backgroundColor = '#4caf50';
+            progressFill.style.backgroundColor = 'var(--accent)';
             progressText.textContent = 'All uploads complete!';
 
             // Finalize batch log if in batch mode
@@ -5653,7 +6918,7 @@
               }, 1000);
             }
           } else {
-            progressFill.style.backgroundColor = '#e74c3c';
+            progressFill.style.backgroundColor = 'var(--danger)';
             const failedList = failedFiles.map(f => f.name).join(', ');
             progressText.textContent = `${files.length - failedFiles.length}/${files.length} uploaded. Failed: ${failedList}`;
 
@@ -5688,7 +6953,7 @@
         // Reset progress bar instantly without transition when starting a new file
         progressFill.classList.add('no-transition');
         progressFill.style.width = '0%';
-        progressFill.style.backgroundColor = '#27ae60';
+        progressFill.style.backgroundColor = 'var(--accent)';
         // Re-enable transition after a brief delay
         setTimeout(() => progressFill.classList.remove('no-transition'), 50);
 
@@ -5784,7 +7049,7 @@
         try {
           // Convert EPUB if needed
           if (needsConversion) {
-            progressFill.style.backgroundColor = '#9b59b6'; // Purple for conversion
+            progressFill.style.backgroundColor = 'var(--accent-text)'; // a lighter tone while converting
             progressText.textContent = `Converting ${file.name} (${currentIndex + 1}/${files.length})...`;
 
             // Clear log for single file mode, or just add separator for batch mode
@@ -5805,7 +7070,7 @@
 
               // Create new File from converted blob
               file = new File([convertedBlob], file.name, { type: 'application/epub+zip' });
-              progressFill.style.backgroundColor = '#27ae60'; // Back to green for upload
+              progressFill.style.backgroundColor = 'var(--accent)'; // the usual tone for the upload
               conversionSucceeded = true;
               convOriginalSize = origFileSize;
               convNewSize = convertedBlob.size;
@@ -5826,7 +7091,7 @@
 
               // If conversion fails, try uploading original file
               progressText.textContent = `Conversion failed, uploading original ${file.name}...`;
-              progressFill.style.backgroundColor = '#e67e22'; // Orange for fallback
+              progressFill.style.backgroundColor = 'var(--warn-border)'; // warning tone for the fallback
               // Reset progress bar to 0% for original file upload
               progressFill.style.width = '0%';
             }
@@ -5843,6 +7108,16 @@
               console.warn('[Upload] Image normalize failed, uploading original:', e);
             }
           }
+
+          // Asked here, after any conversion, so the question is about the name that would land.
+          const toUpload = await resolveUploadClash(file, destPath);
+          if (toUpload === null) {
+            progressText.textContent = `Skipped ${file.name} (${currentIndex + 1}/${files.length})`;
+            currentIndex++;
+            uploadNextFile();
+            return;
+          }
+          file = toUpload;
 
           if (useWebSocket) {
             await uploadFileWebSocket(file, onProgress, null, null, destPath);
@@ -5883,7 +7158,7 @@
         // file inside it.
         progressText.textContent = 'Creating folders...';
         createDroppedFolders(stagedFolders).then(uploadNextFile).catch((err) => {
-          progressFill.style.backgroundColor = '#e74c3c';
+          progressFill.style.backgroundColor = 'var(--danger)';
           progressText.textContent = err && err.message ? err.message : String(err);
           isUploadInProgress = false;
           uploadBtn.disabled = false;

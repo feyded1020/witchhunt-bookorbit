@@ -2,6 +2,7 @@
 
 #include <FsHelpers.h>
 #include <HalStorage.h>
+#include <HeapFit.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <Serialization.h>
@@ -13,7 +14,7 @@
 #endif
 
 // The build's scratch buffers are carved from a preallocated BuildArena
-// (docs/compiled-book-pipeline-plan.md Phase 2), device-validated 2026-07-18
+// (docs/memory-allocation-strategy.md §4, class C), device-validated 2026-07-18
 // (X3: highWater=9216/10240, failedAlloc=0, build time neutral). The former
 // per-site new/realloc path has been removed.
 #include <BuildArena.h>
@@ -30,7 +31,14 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
-constexpr uint8_t SECTION_FILE_VERSION = 77;  // bumped: the status byte records a heap-degraded
+constexpr uint8_t SECTION_FILE_VERSION = 81;  // v81: a paragraph over 96 words gets its top margin and padding
+                                              // v79: a <span> styled display:block is a block,
+                                              // and every block in a heading keeps its centring
+                                              // and size (#388); v78 pages run them together
+                                              // v78: a span indent (poem line shape) gives way
+                                              // before its line wraps; v77 pages of such poems
+                                              // carry the wrapped lines
+                                              // v77: the status byte records a heap-degraded
                                               // image build (kStatusImageHeaderDegraded); a v76
                                               // cache may be image-less without saying so
                                               // v76: a percentage wrapper (<div
@@ -125,10 +133,11 @@ constexpr uint8_t kStatusCssDegraded = 1 << 3;
 //   heap condition: deterministic, so nothing rebuilds on it (audit R4).
 constexpr uint8_t kStatusSimplified = 1 << 4;
 
-// On-disk paragraph LUT entry: u32 xhtmlByteOffset + u16 paragraphIndex + u16 listItemIndex.
-// listItemIndex is the running <li> count at page-break time; together with
-// paragraphIndex it lets KOReader-supplied <p>- and <li>-anchored XPaths snap to
-// the exact page on download.
+// On-disk paragraph LUT entry: u32 visibleTextOffset + u16 paragraphIndex + u16 listItemIndex.
+// visibleTextOffset is the number of visible bytes (VisibleText.h) of the chapter's source text
+// before the page's first element: KOReader sync pushes it and resolves pulled positions to a
+// page with it. paragraphIndex and listItemIndex let <p>- and <li>-anchored XPaths snap to a
+// page when a resolver had no offset.
 constexpr uint32_t PARAGRAPH_LUT_ENTRY_SIZE = sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t);
 inline uint32_t paragraphLutEntryOffset(uint32_t lutStart, uint16_t page) {
   return lutStart + page * PARAGRAPH_LUT_ENTRY_SIZE;
@@ -269,7 +278,7 @@ constexpr size_t PARSE_CHUNK_BYTES = 1024;
 // PARSE_CHUNK_BYTES before phase (b). The grow is best-effort: on failure the 1 KB buffer is kept.
 constexpr size_t EXTRACT_CHUNK_BYTES = 8192;
 
-// Parse-scratch arena budget (Phase 2 of docs/compiled-book-pipeline-plan.md).
+// Parse-scratch arena budget for a build with nothing lent (docs/memory-allocation-strategy.md §4).
 // One up-front allocation backing the build's scratch buffers: chunk feed buffer
 // (PARSE_CHUNK_BYTES base + EXTRACT_CHUNK_BYTES extraction scope) + alignment.
 constexpr size_t SCT_PARSE_ARENA_BYTES = 10 * 1024;
@@ -282,7 +291,8 @@ static size_t zipArenaBytesFor(const size_t inflatedSize) {
 
 // Bump when preview expansion semantics change. This is hashed only for preview-enabled
 // variants, leaving the much more common preview-off section caches untouched.
-constexpr uint8_t INLINE_FOOTNOTE_PREVIEW_LAYOUT_VERSION = 2;
+// 3: a "note" of Unicode spaces alone is no longer expanded into " ( )" (#388).
+constexpr uint8_t INLINE_FOOTNOTE_PREVIEW_LAYOUT_VERSION = 3;
 
 uint32_t fnv1a(const uint8_t* data, size_t length) {
   uint32_t hash = FNV_OFFSET_BASIS;
@@ -501,9 +511,8 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   //   allocBlk flat, freeBlk rising      -> pure fragmentation; the bytes come back split
   // Measured X3 2026-08-11: contig fell 40948 -> 15348 across one 17-page parse while free
   // oscillated 20-40 KB, with the arena covering the ring, the chunk feed AND the CSS ruleset
-  // (failedAlloc=0). So whatever does this is on the heap and is NOT arena-eligible — but no
-  // measurement yet names it. That is the open question in docs/memory-allocation-strategy.md
-  // section 8.4, unchanged since it was written; these three counters are what answer it.
+  // (failedAlloc=0). So whatever does this is on the heap. These three counters named it: churn
+  // and placement, not retention (docs/memory-allocation-strategy.md §8.4).
   multi_heap_info_t pageHeapInfo{};
   heap_caps_get_info(&pageHeapInfo, MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
   // The build arena beside the heap (memory audit 2026-09, allocation inventory): its cursor now,
@@ -669,18 +678,31 @@ bool Section::loadSectionFile(const BuildParams& p) {
   // Load LUT into memory (file is now positioned at the lutOffset field)
   uint32_t lutOffset;
   serialization::readPod(file, lutOffset);
-  lut.resize(pageCount);
+  lutFileOffset_ = 0;
   if (!file.seek(lutOffset)) {
     LOG_ERR("SCT", "Deserialization failed: seek to LUT offset %u failed", lutOffset);
     clearCache();
     return false;
   }
-  for (uint32_t& pos : lut) {
-    serialization::readPod(file, pos);
-    if (pos < header::kSize || pos >= lutOffset) {
-      LOG_ERR("SCT", "Deserialization failed: LUT entry %u out of range [%u, %u)", pos, header::kSize, lutOffset);
-      clearCache();
-      return false;
+  // 4 bytes a page: a chapter is a few hundred bytes, a book that is one XHTML file several KB in
+  // one block. Without that block the pages read their offsets from the file instead (one more
+  // 4-byte read per page load) -- a failed resize would abort the device, and failing the load
+  // would delete a good cache.
+  if (!heapHasBlockFor(pageCount * sizeof(uint32_t))) {
+    LOG_ERR("SCT", "No %u-byte block for the %u-page LUT; reading page offsets from the file",
+            static_cast<unsigned>(pageCount * sizeof(uint32_t)), pageCount);
+    lut.clear();
+    lut.shrink_to_fit();
+    lutFileOffset_ = lutOffset;
+  } else {
+    lut.resize(pageCount);
+    for (uint32_t& pos : lut) {
+      serialization::readPod(file, pos);
+      if (pos < header::kSize || pos >= lutOffset) {
+        LOG_ERR("SCT", "Deserialization failed: LUT entry %u out of range [%u, %u)", pos, header::kSize, lutOffset);
+        clearCache();
+        return false;
+      }
     }
   }
   // Build TOC boundaries by scanning anchor data from the still-open file,
@@ -705,6 +727,7 @@ bool Section::clearCache() {
   // and abortBuild.
   if (file) file.close();  // Must be closed before removal on FAT32
   lut.clear();
+  lutFileOffset_ = 0;
   tocBoundaries.clear();
   pageCount = 0;
   currentPage = 0;
@@ -729,7 +752,7 @@ bool Section::clearCache() {
 }
 
 // Live state of an in-progress section build. Holds exactly the locals that span build
-// phases; see docs/epubreader-control-flow-refactor.md §2.7. Held by Section as a
+// phases. Held by Section as a
 // unique_ptr so its address (and thus visitor's completePageFn lut capture) is stable
 // across phase calls and, later, across loop ticks.
 struct Section::BuildState {
@@ -1668,9 +1691,7 @@ Section::BuildPhaseResult Section::runBuildFinalize(BuildState& st) {
     file.write(reinterpret_cast<const uint8_t*>(label), len);
   });
 
-  // Write per-page paragraph LUT: count + array of {xhtmlByteOffset(u32), paragraphIndex(u16)}.
-  // The byte offset lets findXPathForParagraph seek near the target paragraph without scanning
-  // from the beginning of the XHTML file, reducing SD reads on large chapters.
+  // Write per-page paragraph LUT: count + array of {visibleTextOffset(u32), paragraphIndex(u16), listItemIndex(u16)}.
   const uint32_t paragraphLutOffset = file.position();
   const auto& paragraphLut = visitor.getParagraphLutPerPage();
   if (paragraphLut.size() != static_cast<size_t>(pageCount)) {
@@ -1682,7 +1703,7 @@ Section::BuildPhaseResult Section::runBuildFinalize(BuildState& st) {
   }
   serialization::writePod(file, static_cast<uint16_t>(paragraphLut.size()));
   for (const auto& entry : paragraphLut) {
-    serialization::writePod(file, entry.xhtmlByteOffset);
+    serialization::writePod(file, entry.visibleTextOffset);
     serialization::writePod(file, entry.paragraphIndex);
     serialization::writePod(file, entry.listItemIndex);
   }
@@ -2034,9 +2055,10 @@ void Section::abortSectionBuild() {
 }
 
 std::unique_ptr<Page> Section::loadPageFromSectionFile() {
-  if (currentPage < 0 || currentPage >= static_cast<int>(lut.size())) {
+  const size_t lutEntries = lutFileOffset_ != 0 ? pageCount : lut.size();
+  if (currentPage < 0 || currentPage >= static_cast<int>(lutEntries)) {
     LOG_ERR("SCT", "loadPageFromSectionFile: page %d out of LUT range (%u entries)", currentPage,
-            static_cast<uint32_t>(lut.size()));
+            static_cast<uint32_t>(lutEntries));
     return nullptr;
   }
 
@@ -2048,8 +2070,20 @@ std::unique_ptr<Page> Section::loadPageFromSectionFile() {
     }
   }
 
-  if (!file.seek(lut[currentPage])) {
-    LOG_ERR("SCT", "loadPageFromSectionFile: seek to page %d offset %u failed", currentPage, lut[currentPage]);
+  uint32_t pageOffset = 0;
+  if (lutFileOffset_ != 0) {
+    // The LUT stayed on the card (see loadSectionFile): same range check it gets when cached.
+    if (!file.seek(lutFileOffset_ + static_cast<uint32_t>(currentPage) * sizeof(uint32_t)) ||
+        file.read(reinterpret_cast<uint8_t*>(&pageOffset), sizeof(pageOffset)) != sizeof(pageOffset) ||
+        pageOffset < header::kSize || pageOffset >= lutFileOffset_) {
+      LOG_ERR("SCT", "loadPageFromSectionFile: LUT entry for page %d unreadable or out of range", currentPage);
+      return nullptr;
+    }
+  } else {
+    pageOffset = lut[currentPage];
+  }
+  if (!file.seek(pageOffset)) {
+    LOG_ERR("SCT", "loadPageFromSectionFile: seek to page %d offset %u failed", currentPage, pageOffset);
     return nullptr;
   }
   return Page::deserialize(file);
@@ -2271,6 +2305,15 @@ void Section::buildTocBoundariesFromFile(FsFile& f) {
     int tocIndex;
     std::string anchor;
   };
+  // A handful of entries for a chapter, hundreds for an anthology or a Bible that is one XHTML
+  // file. Without the blocks the status bar names the spine's first TOC entry on every page (the
+  // empty-boundaries fallback in getTocIndexForPage) instead of aborting the device. The anchor
+  // strings themselves are small and not checked.
+  if (!heapHasBlockFor(unresolvedCount * sizeof(TocAnchorEntry)) ||
+      !heapHasBlockFor(totalEntries * sizeof(TocBoundary))) {
+    LOG_ERR("SCT", "No block for %u TOC boundaries; chapter titles fall back to the spine's first", totalEntries);
+    return;
+  }
   std::vector<TocAnchorEntry> tocAnchorsToResolve;
   tocAnchorsToResolve.reserve(unresolvedCount);
   tocBoundaries.reserve(totalEntries);
@@ -2336,6 +2379,20 @@ void Section::buildPageBreakLabelsFromFile(FsFile& f) const {
   f.seek(pageBreakMapOffset);
   uint16_t count;
   serialization::readPod(f, count);
+  // Each entry takes at least 6 bytes on the card (page + string length), so a count the rest of
+  // the file cannot hold is a corrupt map, not a request for up to 1.8 MB. A real one is a few
+  // hundred labels at most (a whole printed book in one XHTML file); without a block for it the
+  // status bar just shows no printed page number.
+  constexpr uint32_t MIN_ENTRY_BYTES = sizeof(uint16_t) + sizeof(uint32_t);
+  if (count == 0) return;
+  if (count > (f.size() - pageBreakMapOffset) / MIN_ENTRY_BYTES) {
+    LOG_ERR("SCT", "Page-break map claims %u labels, more than the file holds; ignored", count);
+    return;
+  }
+  if (!heapHasBlockFor(count * sizeof(decltype(pageBreakLabels)::value_type))) {
+    LOG_ERR("SCT", "No block for %u page-break labels; printed page numbers not shown", count);
+    return;
+  }
   pageBreakLabels.reserve(count);
   for (uint16_t i = 0; i < count; i++) {
     uint16_t page;
@@ -2631,7 +2688,7 @@ std::optional<uint16_t> Section::getParagraphIndexForPage(const uint16_t page) c
     return std::nullopt;
   }
 
-  // Seek directly to the paragraphIndex field of the requested entry (skip xhtmlByteOffset)
+  // Seek directly to the paragraphIndex field of the requested entry (skip visibleTextOffset)
   f.seek(entryOffset);
   uint16_t pIdx;
   serialization::readPod(f, pIdx);
@@ -2661,7 +2718,7 @@ std::optional<uint16_t> Section::getPageForListItemIndex(const uint16_t liIndex)
 
   // Mirror getPageForParagraphIndex: each entry stores the running li count at page-break
   // time, so the target li first appears on the smallest i where storedLiIdx[i] >= liIndex.
-  // The listItemIndex field follows xhtmlByteOffset + paragraphIndex within each entry.
+  // The listItemIndex field follows visibleTextOffset + paragraphIndex within each entry.
   for (uint16_t i = 0; i < count; i++) {
     const uint32_t entryOffset = paragraphLutEntryOffset(lutStart, i) + sizeof(uint32_t) + sizeof(uint16_t);
     const uint64_t requiredOffset = static_cast<uint64_t>(entryOffset) + sizeof(uint16_t);
@@ -2682,7 +2739,7 @@ std::optional<uint16_t> Section::getPageForListItemIndex(const uint16_t liIndex)
   return static_cast<uint16_t>(count - 1);
 }
 
-std::optional<uint32_t> Section::getXhtmlByteOffsetForPage(const uint16_t page) const {
+std::optional<uint32_t> Section::getVisibleTextOffsetForPage(const uint16_t page) const {
   FsFile f;
   uint16_t count = 0;
   uint32_t lutStart = 0;
@@ -2693,20 +2750,73 @@ std::optional<uint32_t> Section::getXhtmlByteOffsetForPage(const uint16_t page) 
     f.close();
     return std::nullopt;
   }
-
-  const uint32_t fileSize = f.size();
   const uint32_t entryOffset = paragraphLutEntryOffset(lutStart, page);
-  const uint64_t requiredOffset = static_cast<uint64_t>(entryOffset) + sizeof(uint32_t);
-  if (requiredOffset > fileSize) {
+  if (static_cast<uint64_t>(entryOffset) + sizeof(uint32_t) > f.size()) {
     f.close();
     return std::nullopt;
   }
-
   f.seek(entryOffset);
-  uint32_t byteOffset;
-  serialization::readPod(f, byteOffset);
-
+  uint32_t offset;
+  serialization::readPod(f, offset);
   f.close();
-  // A zero offset means the entry was recorded post-parse (last page), so it's unusable as a hint.
-  return byteOffset > 0 ? std::optional<uint32_t>{byteOffset} : std::nullopt;
+  return offset;
+}
+
+std::optional<uint32_t> Section::getVisibleTextOffsetAfterPage(const uint16_t page) const {
+  FsFile f;
+  uint16_t count = 0;
+  uint32_t lutStart = 0;
+  if (!readParagraphLutHeader(f, count, lutStart)) {
+    return std::nullopt;
+  }
+  const uint32_t fileSize = f.size();
+  std::optional<uint32_t> own;
+  for (uint16_t i = page; i < count; i++) {
+    const uint32_t entryOffset = paragraphLutEntryOffset(lutStart, i);
+    if (static_cast<uint64_t>(entryOffset) + sizeof(uint32_t) > fileSize) {
+      break;
+    }
+    f.seek(entryOffset);
+    uint32_t start;
+    serialization::readPod(f, start);
+    if (i == page) {
+      own = start;
+    } else if (start > *own) {
+      f.close();
+      return start;
+    }
+  }
+  f.close();
+  return std::nullopt;
+}
+
+std::optional<uint16_t> Section::getPageForVisibleTextOffset(const uint32_t offset) const {
+  FsFile f;
+  uint16_t count = 0;
+  uint32_t lutStart = 0;
+  if (!readParagraphLutHeader(f, count, lutStart)) {
+    return std::nullopt;
+  }
+  const uint32_t fileSize = f.size();
+  // Starts are in page order. The answer is the last page whose start is <= offset, so a run of
+  // pages sharing one start (an image, rule or table page followed by the text at the same offset)
+  // answers its LAST page, the one holding the text at that offset. An offset below page 0's start
+  // (a chapter that opens with hidden text) is on page 0.
+  std::optional<uint16_t> found;
+  for (uint16_t i = 0; i < count; i++) {
+    const uint32_t entryOffset = paragraphLutEntryOffset(lutStart, i);
+    if (static_cast<uint64_t>(entryOffset) + sizeof(uint32_t) > fileSize) {
+      break;
+    }
+    f.seek(entryOffset);
+    uint32_t start;
+    serialization::readPod(f, start);
+    if (start > offset) {
+      if (i == 0) found = 0;
+      break;
+    }
+    found = i;
+  }
+  f.close();
+  return found;
 }

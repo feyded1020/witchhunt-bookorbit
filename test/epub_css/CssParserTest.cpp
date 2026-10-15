@@ -67,6 +67,26 @@ TEST(CssParserDeclarations, ImageWidthImportant) {
   ASSERT_EQ(style.imageWidth.value, 50.0f);
 }
 
+// Issue #388: every value but `none` used to read as Block, so a <span> styled display:inline
+// could not be told from one styled display:block -- and the parser lays out only the latter
+// as a block. Block-level values are Block; every other shown value is Inline.
+TEST(CssParserDeclarations, DisplayKeepsBlockAndInlineApart) {
+  const struct {
+    const char* declaration;
+    CssDisplay want;
+  } cases[] = {
+      {"display: block", CssDisplay::Block},         {"display: list-item", CssDisplay::Block},
+      {"display: table", CssDisplay::Block},         {"display: inline", CssDisplay::Inline},
+      {"display: inline-block", CssDisplay::Inline}, {"display: table-cell", CssDisplay::Inline},
+      {"display: none", CssDisplay::None},           {"DISPLAY: BLOCK !important", CssDisplay::Block},
+  };
+  for (const auto& c : cases) {
+    const CssStyle style = CssParser::parseInlineStyle(c.declaration);
+    ASSERT_TRUE(style.hasDisplay()) << c.declaration;
+    EXPECT_EQ(static_cast<int>(style.display), static_cast<int>(c.want)) << c.declaration;
+  }
+}
+
 // Regression: `!important` used to be stripped only by the dozen properties that called
 // stripTrailingImportant themselves. Everything else compared the marker as part of the value
 // and silently dropped the declaration. crosspoint-reader PR #3221.

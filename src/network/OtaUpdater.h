@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -10,11 +11,16 @@
 class OtaUpdater {
   bool updateAvailable = false;
   std::string latestVersion;
-  // First few lines of the release notes, for the confirmation dialog. Empty when the release has
-  // none or they could not be read; the dialog then just shows the versions.
+  // The release's title and the opening lines of its notes, for the confirmation dialog. Either
+  // may be empty. Under 330 B together, held until the update or Back reboots.
+  std::string releaseName;
   std::string releaseNotes;
   std::string otaUrl;
   size_t otaSize = 0;
+  // The asset's SHA-256 from the release metadata (GitHub's "digest"), checked against the image
+  // before it may boot. Releases from before GitHub listed digests have none.
+  uint8_t otaSha256[32] = {};
+  bool otaHasSha256 = false;
   size_t processedSize = 0;
   size_t totalSize = 0;
   bool render = false;
@@ -36,6 +42,8 @@ class OtaUpdater {
     // Release asset was built for another board: chip_id or the embedded board
     // tag disagreed with this build. See FirmwareBoardTag.h.
     WRONG_DEVICE_ERROR,
+    // The downloaded image's SHA-256 is not the one the release metadata lists.
+    CHECKSUM_ERROR,
   };
 
   size_t getOtaSize() const { return otaSize; }
@@ -59,6 +67,7 @@ class OtaUpdater {
   OtaUpdater() = default;
   bool isUpdateNewer() const;
   const std::string& getLatestVersion() const;
+  const std::string& getReleaseName() const { return releaseName; }
   const std::string& getReleaseNotes() const { return releaseNotes; }
   OtaUpdaterError checkForUpdate();
   OtaUpdaterError beginInstallUpdate();

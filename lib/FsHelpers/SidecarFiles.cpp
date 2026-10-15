@@ -109,4 +109,34 @@ std::vector<const char*> existingExtensions(const std::string& bookPath) {
   return found;
 }
 
+bool anyTargetTaken(const std::string& bookPath, const std::string& targetBookPath) {
+  const std::string dstBase = basePath(targetBookPath);
+  if (dstBase.empty()) return false;
+  for (const char* ext : existingExtensions(bookPath)) {
+    if (Storage.exists((dstBase + ext).c_str())) return true;
+  }
+  return false;
+}
+
+bool moveAll(const std::string& bookPath, const std::string& targetBookPath) {
+  const std::string srcBase = basePath(bookPath);
+  const std::string dstBase = basePath(targetBookPath);
+  if (srcBase.empty() || dstBase.empty()) return false;
+  bool success = true;
+  for (const char* ext : existingExtensions(bookPath)) {
+    if (!Storage.rename((srcBase + ext).c_str(), (dstBase + ext).c_str())) success = false;
+  }
+  return success;
+}
+
+bool removeAll(const std::string& bookPath) {
+  const std::string base = basePath(bookPath);
+  if (base.empty()) return true;  // no extension, so nothing can share its name
+  bool success = true;
+  for (const char* ext : existingExtensions(bookPath)) {
+    if (!Storage.remove((base + ext).c_str())) success = false;
+  }
+  return success;
+}
+
 }  // namespace SidecarFiles

@@ -1,11 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
-#include <vector>
 
-#include "../Activity.h"
 #include "CrossPointState.h"
-#include "util/ButtonNavigator.h"
+#include "activities/UiListActivity.h"
 
 namespace BookFinished {
 std::string findNextBookInDirectory(const std::string& currentBookPath, const std::string& currentBookSeries,
@@ -53,63 +52,68 @@ void launchFinishedBookFlow(Activity& host, GfxRenderer& renderer, MappedInputMa
                             void* onSyncToKOReaderCtx = nullptr);
 }  // namespace BookFinished
 
-class FinishedBookActivity : public Activity {
+// What to do now that the book is finished. Pushed by a reader when the last page is turned (see
+// launchFinishedBookFlow) and by the file browser's "mark as read". The rows are actions (Home,
+// open the next book, search OPDS for the author) and switches (move to /COMPLETED, forget the
+// book, sync to KOReader) that the result handler applies once an action is picked. Above the
+// list sit the header, two lines of text and a preview of the next book.
+class FinishedBookActivity final : public UiListActivity {
  public:
   FinishedBookActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string currentBookPath,
                        std::string nextBookPath, std::string currentBookAuthor = {},
                        bool koReaderSyncAvailable = false);
 
   void onEnter() override;
-  // Tap on an action row -> move the selection there; ActivityManager synthesizes Confirm.
-  ListRowTap::Result selectListRow(int index) override;
-  void loop() override;
-  void render(RenderLock&&) override;
 
  private:
-  // Selection movement goes through ButtonNavigator (as in StarredPagesActivity and the other
-  // child-of-reader lists), NOT through consumed button events. This activity sits on top of the
-  // reader on the activity stack, so main.cpp still sees "in the reader" and routes reader-scoped
-  // actions (Up/Down/Left/Right commonly map to PREV/NEXT_SECTION) to dispatchButtonAction()
-  // instead of delivering them here — consumeEvent() never sees them. ButtonNavigator reads the
-  // mapped input state directly and is unaffected.
-  ButtonNavigator buttonNavigator;
+  // The rows that can appear, in display order. Which ones do depends on the book and the settings;
+  // rebuildRows() keeps those that apply in actions_.
+  enum class Row : uint8_t { GoHome, OpenNext, SearchOpds, ToggleMoveToCompleted, ToggleForget, ToggleSyncToKOReader };
+  static constexpr int kMaxRows = 6;
 
-  // The menu's rows are conditional (next-book, OPDS-search, sync-to-KOReader and
-  // move-to-/COMPLETED each appear only when applicable), so the row count and every row's
-  // index depend on the same booleans. Those were previously re-derived independently in
-  // onEnter(), loop() and render(); any divergence between the count handed to GUI.drawList
-  // and the vectors its callbacks index is an out-of-bounds read. Building the model once per
-  // use keeps the count, the indices and the row content in sync by construction.
-  //
-  // Rows are single-line (title + right-aligned value, no subtitle): with up to six rows now
-  // possible, the two-line "with subtitle" row height would push the list well past what fits
-  // alongside the header and next-book preview. Anything a subtitle used to carry (next-book
-  // author/series, which author an OPDS search) either duplicates the preview panel above or
-  // fits in the title itself.
-  struct RowModel {
-    enum class Action { GoHome, OpenNext, SearchOpds, ToggleMoveToCompleted, ToggleForget, ToggleSyncToKOReader };
-    std::vector<Action> actions;
-    std::vector<std::string> titles;
-    std::vector<std::string> values;
+  int listCount() const override { return actionCount_; }
+  const char* headerTitle() const override;
+  void drawChrome() override;
+  void buildScreen(UiScreen& screen) override;
+  void afterUiRender() override;
+  void activateIndex(int index) override;
+  bool handleCustomInput() override;
+  // Back means "done with this book": a GoHome result, which credits the finish and applies the
+  // switches. It never cancels.
+  void onBackButton() override;
+  // Long Back is Back here, also when no reader is below (the file browser's "mark as read"),
+  // where going Home directly would skip the switches.
+  void homeFromList() override;
 
-    int count() const { return static_cast<int>(actions.size()); }
-  };
-
-  RowModel buildRowModel() const;
+  void rebuildRows();
+  void loadNextBookPreview();
+  int layoutNextBookPreview(const Rect& content, int top);
+  void finishWith(BookFinished::FinishedBookAction action);
+  static void provideRow(void* ctx, uint16_t index, freeink::ui::ListItem& item);
 
   std::string currentBookPath_;
   std::string nextBookPath_;
   std::string currentBookAuthor_;
-  std::string nextBookName_;
+  // Read by the render task (the next-book row and the panel above the list); written on the loop
+  // task, under RenderLock, once the preview has loaded.
   std::string nextBookTitle_;
   std::string nextBookAuthor_;
   std::string nextBookSeries_;
   std::string nextBookCoverPath_;
+  int coverWidth_ = 0;  // the cover bitmap's own size; 0 = no cover to show
+  int coverHeight_ = 0;
+  // "Search OPDS for author: <author>", built with the rows.
+  std::string opdsLabel_;
+  Row actions_[kMaxRows]{};
+  uint8_t actionCount_ = 0;
+  // Laid out by drawChrome() on every pass and read in the same frame: the list's top edge by
+  // buildScreen(), the cover's place by afterUiRender().
+  int listTop_ = 0;
+  int coverX_ = 0;
+  int coverY_ = 0;
+  int coverW_ = 0;
+  int coverH_ = 0;
   bool nextBookAvailable_ = false;
   bool nextBookMetadataLoaded_ = false;
   bool koReaderSyncAvailable_ = false;
-  bool moveFinishedBooksToCompleted_ = false;
-  bool removeFinishedBooksFromRecents_ = false;
-  bool syncFinishedBookToKOReader_ = false;
-  int selectedIndex_ = 0;
 };

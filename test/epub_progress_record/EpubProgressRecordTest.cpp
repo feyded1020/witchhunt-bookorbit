@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include "activities/reader/EpubProgressRecord.h"
 
 namespace {
@@ -74,6 +76,97 @@ TEST(EpubProgressRecord, ReadsEveryOlderSize) {
   const auto eight = EpubProgressRecord::decode(data, 8);
   ASSERT_TRUE(eight.has_value()) << "a torn paragraph write still restores the page";
   EXPECT_FALSE(eight->paragraph.has_value());
+}
+
+EpubProgressRecord::Shown sampleShown() {
+  EpubProgressRecord::Shown shown;
+  shown.chapterPage = 314;  // above 255, like the fields above
+  shown.chapterTotal = 1027;
+  shown.printedPage = "(42)";
+  return shown;
+}
+
+TEST(EpubProgressRecord, WhatTheReaderShowedRoundTrips) {
+  EpubProgressRecord r = sample();
+  r.paragraph = 1025;
+  r.shown = sampleShown();
+  uint8_t data[EpubProgressRecord::kMaxSize];
+  const size_t size = r.encode(data);
+
+  const auto back = EpubProgressRecord::decode(data, size);
+  ASSERT_TRUE(back.has_value());
+  EXPECT_EQ(1733, back->spineIndex);
+  EXPECT_EQ(300, back->page);
+  ASSERT_TRUE(back->paragraph.has_value());
+  EXPECT_EQ(1025, *back->paragraph);
+  ASSERT_TRUE(back->shown.has_value());
+  EXPECT_EQ(314, back->shown->chapterPage);
+  EXPECT_EQ(1027, back->shown->chapterTotal);
+  EXPECT_EQ("(42)", back->shown->printedPage);
+}
+
+TEST(EpubProgressRecord, WhatTheReaderShowedLeavesThePrefixAlone) {
+  EpubProgressRecord r = sample();
+  r.shown = sampleShown();
+  uint8_t data[EpubProgressRecord::kMaxSize];
+  r.encode(data);
+  // The home progress badge and older firmware read only this far.
+  EXPECT_EQ(1733, data[0] | (data[1] << 8));
+  EXPECT_EQ(300, data[2] | (data[3] << 8));
+  EXPECT_EQ(412, data[4] | (data[5] << 8));
+  EXPECT_EQ(87, data[6]);
+}
+
+TEST(EpubProgressRecord, WhatTheReaderShowedNeedsNoParagraph) {
+  EpubProgressRecord r = sample();
+  r.shown = sampleShown();
+  uint8_t data[EpubProgressRecord::kMaxSize];
+  const auto back = EpubProgressRecord::decode(data, r.encode(data));
+  ASSERT_TRUE(back.has_value());
+  EXPECT_FALSE(back->paragraph.has_value()) << "the paragraph slot is written as 0, the LUT's none";
+  ASSERT_TRUE(back->shown.has_value());
+  EXPECT_EQ(314, back->shown->chapterPage);
+}
+
+TEST(EpubProgressRecord, AChapterWithNoPrintedPageRoundTrips) {
+  EpubProgressRecord r = sample();
+  r.shown = EpubProgressRecord::Shown{};
+  r.shown->chapterPage = 3;
+  r.shown->chapterTotal = 5;
+  uint8_t data[EpubProgressRecord::kMaxSize];
+  const auto back = EpubProgressRecord::decode(data, r.encode(data));
+  ASSERT_TRUE(back.has_value() && back->shown.has_value());
+  EXPECT_EQ(5, back->shown->chapterTotal);
+  EXPECT_TRUE(back->shown->printedPage.empty());
+}
+
+TEST(EpubProgressRecord, APrintedPageTooLongToStoreIsLeftOutNotCut) {
+  EpubProgressRecord r = sample();
+  r.shown = sampleShown();
+  r.shown->printedPage = std::string("(") + std::string(EpubProgressRecord::kMaxPrintedPage, 'x') + ")";
+  uint8_t data[EpubProgressRecord::kMaxSize];
+  const auto back = EpubProgressRecord::decode(data, r.encode(data));
+  ASSERT_TRUE(back.has_value() && back->shown.has_value());
+  EXPECT_TRUE(back->shown->printedPage.empty());
+  EXPECT_EQ(1027, back->shown->chapterTotal) << "the chapter position survives without the label";
+}
+
+TEST(EpubProgressRecord, ATornTailKeepsThePosition) {
+  EpubProgressRecord r = sample();
+  r.paragraph = 1025;
+  r.shown = sampleShown();
+  uint8_t data[EpubProgressRecord::kMaxSize];
+  const size_t size = r.encode(data);
+
+  // Cut inside the label, and inside the fixed part after the paragraph.
+  for (const size_t cut : {size - 1, size_t{12}}) {
+    const auto back = EpubProgressRecord::decode(data, cut);
+    ASSERT_TRUE(back.has_value()) << cut;
+    EXPECT_EQ(300, back->page) << cut;
+    ASSERT_TRUE(back->paragraph.has_value()) << cut;
+    EXPECT_EQ(1025, *back->paragraph) << cut;
+    EXPECT_FALSE(back->shown.has_value()) << cut;
+  }
 }
 
 TEST(EpubProgressRecord, RejectsWhatWasAlwaysRejected) {

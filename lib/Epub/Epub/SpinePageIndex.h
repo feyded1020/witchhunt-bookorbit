@@ -38,4 +38,8 @@ struct Totals {
 // All zero when there is no table for `variant`.
 Totals sumRange(const std::string& bookCachePath, Variant variant, int spineCount, int first, int last, int current);
 
+// Drops the table, for a layout change the variant cannot see: a TOC recovered after the book was
+// read without one starts new pages at its chapter anchors.
+void discard(const std::string& bookCachePath);
+
 }  // namespace SpinePageIndex

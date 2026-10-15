@@ -25,7 +25,9 @@ namespace {
 constexpr uint32_t CACHE_MAGIC = 0x31504E46;  // "FNP1"
 // 2: added the resolved-spine bitmap. A v1 store is discarded rather than migrated — it
 // rebuilds a spine at a time as the reader moves, so there is nothing to preserve.
-constexpr uint16_t CACHE_VERSION = 2;
+// 3: Unicode spaces at a note's edges are trimmed, and a note of nothing else is not stored. A v2
+// store holds "notes" made of U+2005 alone (The Sea Captain's Wife, #388).
+constexpr uint16_t CACHE_VERSION = 3;
 constexpr size_t STREAM_CHUNK_BYTES = 1024;
 constexpr size_t MAX_HREF_BYTES = 191;
 constexpr uint32_t HEADER_BYTES = 12;    // magic + version + count + indexOffset
@@ -57,6 +59,21 @@ uint32_t makeKeyHash(const int spineIndex, const char* fragment) {
 }
 
 bool isSpaceChar(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
+
+// Bytes of the Unicode space separator starting at s[i] -- U+00A0, U+1680, U+2000..U+200A,
+// U+202F, U+205F, U+3000 -- or 0. Also 0 when the sequence runs past `len`: a text chunk can end
+// mid-character, and its bytes are then kept as text, the safe direction.
+size_t unicodeSpaceLen(const char* s, const size_t i, const size_t len) {
+  const auto b0 = static_cast<uint8_t>(s[i]);
+  if (b0 == 0xC2) return (i + 1 < len && static_cast<uint8_t>(s[i + 1]) == 0xA0) ? 2 : 0;
+  if ((b0 & 0xF0) != 0xE0 || i + 2 >= len) return 0;
+  const auto b1 = static_cast<uint8_t>(s[i + 1]);
+  const auto b2 = static_cast<uint8_t>(s[i + 2]);
+  if ((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80) return 0;
+  const uint32_t cp = ((b0 & 0x0Fu) << 12) | ((b1 & 0x3Fu) << 6) | (b2 & 0x3Fu);
+  const bool space = cp == 0x1680 || (cp >= 0x2000 && cp <= 0x200A) || cp == 0x202F || cp == 0x205F || cp == 0x3000;
+  return space ? 3 : 0;
+}
 
 const char* getAttribute(const char** atts, const char* name) {
   if (!atts) return nullptr;
@@ -340,7 +357,17 @@ class NoteCapturer {
   }
 
   void finishCapture() {
-    while (textLen_ > 0 && text_[textLen_ - 1] == ' ') --textLen_;
+    for (;;) {
+      if (textLen_ > 0 && text_[textLen_ - 1] == ' ') {
+        --textLen_;
+      } else if (textLen_ >= 2 && unicodeSpaceLen(text_, textLen_ - 2, textLen_) == 2) {
+        textLen_ -= 2;
+      } else if (textLen_ >= 3 && unicodeSpaceLen(text_, textLen_ - 3, textLen_) == 3) {
+        textLen_ -= 3;
+      } else {
+        break;
+      }
+    }
     if (truncated_ && textLen_ >= 3) {
       text_[textLen_ - 3] = '.';
       text_[textLen_ - 2] = '.';
@@ -395,6 +422,16 @@ class NoteCapturer {
     for (int i = 0; i < length; ++i) {
       const bool space = isSpaceChar(text[i]);
       if (space && (self->textLen_ == 0 || self->text_[self->textLen_ - 1] == ' ')) continue;
+      // A Unicode space before any text is skipped the same way, so a target holding nothing else
+      // (a contents entry padded with U+2005 around its link) captures nothing and is no note.
+      // Inside the note it stays as written: an NBSP keeps its no-break.
+      if (self->textLen_ == 0) {
+        const size_t n = unicodeSpaceLen(text, static_cast<size_t>(i), static_cast<size_t>(length));
+        if (n > 0) {
+          i += static_cast<int>(n) - 1;
+          continue;
+        }
+      }
       if (self->textLen_ >= FootnotePreviews::MAX_TEXT_BYTES) {
         self->truncated_ = true;
         return;

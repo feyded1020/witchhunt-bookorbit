@@ -44,4 +44,12 @@ class UiAppHost {
 
  private:
   std::atomic<bool> uiReady{false};
+  // The layout values this screen's app draws with (row and header heights, padding, the scroll
+  // bar), derived from the theme metrics and UI fonts in resetUi(). Each screen holds its own,
+  // so they live on the heap only while a list or dialog does: they used to be a static
+  // double-buffered pool shared by every screen -- 3.4 KB of RAM for the whole session,
+  // reading included, where no FreeInkUI screen is on display. Only this screen's own render
+  // reads them, after its onEnter() has filled them in, so one copy needs no second buffer.
+  freeink::ui::ThemeTokens themeTokens{};
+  std::atomic<const freeink::ui::ThemeTokens*> themeCell{nullptr};
 };

@@ -19,9 +19,11 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "AllocationRefusal.h"
 #include "BookMetadataCache.h"
 
 namespace fs = std::filesystem;
@@ -71,9 +73,13 @@ std::vector<int16_t> readResolvedSpineIndices(const std::string& cacheDir, size_
   return out;
 }
 
-// Drive the build-mode API the way Epub::load does: spine pass, then TOC pass.
+// Drive the build-mode API the way Epub::load does: spine pass, then TOC pass. With
+// `refuseAllocationsFrom`, the TOC entries are created on a heap that cannot serve a block that
+// large. Armed after beginTocPass(): opening the temp files goes through the host storage shim,
+// whose path conversion allocates more than the device's FsFile ever would.
 std::vector<int16_t> resolveTocToSpine(const std::string& cacheDir, const std::vector<std::string>& spineHrefs,
-                                       const std::vector<std::string>& tocHrefs) {
+                                       const std::vector<std::string>& tocHrefs, const size_t refuseAllocationsFrom = 0,
+                                       size_t* tocEntryBytesRead = nullptr) {
   {
     BookMetadataCache cache(cacheDir);
     EXPECT_TRUE(cache.beginWrite());
@@ -84,10 +90,15 @@ std::vector<int16_t> resolveTocToSpine(const std::string& cacheDir, const std::v
     EXPECT_TRUE(cache.endContentOpfPass());
 
     EXPECT_TRUE(cache.beginTocPass());
+    std::optional<AllocationRefusal> refusal;
+    if (refuseAllocationsFrom != 0) refusal.emplace(refuseAllocationsFrom);
+    const size_t bytesReadBefore = FsFile::bytesRead;
     for (size_t i = 0; i < tocHrefs.size(); i++) {
       cache.createTocEntry("Title " + std::to_string(i), tocHrefs[i], /*anchor=*/"", /*level=*/0);
     }
+    if (tocEntryBytesRead) *tocEntryBytesRead = FsFile::bytesRead - bytesReadBefore;
     EXPECT_TRUE(cache.endTocPass());
+    refusal.reset();
     EXPECT_TRUE(cache.endWrite());
   }
   return readResolvedSpineIndices(cacheDir, tocHrefs.size());
@@ -164,6 +175,57 @@ TEST_F(BookMetadataCacheTest, LargeSpineCountWithSparseTocResolvesCorrectly) {
   EXPECT_EQ(got[0], 0);
   EXPECT_EQ(got[1], 499);
   EXPECT_EQ(got[2], 999);
+}
+
+// --- A heap that cannot hold the index ----------------------------------------
+//
+// First-open indexing runs with the secondary framebuffer lent, not freed: ~50 KB of fragmented
+// heap. A 2956-spine book's index (16 B/spine) does not fit there, and the deque that held it
+// allocated through the throwing operator new -- abort() on the device. Refusing every block from
+// 512 B up leaves the index (one block, 1 KB even for 64 spines) no room, while the small
+// allocations a lookup makes still succeed. The 4 KB read/write buffers are refused as well and
+// degrade to pass-through, as they would on such a heap.
+constexpr size_t kIndexDoesNotFit = 512;
+
+TEST_F(BookMetadataCacheTest, TocPassSurvivesAnIndexTheHeapCannotHold) {
+  const std::vector<std::string> spine = chapterHrefs(64);
+  const std::vector<int16_t> got = resolveTocToSpine(cacheDir_, spine, spine, kIndexDoesNotFit);
+
+  ASSERT_EQ(got.size(), spine.size());
+  for (size_t i = 0; i < got.size(); i++) {
+    EXPECT_EQ(got[i], static_cast<int16_t>(i)) << "toc entry " << i;
+  }
+}
+
+// Without the index, each TOC entry used to rescan the spine from its first record: ~4.4 million
+// spine records for a 2956-entry TOC. A TOC lists its chapters in reading order, so resuming after
+// the previous match finds the next one at once, and the whole TOC reads the spine file about
+// once. Measured in bytes read, not time: on a host a from-the-start scan still finishes in under
+// a second, on the device it is SD reads at 160 MHz.
+TEST_F(BookMetadataCacheTest, AnInOrderTocReadsTheSpineAboutOnceWithoutTheIndex) {
+  const std::vector<std::string> spine = chapterHrefs(3000);
+
+  size_t bytesRead = 0;
+  const std::vector<int16_t> got = resolveTocToSpine(cacheDir_, spine, spine, kIndexDoesNotFit, &bytesRead);
+
+  ASSERT_EQ(got.size(), spine.size());
+  for (size_t i = 0; i < got.size(); i++) {
+    ASSERT_EQ(got[i], static_cast<int16_t>(i)) << "toc entry " << i;
+  }
+  const auto spineFileBytes = static_cast<size_t>(fs::file_size(fs::path(cacheDir_) / "spine.bin.tmp"));
+  EXPECT_LE(bytesRead, 2 * spineFileBytes) << "spine file is " << spineFileBytes << " bytes";
+}
+
+// Resuming must not cost correctness: entries out of order, repeated, before the previous match
+// (the scan wraps) or absent from the spine all resolve as a from-the-start scan would.
+TEST_F(BookMetadataCacheTest, TheResumedScanResolvesAnyOrderLikeAFullScan) {
+  const std::vector<std::string> spine = chapterHrefs(64);
+  const std::vector<std::string> toc = {
+      spine[5], spine[2], spine[63], spine[63], spine[0], spine[40], "OEBPS/nowhere.xhtml", spine[41], spine[1]};
+
+  const std::vector<int16_t> got = resolveTocToSpine(cacheDir_, spine, toc, kIndexDoesNotFit);
+  const std::vector<int16_t> expected = {5, 2, 63, 63, 0, 40, -1, 41, 1};
+  EXPECT_EQ(got, expected);
 }
 
 }  // namespace

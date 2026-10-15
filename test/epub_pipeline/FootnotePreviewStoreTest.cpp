@@ -418,3 +418,55 @@ TEST(FootnotePreviewStore, ANoteBackLinkIsNotItselfANote) {
   ASSERT_TRUE(lookup.find("notes.xhtml#ft_1", text));
   EXPECT_EQ(text, noteTextFor(1));
 }
+
+// The Sea Captain's Wife (#388): each chapter number links back to its contents entry, and "8" is
+// marker-shaped, so the entry is collected as a note. The entry's only text outside its own link
+// is two U+2005 FOUR-PER-EM SPACEs that align the single-digit numbers:
+//
+//   <li id="c_ch8">&#x2005;&#x2005;<a href="chapter8.xhtml#ch8">8: All the Tea in China</a></li>
+//
+// Only ASCII whitespace counted as space, so those six bytes were stored as the note, and every
+// heading of chapters 1-9 read "8 ( )" / "All the Tea in China ( )". Text with no visible
+// character is no note; and a real note keeps no Unicode space at its edges either.
+TEST(FootnotePreviewStore, UnicodeSpacesAloneAreNoNote) {
+  const std::string dir = freshDir("unicode_spaces");
+  const std::string fourPerEm = "\xE2\x80\x85";
+  test_zip::StoredZipWriter zip;
+  const auto doc = [](const std::string& body) {
+    return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">"
+           "<head><title>T</title></head><body>\n" +
+           body + "\n</body></html>\n";
+  };
+  zip.add("OEBPS/chapter8.xhtml", doc("<h1 id=\"ch8\"><a href=\"contents.xhtml#c_ch8\">8</a></h1>\n"
+                                      "<p>Prose with a note<a href=\"notes.xhtml#n1\">1</a>.</p>"));
+  zip.add("OEBPS/contents.xhtml", doc("<ul><li id=\"c_ch8\">" + fourPerEm + fourPerEm +
+                                      "<a href=\"chapter8.xhtml#ch8\">8: All the Tea in China</a></li></ul>"));
+  zip.add("OEBPS/notes.xhtml", doc("<p id=\"n1\">" + fourPerEm + "A real note." + fourPerEm + "</p>"));
+  zip.add("OEBPS/content.opf",
+          "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+          "<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"id\">\n"
+          "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:identifier id=\"id\">u2005"
+          "</dc:identifier><dc:title>Spaces</dc:title><dc:language>en</dc:language></metadata>\n<manifest>\n"
+          "<item id=\"c\" href=\"chapter8.xhtml\" media-type=\"application/xhtml+xml\"/>\n"
+          "<item id=\"t\" href=\"contents.xhtml\" media-type=\"application/xhtml+xml\"/>\n"
+          "<item id=\"n\" href=\"notes.xhtml\" media-type=\"application/xhtml+xml\"/>\n"
+          "</manifest>\n<spine><itemref idref=\"c\"/><itemref idref=\"t\"/><itemref idref=\"n\"/></spine>\n"
+          "</package>\n");
+  zip.add("mimetype", "application/epub+zip");
+  zip.add("META-INF/container.xml",
+          "<?xml version=\"1.0\"?>\n"
+          "<container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">\n"
+          "<rootfiles><rootfile full-path=\"OEBPS/content.opf\" "
+          "media-type=\"application/oebps-package+xml\"/></rootfiles>\n</container>\n");
+  const std::string book = dir + "/spaces.epub";
+  zip.write(book);
+
+  auto epub = openBook(book, dir + "/cache");
+  ASSERT_TRUE(FootnotePreviews::resolveSpine(*epub, /*spineIndex=*/0));
+  FootnotePreviews::Lookup lookup;
+  ASSERT_TRUE(lookup.open(epub->getCachePath(), epub.get(), /*currentSpineIndex=*/0));
+  std::string text;
+  EXPECT_FALSE(lookup.find("contents.xhtml#c_ch8", text)) << "stored as a note: '" << text << "'";
+  ASSERT_TRUE(lookup.find("notes.xhtml#n1", text));
+  EXPECT_EQ(text, "A real note.");
+}

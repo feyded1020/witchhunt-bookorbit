@@ -107,6 +107,10 @@ static_assert(CSS_FIXED_STYLE_BYTES == 73,
 
 // Cache file name (version is CssParser::CSS_CACHE_VERSION)
 constexpr char rulesCache[] = "/css_rules.cache";
+// Background pictures (CssParser::backgroundImageFor), when the book has any:
+// version(1) + count(2) + count x {selectorLen(2) selector pathLen(2) path}.
+constexpr char backgroundImagesFile[] = "/css_bg.bin";
+constexpr uint8_t BACKGROUND_IMAGES_FILE_VERSION = 1;
 constexpr char compileTempRulesCache[] = "/css_rules.compile.tmp";
 
 // Check if character is CSS whitespace
@@ -583,8 +587,17 @@ void CssParser::parseDeclarationIntoStyle(const std::string_view decl, CssStyle&
       style.defined.opacityZero = 0;
     }
   } else if (propNameBuf == "display") {
+    // Block-level values only; inline-block, table-cell, contents and the rest stay Inline, the
+    // layout a <span> already gets.
     const std::string_view displayValue = propValueBuf;
-    style.display = (displayValue == "none") ? CssDisplay::None : CssDisplay::Block;
+    if (displayValue == "none") {
+      style.display = CssDisplay::None;
+    } else if (displayValue == "block" || displayValue == "list-item" || displayValue == "table" ||
+               displayValue == "flex" || displayValue == "grid" || displayValue == "flow-root") {
+      style.display = CssDisplay::Block;
+    } else {
+      style.display = CssDisplay::Inline;
+    }
     style.defined.display = 1;
   } else if (propNameBuf == "vertical-align") {
     const std::string_view va = propValueBuf;
@@ -924,6 +937,22 @@ bool CssParser::loadFromStream(FsFile& source) {
   int bodyDepth = 0;
   bool skippingRule = false;
   CssStyle currentStyle;
+  // The rule's background picture, gathered across its declarations (background-image and
+  // background-repeat may be separate) and recorded when the rule closes. See backgroundImageFor.
+  BackgroundDeclaration ruleBackground;
+  int8_t ruleBackgroundRepeat = -1;  // -1 unset, 0 repeats, 1 no-repeat
+  const auto noteBackground = [&](const std::string_view decl) {
+    const BackgroundDeclaration d = parseBackground(decl);
+    if (d.declared) {
+      ruleBackground.declared = true;
+      ruleBackground.url = d.url;
+    }
+    if (d.noRepeat) {
+      ruleBackgroundRepeat = 1;
+    } else if (decl.find("repeat") != std::string_view::npos) {
+      ruleBackgroundRepeat = 0;  // repeat, repeat-x, repeat-y, space, round
+    }
+  };
 
   auto handleChar = [&](const char c) {
     if (inAtRule) {
@@ -950,6 +979,8 @@ bool CssParser::loadFromStream(FsFile& source) {
       if (c == '{') {
         bodyDepth = 1;
         currentStyle = CssStyle{};
+        ruleBackground = BackgroundDeclaration{};
+        ruleBackgroundRepeat = -1;
         declBuffer.clear();
         // A selector group that overflowed the StackBuffer was silently truncated; the
         // truncated tail could otherwise be parsed as a bogus rule (e.g. a cut class name
@@ -974,8 +1005,15 @@ bool CssParser::loadFromStream(FsFile& source) {
         // A truncated (overflowed) trailing declaration is dropped rather than parsed as garbage.
         if (!skippingRule && !declBuffer.empty() && !declBuffer.overflowed) {
           parseDeclarationIntoStyle(declBuffer.view(), currentStyle, propNameBuf, propValueBuf);
+          noteBackground(declBuffer.view());
         }
         if (!skippingRule) {
+          // Before processRuleBlockWithStyle, which drops a rule with no style declaration: a rule
+          // that only sets a background picture is exactly such a rule.
+          if (ruleBackground.declared) {
+            const bool picture = !ruleBackground.url.empty() && ruleBackgroundRepeat == 1;
+            recordBackgroundImage(selector.view(), picture ? stylesheetDir_ + ruleBackground.url : std::string());
+          }
           processRuleBlockWithStyle(selector.view(), currentStyle);
         }
         selector.clear();
@@ -994,6 +1032,7 @@ bool CssParser::loadFromStream(FsFile& source) {
         // is dropped without poisoning the declarations that follow it in the block.
         if (!declBuffer.empty() && !declBuffer.overflowed) {
           parseDeclarationIntoStyle(declBuffer.view(), currentStyle, propNameBuf, propValueBuf);
+          noteBackground(declBuffer.view());
         }
         declBuffer.clear();
       } else {
@@ -1177,6 +1216,8 @@ bool CssParser::endCacheCompile() {
 
   outFile.close();
   Storage.remove(compileTempPath_.c_str());
+  saveBackgroundImages();
+  backgroundImagesLoaded_ = true;  // what was just compiled is what the file now holds
 
   // swap, not clear(): clear() frees the nodes but keeps the bucket array, which would sit
   // under the index ensureCacheIndexLoaded() is about to allocate.
@@ -1250,6 +1291,9 @@ void CssParser::clear() {
   hotRuleLru_.clear();
   negativeRuleCache_.clear();
   resolveStats_ = {};
+  std::vector<BackgroundImageRule>().swap(backgroundImages_);
+  backgroundImagesLoaded_ = false;  // reread from the side file on the next query
+  stylesheetDir_.clear();
   compileModeActive_ = false;
   compileModeFailed_ = false;
   rulesTruncated_ = false;
@@ -1735,9 +1779,10 @@ bool CssParser::ensureCacheIndexLoaded() const {
 constexpr size_t kMaxCompressedStyle = 4 + 2 + 11 * 5 + 2 * 4;
 
 // Canonical "which properties are set" mask: 27 defined bits (0-26), then the three boolean
-// VALUES of the invisibility properties in bits 27-29 -- the uint16 of enum values below is
-// full. (By the CssStyle invariant a defined invisibility property is currently always true, so
-// these value bits mirror bits 24-26; they are carried for uniformity, not information.) Bit
+// VALUES of the invisibility properties in bits 27-29 and the high bit of `display` in bit 30 --
+// the uint16 of enum values below is full. (By the CssStyle invariant a defined invisibility
+// property is currently always true, so bits 27-29 mirror bits 24-26; they are carried for
+// uniformity, not information.) Bit
 // order is the pool's dedup key and must stay stable within a build (the pool is rebuilt each
 // load, so it never persists to disk).
 static uint32_t packDefinedMask(const CssPropertyFlags& d) {
@@ -1757,6 +1802,7 @@ static size_t compressStyle(const CssStyle& s, uint8_t* out) {
   if (s.defined.colorTransparent && s.colorTransparent) mask |= 1u << 27;
   if (s.defined.opacityZero && s.opacityZero) mask |= 1u << 28;
   if (s.defined.visibilityHidden && s.visibilityHidden) mask |= 1u << 29;
+  if (s.defined.display && (static_cast<unsigned>(s.display) & 2u)) mask |= 1u << 30;
   std::memcpy(p, &mask, 4);
   p += 4;
   uint16_t enums = 0;
@@ -1849,7 +1895,7 @@ static void decompressStyle(const uint8_t* in, CssStyle& out) {
   if (d.fontStyle) out.fontStyle = static_cast<CssFontStyle>((enums >> 3) & 1u);
   if (d.fontWeight) out.fontWeight = static_cast<CssFontWeight>((enums >> 4) & 1u);
   if (d.textDecoration) out.textDecoration = static_cast<CssTextDecoration>((enums >> 5) & 3u);
-  if (d.display) out.display = static_cast<CssDisplay>((enums >> 7) & 1u);
+  if (d.display) out.display = static_cast<CssDisplay>(((enums >> 7) & 1u) | (((mask >> 30) & 1u) << 1));
   if (d.verticalAlign) out.verticalAlign = static_cast<CssVerticalAlign>((enums >> 8) & 3u);
   if (d.listStyleNone) out.listStyleNone = ((enums >> 10) & 1u) != 0;
   if (d.pageBreakBefore) out.pageBreakBefore = ((enums >> 11) & 1u) != 0;
@@ -2135,6 +2181,181 @@ bool CssParser::hasCache() const { return Storage.exists((cachePath + rulesCache
 
 void CssParser::deleteCache() const {
   if (hasCache()) Storage.remove((cachePath + rulesCache).c_str());
+  const std::string backgrounds = cachePath + backgroundImagesFile;
+  if (Storage.exists(backgrounds.c_str())) Storage.remove(backgrounds.c_str());
+}
+
+CssParser::BackgroundDeclaration CssParser::parseBackground(const std::string_view declarations) {
+  BackgroundDeclaration result;
+  const auto trim = [](std::string_view v) {
+    while (!v.empty() && isCssWhitespace(v.front())) v.remove_prefix(1);
+    while (!v.empty() && isCssWhitespace(v.back())) v.remove_suffix(1);
+    return v;
+  };
+  const auto equalsIgnoreCase = [](const std::string_view a, const std::string_view b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+      if (std::tolower(static_cast<unsigned char>(a[i])) != b[i]) return false;
+    }
+    return true;
+  };
+  const auto findIgnoreCase = [](const std::string_view hay, const std::string_view needle) -> size_t {
+    if (needle.size() > hay.size()) return std::string_view::npos;
+    for (size_t i = 0; i + needle.size() <= hay.size(); ++i) {
+      size_t k = 0;
+      while (k < needle.size() && std::tolower(static_cast<unsigned char>(hay[i + k])) == needle[k]) ++k;
+      if (k == needle.size()) return i;
+    }
+    return std::string_view::npos;
+  };
+
+  size_t pos = 0;
+  while (pos <= declarations.size()) {
+    size_t end = declarations.find(';', pos);
+    if (end == std::string_view::npos) end = declarations.size();
+    const std::string_view decl = declarations.substr(pos, end - pos);
+    pos = end + 1;
+    const size_t colon = decl.find(':');
+    if (colon == std::string_view::npos) continue;
+    const std::string_view name = trim(decl.substr(0, colon));
+    const std::string_view value = decl.substr(colon + 1);
+    const bool image = equalsIgnoreCase(name, "background-image");
+    const bool shorthand = equalsIgnoreCase(name, "background");
+    if (equalsIgnoreCase(name, "background-repeat") || shorthand) {
+      if (findIgnoreCase(value, "no-repeat") != std::string_view::npos) result.noRepeat = true;
+    }
+    if (!image && !shorthand) continue;
+    // A colour, `none` or a gradient replaces the picture as much as a new url does.
+    result.declared = true;
+    result.url.clear();
+    const size_t open = findIgnoreCase(value, "url(");
+    if (open == std::string_view::npos) continue;
+    const size_t close = value.find(')', open + 4);
+    if (close == std::string_view::npos) continue;
+    std::string_view url = trim(value.substr(open + 4, close - open - 4));
+    if (url.size() >= 2 && (url.front() == '"' || url.front() == '\'') && url.back() == url.front()) {
+      url = url.substr(1, url.size() - 2);
+    }
+    // Inline data and remote pictures are not in the book.
+    if (url.empty() || findIgnoreCase(url, "data:") == 0 || url.find("://") != std::string_view::npos) continue;
+    while (!url.empty() && url.front() == '/') url.remove_prefix(1);
+    result.url.assign(url);
+  }
+  return result;
+}
+
+void CssParser::setStylesheetPath(const std::string& sheetPathInEpub) {
+  const size_t slash = sheetPathInEpub.rfind('/');
+  stylesheetDir_ = slash == std::string::npos ? std::string() : sheetPathInEpub.substr(0, slash + 1);
+}
+
+void CssParser::recordBackgroundImage(const std::string_view selectorGroup, const std::string& path) {
+  std::string key;
+  size_t partStart = 0;
+  for (size_t i = 0; i <= selectorGroup.size(); ++i) {
+    if (i != selectorGroup.size() && selectorGroup[i] != ',') continue;
+    normalizedInto(selectorGroup.substr(partStart, i - partStart), key);
+    partStart = i + 1;
+    if (key.empty() || key.size() > MAX_SELECTOR_LENGTH || !isSelectorUsableByResolver(key)) continue;
+    auto existing = std::find_if(backgroundImages_.begin(), backgroundImages_.end(),
+                                 [&](const BackgroundImageRule& r) { return r.selector == key; });
+    if (existing != backgroundImages_.end()) {
+      existing->path = path;  // the later rule wins, a `none` included
+    } else if (!path.empty() && backgroundImages_.size() < MAX_BACKGROUND_IMAGE_RULES) {
+      backgroundImages_.push_back({key, path});
+    }
+  }
+}
+
+void CssParser::saveBackgroundImages() const {
+  const std::string file = cachePath + backgroundImagesFile;
+  uint16_t count = 0;
+  for (const auto& r : backgroundImages_) count += r.path.empty() ? 0 : 1;
+  if (count == 0) {
+    if (Storage.exists(file.c_str())) Storage.remove(file.c_str());
+    return;
+  }
+  FsFile out;
+  if (!Storage.openFileForWrite("CSS", file, out)) return;
+  out.write(BACKGROUND_IMAGES_FILE_VERSION);
+  out.write(reinterpret_cast<const uint8_t*>(&count), sizeof(count));
+  for (const auto& r : backgroundImages_) {
+    if (r.path.empty()) continue;
+    for (const std::string* field : {&r.selector, &r.path}) {
+      const auto len = static_cast<uint16_t>(field->size());
+      out.write(reinterpret_cast<const uint8_t*>(&len), sizeof(len));
+      out.write(reinterpret_cast<const uint8_t*>(field->data()), len);
+    }
+  }
+  out.close();
+  LOG_DBG("CSS", "Recorded %u background picture rule(s)", count);
+}
+
+void CssParser::loadBackgroundImages() const {
+  backgroundImagesLoaded_ = true;
+  backgroundImages_.clear();
+  const std::string file = cachePath + backgroundImagesFile;
+  // Checked first: the file is absent for almost every book, and a failed open logs.
+  if (cachePath.empty() || !Storage.exists(file.c_str())) return;
+  FsFile in;
+  if (!Storage.openFileForRead("CSS", file, in)) return;
+  uint8_t version = 0;
+  uint16_t count = 0;
+  if (in.read(&version, 1) != 1 || version != BACKGROUND_IMAGES_FILE_VERSION ||
+      in.read(reinterpret_cast<uint8_t*>(&count), sizeof(count)) != sizeof(count)) {
+    return;
+  }
+  count = std::min<uint16_t>(count, MAX_BACKGROUND_IMAGE_RULES);
+  backgroundImages_.reserve(count);
+  for (uint16_t i = 0; i < count; ++i) {
+    BackgroundImageRule rule;
+    for (std::string* field : {&rule.selector, &rule.path}) {
+      uint16_t len = 0;
+      if (in.read(reinterpret_cast<uint8_t*>(&len), sizeof(len)) != sizeof(len) || len > 512) {
+        backgroundImages_.clear();
+        return;
+      }
+      field->resize(len);
+      if (len > 0 && in.read(reinterpret_cast<uint8_t*>(&(*field)[0]), len) != len) {
+        backgroundImages_.clear();
+        return;
+      }
+    }
+    backgroundImages_.push_back(std::move(rule));
+  }
+}
+
+const std::string* CssParser::backgroundImageFor(const std::string& tagName, const std::string& classAttr,
+                                                 const std::string& idAttr) const {
+  if (!backgroundImagesLoaded_) loadBackgroundImages();
+  if (backgroundImages_.empty()) return nullptr;
+  const auto find = [&](const std::string& key) -> const std::string* {
+    for (const auto& r : backgroundImages_) {
+      if (r.selector == key) return &r.path;
+    }
+    return nullptr;
+  };
+  // Lowest priority first; each later match overrides (resolveStyle's cascade).
+  const std::string* result = nullptr;
+  const std::string tag = normalized(tagName);
+  if (const auto* p = find(tag)) result = p;
+  if (!classAttr.empty()) {
+    std::string token;
+    std::string key;
+    forEachNormalizedClassToken(classAttr, token, [&](const std::string& cls) {
+      key = "." + cls;
+      if (const auto* p = find(key)) result = p;
+      key = tag + "." + cls;
+      if (const auto* p = find(key)) result = p;
+    });
+  }
+  if (!idAttr.empty()) {
+    std::string id = "#";
+    for (const char c : idAttr) id.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    if (const auto* p = find(id)) result = p;
+    if (const auto* p = find(tag + id)) result = p;
+  }
+  return (result && !result->empty()) ? result : nullptr;
 }
 
 bool CssParser::saveToCache() const {
@@ -2186,6 +2407,7 @@ bool CssParser::saveToCache() const {
 
   LOG_DBG("CSS", "Saved %u rules to cache", ruleCount);
   file.close();
+  saveBackgroundImages();
   return true;
 }
 

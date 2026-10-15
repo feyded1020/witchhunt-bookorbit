@@ -5,7 +5,7 @@
 namespace {
 
 // What an entry needs before it appears anywhere.
-enum class Requires : uint8_t { Nothing, Bookmarks, OpdsServers, BookOrbit, WeatherEnabled };
+enum class Requires : uint8_t { Nothing, Bookmarks, BookOrbit, WeatherEnabled };
 
 struct HomeMenuRow {
   HomeMenuEntry entry;
@@ -22,21 +22,13 @@ struct HomeMenuRow {
 // accessor reads zero, so the row would come and go depending on which rebuild ran last. The
 // screen already says so plainly when there is nothing to show.
 constexpr HomeMenuRow kRows[] = {
-    {{HomeMenuAction::FileBrowser, StrId::STR_BROWSE_FILES, Folder},
-     Requires::Nothing,
-     &CrossPointSettings::showBrowseFilesOnHome},
-    {{HomeMenuAction::Recents, StrId::STR_MENU_RECENT_BOOKS, Recent},
-     Requires::Nothing,
-     &CrossPointSettings::showRecentBooksOnHome},
+    {{HomeMenuAction::Library, StrId::STR_LIBRARY, Folder}, Requires::Nothing, &CrossPointSettings::showLibraryOnHome},
     {{HomeMenuAction::ReadingStats, StrId::STR_READING_STATS, Stats},
      Requires::Nothing,
      &CrossPointSettings::showReadingStatsOnHome},
     {{HomeMenuAction::GlobalBookmarks, StrId::STR_GLOBAL_BOOKMARKS, Book},
      Requires::Bookmarks,
      &CrossPointSettings::showBookmarksOnHome},
-    {{HomeMenuAction::OpdsBrowser, StrId::STR_OPDS_BROWSER, Library},
-     Requires::OpdsServers,
-     &CrossPointSettings::showOpdsBrowserOnHome},
     {{HomeMenuAction::BookOrbitCatalog, StrId::STR_BOOKORBIT_HOME, Library},
      Requires::BookOrbit,
      &CrossPointSettings::showBookOrbitOnHome},
@@ -57,8 +49,6 @@ bool isAvailable(const Requires requirement, const HomeMenuAvailability& availab
       return true;
     case Requires::Bookmarks:
       return availability.hasBookmarks;
-    case Requires::OpdsServers:
-      return availability.hasOpdsServers;
     case Requires::BookOrbit:
       return availability.hasBookOrbit;
     case Requires::WeatherEnabled:
@@ -92,4 +82,8 @@ void collectHomeMenuEntries(const HomeMenuPlacement placement, const HomeMenuAva
     }
     if (placementOf(row) == placement) out.push_back(row.entry);
   }
+}
+
+uint8_t libraryOnHomeFromLegacy(const uint8_t browseFiles, const uint8_t recentBooks) {
+  return browseFiles != 0 || recentBooks != 0 ? 1 : 0;
 }

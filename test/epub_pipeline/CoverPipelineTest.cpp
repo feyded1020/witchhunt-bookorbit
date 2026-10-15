@@ -174,6 +174,63 @@ TEST_F(CoverPipelineFixture, BookWithoutACoverStaysWithoutOne) {
 }
 
 // The in-place decode must produce exactly the thumbnail the extract-then-decode path does.
+// The memo also answers "is the cover stored, and where" for the book it holds. Replacing the
+// book in the memo kept that answer, so the next book was decoded at the previous book's cover
+// offset -- in its own file -- rejected as an unsupported image, and recorded as having no cover.
+// Seen on device: two books in a row in the Covers view, the second one's "47365 bytes at 110"
+// copied from the first.
+TEST_F(CoverPipelineFixture, StoredCoverLocationIsNotCarriedToTheNextBook) {
+  // Different title lengths put the stored cover entry at a different offset in each archive.
+  const std::string a = makeEpub(work / "a.epub", "cover.png", pngString(), "A");
+  const std::string b =
+      makeEpub(work / "b.epub", "cover.png", pngString(), "B, with a title long enough to move the cover entry");
+
+  std::vector<uint8_t> reference;
+  {
+    Epub epub(b, (work / "ref").string());
+    ASSERT_TRUE(epub.loadForCover());
+    ASSERT_EQ(epub.generateThumbBmp(120, 160, /*allowExtract=*/false), ThumbResult::Ok);
+    std::ifstream in(epub.getThumbBmpPath(120, 160), std::ios::binary);
+    reference.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+  ASSERT_FALSE(reference.empty());
+  Epub::clearCoverMetadataMemo();
+
+  {
+    Epub epubA(a, (work / "ca").string());
+    ASSERT_TRUE(epubA.loadForCover());
+    ASSERT_EQ(epubA.generateThumbBmp(120, 160, /*allowExtract=*/false), ThumbResult::Ok);
+  }
+  Epub epubB(b, (work / "cb").string());
+  ASSERT_TRUE(epubB.loadForCover());
+  ASSERT_EQ(epubB.generateThumbBmp(120, 160, /*allowExtract=*/false), ThumbResult::Ok)
+      << "the second book was decoded at the first book's cover offset";
+  std::ifstream in(epubB.getThumbBmpPath(120, 160), std::ios::binary);
+  const std::vector<uint8_t> thumb{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+  EXPECT_EQ(thumb, reference);
+}
+
+// A book that has no cover is a structural absence -- record it once and stop asking -- but a book
+// whose OPF could not be read is not: that may be a tight heap, and deserves another try.
+TEST_F(CoverPipelineFixture, NoCoverIsKnownAbsentButAnUnreadableBookIsNot) {
+  const std::string coverless = makeEpub(work / "n.epub", "pic.png", pngString(), "N", /*declareCover=*/false);
+  for (int attempt = 0; attempt < 2; ++attempt) {  // the parse, then the memo
+    Epub epub(coverless, (work / "cn").string());
+    ASSERT_FALSE(epub.loadForCover());
+    EXPECT_TRUE(epub.coverKnownAbsent()) << "attempt " << attempt;
+  }
+
+  // A zip with no content.opf at all: nothing was learnt about the cover.
+  test_zip::StoredZipWriter zip;
+  zip.add("mimetype", "application/epub+zip");
+  zip.add("c1.xhtml", "<html><body><p>x</p></body></html>");
+  const std::string broken = (work / "broken.epub").string();
+  zip.write(broken);
+  Epub epub(broken, (work / "cbroken").string());
+  ASSERT_FALSE(epub.loadForCover());
+  EXPECT_FALSE(epub.coverKnownAbsent());
+}
+
 TEST_F(CoverPipelineFixture, StoredCoverThumbMatchesTheExtractedPath) {
   const std::string book = makeEpub(work / "book.epub", "cover.png", pngString(), "T");
 

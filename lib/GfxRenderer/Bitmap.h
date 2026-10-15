@@ -95,6 +95,23 @@ class Bitmap {
   // 2-bit output and the dither state are byte-for-byte what they were without it.
   BmpReaderError readNextRow(uint8_t* data, uint8_t* rowBuffer, uint8_t* gray8Row = nullptr) const;
   BmpReaderError rewindToData() const;
+
+  // The 1-bit fast path (GfxRenderer::drawBitmap1Bit), for is1Bit() only. A 1-bit image is always
+  // on the native palette, never dithered and never tone-analysed (parseHeaders), so readNextRow()
+  // gives every pixel a 2-bit value that depends on its palette index alone -- and a whole source
+  // byte of eight pixels maps to two output bytes through one table.
+  //
+  // `table[b]` is the two bytes readNextRow() packs for the eight pixels of source byte `b`, the
+  // first in the high byte. Built per image: the palette and the brightness settings decide it.
+  void oneBitExpansion(uint16_t table[256]) const;
+  // `rows` raw pixel rows, rowBytes each, in one read, advancing exactly as many readNextRow()
+  // calls would -- a cover's 240 rows in a few reads instead of 240 of ~25 bytes, whose per-call
+  // overhead was most of the read time (device logs, 2026-10-01: ~54 us a row on the T5S3).
+  BmpReaderError readRawRows(uint8_t* buffer, int rows) const;
+  // One raw 1-bit row expanded through `table` into readNextRow()'s packing, byte for byte: the
+  // bits past `width` in the last byte are left 0, as readNextRow() leaves them. `out` must hold
+  // 2 * ((width + 7) / 8) bytes.
+  static void expandOneBitRow(const uint16_t table[256], const uint8_t* raw, uint8_t* out, int width);
   int getWidth() const { return width; }
   int getHeight() const { return height; }
   bool isTopDown() const { return topDown; }

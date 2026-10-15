@@ -257,8 +257,9 @@ def main():
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    with open(output_path, "w", encoding="utf-8") as f:
+        # ensure_ascii=False: the firmware's streaming parser does not decode unicode escapes (backslash-u).
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
     print(f"Wrote {output_path}")

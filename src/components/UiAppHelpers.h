@@ -9,26 +9,6 @@
 #include "components/UIThemeTokens.h"
 #include "fontIds.h"
 
-inline std::atomic<const freeink::ui::ThemeTokens*>& sharedUiThemeCell() {
-  static std::atomic<const freeink::ui::ThemeTokens*> cell{nullptr};
-  return cell;
-}
-
-inline void refreshSharedUiThemeTokens(const freeink::ui::GfxRendererTarget& target) {
-  static freeink::ui::ThemeTokens pool[2];
-  auto& cell = sharedUiThemeCell();
-  const auto* current = cell.load(std::memory_order_relaxed);
-  freeink::ui::ThemeTokens* next = current == &pool[0] ? &pool[1] : &pool[0];
-  *next = uiThemeTokens(target);
-  cell.store(next, std::memory_order_release);
-}
-
-template <typename App>
-inline void applySharedUiTheme(App& app, const freeink::ui::GfxRendererTarget& target) {
-  refreshSharedUiThemeTokens(target);
-  app.setThemeRef(&sharedUiThemeCell());
-}
-
 inline freeink::ui::GfxRendererTarget makeUiTarget(const GfxRenderer& renderer) {
   freeink::ui::GfxRendererTarget target(renderer);
   target.setFont(freeink::ui::GfxRendererTarget::FONT_SMALL, SMALL_FONT_ID);

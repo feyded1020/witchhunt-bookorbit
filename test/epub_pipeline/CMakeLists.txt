@@ -14,6 +14,7 @@ set(PIPELINE_SOURCES
   ${REPO_ROOT}/lib/Epub/Epub/Page.cpp
   ${REPO_ROOT}/lib/Epub/Epub/ParsedText.cpp
   ${REPO_ROOT}/lib/Epub/Epub/BookMetadataCache.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/MetadataSidecar.cpp
   ${REPO_ROOT}/lib/Epub/Epub/FootnotePreviews.cpp
   ${REPO_ROOT}/lib/Epub/Epub/FootnoteShape.cpp
   ${REPO_ROOT}/lib/Epub/Epub/EpubImageManifest.cpp
@@ -90,27 +91,47 @@ set(PIPELINE_INCLUDES
 add_executable(EpubPipelineTest
   EpubPipelineTest.cpp
   FingerprintTest.cpp
+  LostTocRetryTest.cpp
+  PageListSinkTest.cpp
   MetadataSidecarTest.cpp
   SidecarFilesTest.cpp
   SectionAbortTest.cpp
   SpinePageIndexTest.cpp
+  StreamedParseTest.cpp
   FootnotePreviewStoreTest.cpp
   FootnoteResolveSliceTest.cpp
   ParagraphAnchorTest.cpp
+  ParsedTextOffsetTest.cpp
+  LowHeapLoadTest.cpp
+  TableRowFallbackArenaTest.cpp
   AnchorMapTest.cpp
   AnchorPageAccuracyTest.cpp
   ImageExtractionTest.cpp
   ImageManifestTest.cpp
   ImageWrapperWidthTest.cpp
+  HeadingBlockLayoutTest.cpp
   SpineCacheLayoutTest.cpp
   SaxStateInArenaTest.cpp
   JpegDownscaleTest.cpp
   CompanionCacheTest.cpp
   ImageParkTest.cpp
   StoredEntryDecodeTest.cpp
+  PlaceholderOnlyScopeTest.cpp
   PixelCacheWriteTest.cpp
   BufferedPrintTest.cpp
   CoverPipelineTest.cpp
+  ProgressMapperTest.cpp
+  ProgressMapperRoundTripTest.cpp
+  XPathExtractionTest.cpp
+  VisibleTextTest.cpp
+  VisibleTextOffsetLutTest.cpp
+  TextNodeRulesTest.cpp
+  # lib/KOReaderSync position mapping: needs only the Epub and the SAX parser, not the network.
+  ${REPO_ROOT}/lib/KOReaderSync/ProgressMapper.cpp
+  ${REPO_ROOT}/lib/KOReaderSync/ChapterXPathIndexer.cpp
+  ${REPO_ROOT}/lib/KOReaderSync/ChapterXPathIndexerInternal.cpp
+  ${REPO_ROOT}/lib/KOReaderSync/ChapterXPathForwardMapper.cpp
+  ${REPO_ROOT}/lib/KOReaderSync/ChapterXPathReverseMapper.cpp
   # No-op HeapTrack: PipelineRunner brackets the dump read-back with pause/resume, and the gtest
   # binary must NOT get the real one (it overrides malloc/free process-wide). The two dump
   # targets pick their own implementation, so this cannot be moved into PIPELINE_SOURCES.

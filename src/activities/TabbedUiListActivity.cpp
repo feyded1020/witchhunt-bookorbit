@@ -1,16 +1,40 @@
 #include "TabbedUiListActivity.h"
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 
 namespace fui = freeink::ui;
 
+namespace {
+// A tabbed list switches tabs on a long Up/Down instead of jumping to its ends (spec R4).
+ListDeclaration tabbedDeclaration() {
+  ListDeclaration declaration;
+  declaration.tabbed = true;
+  return declaration;
+}
+}  // namespace
+
+TabbedUiListActivity::TabbedUiListActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput)
+    : UiListActivity(name, renderer, mappedInput, tabbedDeclaration()) {}
+
 void TabbedUiListActivity::onEnter() {
+  // One ListNav per tab, so each remembers its own row and scroll position; all open on the bar.
+  // Sized before the base onEnter(), which resets the active one.
+  tabNavs.assign(static_cast<size_t>(std::max(1, tabCount())), fui::ListNav{});
+  for (auto& tab : tabNavs) tab.reset(-1);
   UiListActivity::onEnter();
   app.on(ACTION_USER, &TabbedUiListActivity::tabActionTrampoline, this);
   // Open on the bar, not on a row: the first thing a reader does here is pick a tab, and
   // starting with row 0 highlighted invites a Confirm that toggles a setting they never chose.
-  activeNav().selected = -1;
+  activeNav().reset(-1);
+}
+
+fui::ListNav& TabbedUiListActivity::activeNav() {
+  if (tabNavs.empty()) return nav;  // before onEnter() sized them
+  const auto slot = static_cast<size_t>(selectedTabSlot);
+  return tabNavs[slot < tabNavs.size() ? slot : 0];
 }
 
 void TabbedUiListActivity::tabActionTrampoline(const fui::ActionEvent& event, void* user) {
@@ -19,15 +43,23 @@ void TabbedUiListActivity::tabActionTrampoline(const fui::ActionEvent& event, vo
   self->selectTab(event.value);
 }
 
-void TabbedUiListActivity::selectTab(const int slot) {
+void TabbedUiListActivity::selectTab(const int slot) { enterTab(slot, true); }
+
+void TabbedUiListActivity::enterTab(const int slot, const bool barFocus) {
   if (slot < 0 || slot >= tabCount()) return;
   selectedTabSlot = slot;
   onTabSelected(slot);
-  focusTabs();
+  resetPublishedWindow();
+  if (barFocus) {
+    focusTabs();
+    return;
+  }
+  listTapActivation.reset();
+  requestUpdate();
 }
 
 void TabbedUiListActivity::focusTabs() {
-  activeNav().selected = -1;
+  activeNav().requestSelection(-1);
   listTapActivation.reset();
   requestUpdate();
 }
@@ -41,88 +73,71 @@ void TabbedUiListActivity::buildTabBar(UiScreen& screen) {
     tabs[slot].selected = slot == selectedTabSlot;
   }
 
-  fui::TabBarProps props;
-  props.tabs = tabs;
-  props.count = static_cast<uint8_t>(count);
-  props.action = ACTION_USER;
-  props.inputMask = fui::InputTouch;
-  props.text = screen.theme().bodyText;
-  props.tabInset = fui::Insets{};
-  props.contentInset = fui::Insets{};
-
-  // The selected tab reads as filled while the bar holds focus and as a dithered pill once the
-  // focus has moved into the list -- so at a glance the bar says whether the next Confirm
-  // changes tabs or acts on a row. This is the one piece of styling that is not decoration, so
-  // it is set here rather than left to customizeTabBar().
-  //
-  // Adapted from CrossInk (MIT): https://github.com/uxjulia/crossink -- the FreeInkUI tab
-  // composition and touch tab routing at commit cd4b122e, which the settings screen and the
-  // reader menu had each taken a copy of; this class is those two copies merged. The reader
-  // menu's icon-tab treatment (commit 60cc4da5) stays with it, in customizeTabBar().
-  const bool onTabs = tabsFocused();
-  fui::StyleSet tabStyles;
-  tabStyles.explicitlySet = true;
-  tabStyles.normal.background = fui::Paint::solid(fui::Color::White);
-  tabStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
-  tabStyles.normal.border = fui::Paint::solid(fui::Color::Black);
-  tabStyles.normal.borderWidth = 1;
-  tabStyles.selected.background =
-      onTabs ? fui::Paint::solid(fui::Color::Black) : fui::Paint::dither(fui::Color::LightGray);
-  tabStyles.selected.foreground = fui::Paint::solid(onTabs ? fui::Color::White : fui::Color::Black);
-  tabStyles.selected.border = fui::Paint::solid(fui::Color::Black);
-  tabStyles.selected.borderWidth = 1;
-  tabStyles.focused = tabStyles.selected;
-  tabStyles.active = tabStyles.selected;
-  props.tabStyles = tabStyles;
-
+  // Filled while the bar holds focus, a dithered pill once the focus has moved into the list.
+  auto props = ListTabBar::props(screen, tabs, static_cast<uint8_t>(count), ACTION_USER, tabsFocused());
   customizeTabBar(screen, props);
   fui::tabBar(screen.frame(), screen.takeTop(tabBarHeight()), props);
 }
 
-bool TabbedUiListActivity::handleButtons() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    if (tabsFocused()) {
-      onBackFromTabs();
-    } else {
-      focusTabs();
-    }
-    return true;
-  }
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    if (tabsFocused()) {
-      selectTab(ButtonNavigator::nextIndex(selectedTabSlot, tabCount()));
-    } else {
-      activateIndex(activeNav().selected);
-    }
-    return true;
-  }
-  return false;
+int TabbedUiListActivity::selectedPosition() const {
+  // activeNav() hands out a mutable reference; reading through it changes nothing.
+  return const_cast<TabbedUiListActivity*>(this)->activeNav().selected + 1;
 }
 
-// Up/Down walk the bar and the rows as one range: position 0 is the bar, position i+1 is row i.
-// Stepping in that shifted frame is what makes walking up off row 0 land on the bar instead of
-// wrapping to the bottom of the list.
-void TabbedUiListActivity::stepSelection(const bool forward) {
-  const int count = listCount();
-  const auto selectable = [this](const int shifted) { return shifted == 0 || isRowSelectable(shifted - 1); };
-  const int current = activeNav().selected + 1;
-  const int next = forward ? ButtonNavigator::nextIndex(current, count + 1, selectable)
-                           : ButtonNavigator::previousIndex(current, count + 1, selectable);
-  // requestSelection() rather than writing follow() here: follow() moves `top`, which
-  // belongs to the render task, and this runs on the loop task with no lock held. The
-  // deferred pull resolves it in syncToProps instead -- including the bar-focused
-  // case (selection -1), which snaps the viewport to the top.
-  activeNav().requestSelection(next - 1);
+void TabbedUiListActivity::selectPosition(const int position) {
+  // requestSelection() rather than writing the viewport here: `top` belongs to the render task,
+  // and the deferred pull resolves it in syncToProps -- including the bar (selection -1), which
+  // snaps the viewport to the top.
+  activeNav().requestSelection(position - 1);
+  if (position > 0) onSelectionChanged(position - 1);
   listTapActivation.reset();
   requestUpdate();
 }
 
-void TabbedUiListActivity::navigateButtons() {
-  buttonNavigator.onNextRelease([this] { stepSelection(true); });
-  buttonNavigator.onPreviousRelease([this] { stepSelection(false); });
-  buttonNavigator.onNextContinuous([this] { selectTab(ButtonNavigator::nextIndex(selectedTabSlot, tabCount())); });
-  buttonNavigator.onPreviousContinuous(
-      [this] { selectTab(ButtonNavigator::previousIndex(selectedTabSlot, tabCount())); });
+void TabbedUiListActivity::showPositionPage(const int position, const int topPosition) {
+  if (position <= 0) {
+    selectPosition(0);
+    return;
+  }
+  // The inverse of positionWindow(): a screen starting at the bar starts at row 0.
+  showRowPage(position - 1, topPosition > 0 ? topPosition - 1 : 0);
+  listTapActivation.reset();
+}
+
+ListWindow TabbedUiListActivity::positionWindow() const {
+  const ListWindow rows = publishedWindow();
+  ListWindow window;
+  // The bar sits in front of row 0, so the first screen shows it as well.
+  window.top = rows.top == 0 ? 0 : rows.top + 1;
+  window.drawn = rows.top == 0 ? rows.drawn + 1 : rows.drawn;
+  return window;
+}
+
+bool TabbedUiListActivity::isPositionSelectable(const int position) const {
+  return position == 0 || isRowSelectable(position - 1);
+}
+
+void TabbedUiListActivity::activatePosition(const int position, bool /*longPress*/) {
+  if (position == 0) {
+    // Confirm on the bar moves to the next tab.
+    selectTab((selectedTabSlot + 1) % std::max(1, tabCount()));
+    return;
+  }
+  if (position - 1 < listCount()) activateIndex(position - 1);
+}
+
+void TabbedUiListActivity::backFromPosition(const int position) {
+  if (position == 0) {
+    onBackFromTabs();
+  } else {
+    focusTabs();
+  }
+}
+
+void TabbedUiListActivity::switchTab(const int direction) {
+  const int count = tabCount();
+  if (count <= 0) return;
+  enterTab(((selectedTabSlot + direction) % count + count) % count, /*barFocus=*/false);
 }
 
 ListRowTap::Result TabbedUiListActivity::selectListRow(const int index) {

@@ -10,11 +10,13 @@
 #include <esp_system.h>
 
 #include <algorithm>
+#include <cstdlib>
 
 #include "CrossPointState.h"
 #include "OpdsServerStore.h"
 #include "SdCardFontGlobals.h"
 #include "SettingsList.h"
+#include "SilentRestart.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/BookOrbitCatalogActivity.h"
@@ -27,7 +29,6 @@
 #include "home/GlobalBookmarksActivity.h"
 #include "home/HomeActivity.h"
 #include "home/HomeMoreActivity.h"
-#include "home/RecentBooksActivity.h"
 #include "network/CrossPointWebServerActivity.h"
 #include "network/SerialTransferActivity.h"
 #include "network/UsbDriveActivity.h"
@@ -317,6 +318,13 @@ void ActivityManager::loop() {
         continue;  // Will launch the target activity immediately
 
       } else {
+        if (stackActivities.back()->buriedStateReleased) {
+          // The activity below dropped its rows for a download; it cannot be drawn again. Every
+          // download that releases reboots in its own onExit(), so this is only the net.
+          LOG_ERR("ACT", "Resuming an activity whose state was released; rebooting to Settings");
+          SETTINGS.saveToFile();
+          silentRestartToSettings();
+        }
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
         refreshWifiActivityFlag();
@@ -429,7 +437,11 @@ void ActivityManager::exitActivity(const RenderLock& lock) {
 }
 
 void ActivityManager::refreshWifiActivityFlag() {
-  activityUsesWifi.store(currentActivity && currentActivity->usesWifi(), std::memory_order_relaxed);
+  // The whole stack, not just the top: a network activity with a prompt or a picker above it still
+  // owns the radio -- it brought it up and takes it down in its own onExit().
+  bool uses = currentActivity && currentActivity->usesWifi();
+  for (const auto& buried : stackActivities) uses = uses || buried->usesWifi();
+  activityUsesWifi.store(uses, std::memory_order_relaxed);
 }
 
 void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
@@ -451,8 +463,8 @@ void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
   }
 }
 
-void ActivityManager::goToFileTransfer() {
-  replaceActivity(std::make_unique<CrossPointWebServerActivity>(renderer, mappedInput));
+void ActivityManager::goToFileTransfer(const NetworkMode selected) {
+  replaceActivity(std::make_unique<CrossPointWebServerActivity>(renderer, mappedInput, selected));
 }
 
 void ActivityManager::goToSerialTransfer() {
@@ -482,12 +494,14 @@ void ActivityManager::goToKOReaderSettings() {
   replaceActivity(std::make_unique<BookOrbitSettingsActivity>(renderer, mappedInput));
 }
 
-void ActivityManager::goToFileBrowser(std::string path, std::string focusName) {
-  replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path), std::move(focusName)));
-}
-
-void ActivityManager::goToRecentBooks(int focusIndex) {
-  replaceActivity(std::make_unique<RecentBooksActivity>(renderer, mappedInput, focusIndex));
+// The Library is the file browser in one of its four tab modes; every tab has the same views, keys
+// and Options.
+void ActivityManager::goToLibrary(const LibraryTab tab, std::string path, std::string focusName,
+                                  const std::optional<uint32_t> author) {
+  auto library = std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path), std::move(focusName),
+                                                       FileBrowserActivity::modeFor(tab));
+  if (author) library->openAuthorOnEnter(*author);
+  replaceActivity(std::move(library));
 }
 
 void ActivityManager::goToGlobalBookmarks() { goToGlobalBookmarks({}); }
@@ -505,18 +519,21 @@ void ActivityManager::goToBrowser() {
   const auto& servers = OPDS_STORE.getServers();
   // Skip the server picker when there's only one server configured
   if (servers.size() == 1) {
-    replaceActivity(std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInput, servers[0]));
+    replaceActivity(
+        std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInput, servers[0], OpdsBackTo::FileTransfer));
   } else {
-    replaceActivity(std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true));
+    replaceActivity(std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true, OpdsBackTo::FileTransfer));
   }
 }
 
 void ActivityManager::goToBrowserWithSearch(std::string query) {
   const auto& servers = OPDS_STORE.getServers();
   if (servers.size() == 1) {
-    replaceActivity(std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInput, servers[0], std::move(query)));
+    replaceActivity(std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInput, servers[0], OpdsBackTo::Home,
+                                                              std::move(query)));
   } else {
-    replaceActivity(std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true, std::move(query)));
+    replaceActivity(
+        std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true, OpdsBackTo::Home, std::move(query)));
   }
 }
 
@@ -536,9 +553,10 @@ void ActivityManager::goToKOReaderSync() {
     return;
   }
 
-  replaceActivity(std::make_unique<BookOrbitSyncActivity>(renderer, mappedInput, sync.epubPath, sync.spineIndex,
-                                                          sync.page, sync.totalPagesInSpine, sync.paragraphIndex,
-                                                          sync.hasParagraphIndex, sync.xhtmlSeekHint, sync.intent));
+  replaceActivity(std::make_unique<BookOrbitSyncActivity>(
+      renderer, mappedInput, sync.epubPath, sync.spineIndex, sync.page, sync.totalPagesInSpine, sync.paragraphIndex,
+      sync.hasParagraphIndex,
+      /*xhtmlSeekHint=*/0, sync.intent));  // upstream dropped the hint; 0 = none
 }
 
 void ActivityManager::replaceWithReader(std::string path, ReturnHint hint) {
@@ -557,12 +575,6 @@ void ActivityManager::replaceWithFileBrowser(std::string path, ReturnHint hint, 
   replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path), std::move(focusName)));
 }
 
-void ActivityManager::replaceWithRecentBooks(ReturnHint hint) {
-  returnHint = std::move(hint);
-  hasReturnHint = true;
-  replaceActivity(std::make_unique<RecentBooksActivity>(renderer, mappedInput, -1));
-}
-
 void ActivityManager::returnFromChild() {
   if (!hasReturnHint) {
     goHome();
@@ -573,11 +585,19 @@ void ActivityManager::returnFromChild() {
   hasReturnHint = false;
 
   switch (hint.target) {
-    case ReturnTo::FileBrowser:
-      goToFileBrowser(std::move(hint.path), std::move(hint.selectName));
+    case ReturnTo::Library: {
+      std::optional<uint32_t> author;
+      if (!hint.selectionContext.empty()) {
+        author = static_cast<uint32_t>(std::strtoul(hint.selectionContext.c_str(), nullptr, 10));
+      }
+      goToLibrary(libraryTabFrom(static_cast<uint8_t>(hint.selectIndex)), std::move(hint.path),
+                  std::move(hint.selectName), author);
       break;
-    case ReturnTo::RecentBooks:
-      goToRecentBooks(hint.selectIndex);
+    }
+    case ReturnTo::AllFiles:
+      replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(hint.path),
+                                                            std::move(hint.selectName),
+                                                            FileBrowserActivity::Mode::AllFiles));
       break;
     case ReturnTo::GlobalBookmarks:
       goToGlobalBookmarks(std::move(hint));
@@ -612,20 +632,14 @@ void ActivityManager::goToHomeMore() { replaceActivity(std::make_unique<HomeMore
 
 void ActivityManager::goToHomeMenuAction(const HomeMenuAction action) {
   switch (action) {
-    case HomeMenuAction::FileBrowser:
-      goToFileBrowser();
-      break;
-    case HomeMenuAction::Recents:
-      goToRecentBooks();
+    case HomeMenuAction::Library:
+      goToLibrary(libraryTabFrom(APP_STATE.libraryTab));
       break;
     case HomeMenuAction::ReadingStats:
       goToReadingStats();
       break;
     case HomeMenuAction::GlobalBookmarks:
       goToGlobalBookmarks();
-      break;
-    case HomeMenuAction::OpdsBrowser:
-      goToBrowser();
       break;
     case HomeMenuAction::BookOrbitCatalog:
       goToBookOrbitCatalog();
@@ -662,6 +676,17 @@ void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
 #endif
   pendingActivity = std::move(activity);
   pendingAction = PendingAction::Push;
+}
+
+int ActivityManager::releaseBuriedActivityState() {
+  int released = 0;
+  for (const auto& activity : stackActivities) {
+    if (activity->releaseBuriedState()) {
+      activity->buriedStateReleased = true;
+      ++released;
+    }
+  }
+  return released;
 }
 
 void ActivityManager::popActivity() {
@@ -727,7 +752,7 @@ void ActivityManager::dispatchLightPanelGesture() {
   // A dedicated drawer rather than the Display > Reading light submenu, which this used to
   // borrow. The submenu is a settings LIST, and every control on it is one row deep: the
   // brightness row only opens its slider on a further screen. Worse, the rows handed over were
-  // raw getSettingsList() entries that still carried their `submenu` field, so
+  // raw settings-list entries that still carried their `submenu` field, so
   // MenuListActivity::onEnter() re-collapsed them into a nested submenu and the pull-down
   // opened a screen titled "Reading light" whose single row was also "Reading light".
   //
@@ -975,7 +1000,9 @@ void ActivityManager::dispatchHintStripTap() {
   const int hint = hitEitherStrip(x, y);
   if (hint < 0) return;
 
-  mappedInput.injectRawPress(static_cast<uint8_t>(hint));
+  // Dated when the finger left the glass, not now: a refresh can hold the loop up between two
+  // quick taps, and the list's double-tap reads the press times.
+  mappedInput.injectRawPress(static_cast<uint8_t>(hint), /*longPress=*/false, mappedInput.lastTouchEventAtMs());
   LOG_DBG("TCH", "Hint strip tap at (%d,%d) -> raw button %d", x, y, hint);
 }
 
@@ -1122,9 +1149,10 @@ bool ActivityManager::isUpdateSuperseded() const {
 
 // RenderLock
 
-RenderLock::RenderLock() {
-  xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
-  isLocked = true;
+RenderLock::RenderLock(const Mode mode) {
+  // A zero timeout makes the take a pure attempt. portMAX_DELAY blocks until it succeeds (the
+  // kernel is built with INCLUDE_vTaskSuspend), so Blocking always ends up locked.
+  isLocked = xSemaphoreTake(activityManager.renderingMutex, mode == Mode::Try ? 0 : portMAX_DELAY) == pdTRUE;
 }
 
 RenderLock::RenderLock([[maybe_unused]] Activity&) {

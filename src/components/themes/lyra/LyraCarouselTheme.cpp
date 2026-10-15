@@ -27,7 +27,6 @@
 #include "components/icons/file24.h"
 #include "components/icons/folder.h"
 #include "components/icons/folder24.h"
-#include "components/icons/hotspot.h"
 #include "components/icons/image24.h"
 #include "components/icons/library.h"
 #include "components/icons/recent.h"
@@ -35,9 +34,7 @@
 #include "components/icons/stats.h"
 #include "components/icons/text24.h"
 #include "components/icons/transfer.h"
-#include "components/icons/usb.h"
 #include "components/icons/weather32.h"
-#include "components/icons/wifi.h"
 #include "components/themes/ListTouchBand.h"
 #include "components/themes/TapTargets.h"
 #include "components/themes/lyra/CarouselCoverLayout.h"
@@ -161,12 +158,6 @@ const uint8_t* iconBitmapFor(UIIcon icon) {
       return LibraryIcon;
     case UIIcon::Weather:
       return Weather32Icon;
-    case UIIcon::Wifi:
-      return WifiIcon;
-    case UIIcon::Hotspot:
-      return HotspotIcon;
-    case UIIcon::Usb:
-      return UsbIcon;
     default:
       return nullptr;
   }

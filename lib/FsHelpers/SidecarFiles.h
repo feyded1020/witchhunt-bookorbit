@@ -50,4 +50,19 @@ uint32_t metadataStamp(const std::string& bookPath);
 // cover and the metadata corrections behind.
 std::vector<const char*> existingExtensions(const std::string& bookPath);
 
+// True when moving the book to targetBookPath would land one of its sidecars on a
+// file that is already there. Asked before the book moves, so a book is never
+// moved without its sidecars, and no file at the destination is overwritten.
+bool anyTargetTaken(const std::string& bookPath, const std::string& targetBookPath);
+
+// Rename every sidecar of bookPath to sit beside targetBookPath, keeping its
+// extension. Call it for the move a reader asked for, where anyTargetTaken() has
+// already ruled out a clash; false when any one of them failed to move.
+bool moveAll(const std::string& bookPath, const std::string& targetBookPath);
+
+// Delete every sidecar of bookPath. For a book being deleted from a view that
+// hides its sidecars: left behind, they would be invisible there and linger on
+// the card for good. False when any one of them failed.
+bool removeAll(const std::string& bookPath);
+
 }  // namespace SidecarFiles

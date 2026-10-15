@@ -2,8 +2,8 @@
 
 class GfxRenderer;
 
-// Frees the ~52 KB secondary framebuffer and the font cache before a network
-// session, so both esp_wifi_init and any later TLS handshake can obtain the
+// Frees the ~52 KB secondary framebuffer, the font cache and the scaled-glyph
+// cache before a network session, so both esp_wifi_init and any later TLS handshake can obtain the
 // large contiguous blocks they need on a constrained heap.
 //
 // CALL THIS BEFORE THE RADIO COMES UP — not just before TLS. Association is
@@ -35,3 +35,14 @@ class GfxRenderer;
 // Idempotent: safe to call again before TLS to drop font cache that status
 // screens repopulated since the first call.
 void trimMemoryForNetworkSession(const GfxRenderer& renderer, const char* logTag);
+
+// trimMemoryForNetworkSession(), then everything else the session will not draw or
+// read again, for a download that needs the heap in one piece: the font manager and
+// the firmware update, whose 16 KB TLS records (or the chunks that replace them) need
+// contiguous blocks the X3 barely has with Wi-Fi up. Both reboot on exit, and so must
+// any new caller: the settings lists of the activities buried below are dropped
+// (ActivityManager::releaseBuriedActivityState()), and so are the loaded SD font and
+// the global bookmark index. The SD font registry stays; the font manager installs
+// through it. Call it from the current activity, before WiFi comes up and again before
+// the transfer; idempotent.
+void releaseMemoryForDownload(const GfxRenderer& renderer, const char* logTag);

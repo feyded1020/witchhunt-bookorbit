@@ -55,6 +55,10 @@ std::string defaultFontFamilyLabel(const SettingInfo& item) {
 }
 }  // namespace
 
+ReaderSizeList EpubReaderMenuActivity::pendingSizeList() const {
+  return sdFontSystem.sizeListFor(bookSdFontFamily(pendingFontFamilyOverride, pendingSdFontFamilyOverride));
+}
+
 EpubReaderMenuActivity::EpubReaderMenuActivity(
     GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title, const int currentPage,
     const int totalPages, const int bookProgressPercent, const uint8_t currentOrientation, const bool hasFootnotes,
@@ -95,7 +99,7 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
   auto& toolsItems = tabMenuItems[static_cast<size_t>(MenuTab::Tools)];
   navigationItems.reserve(8);
   settingsItems.reserve(13);
-  syncItems.reserve(2);
+  syncItems.reserve(3);
   toolsItems.reserve(8);
 
   visibleTabs[visibleTabCount++] = MenuTab::Navigation;
@@ -221,21 +225,37 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
     settingsItems.push_back(std::move(familySetting));
   }
 
-  // Reader font size: cycles default(-1) then the FONT_SIZE values in enum order, labelled with
-  // their point sizes from CrossPointSettings::FONT_SIZE_RUNGS.
+  // Reader font size: Default, then the sizes the pending family offers. The override is stored as
+  // a point size; option i + 1 is entry i of pendingSizeList().
   auto fontSizeSetting =
       SettingInfo::DynamicEnumCtx(
           StrId::STR_FONT_SIZE, {}, self,
           [](const void* ctx) -> uint8_t {
             const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
-            return (s->pendingFontSizeOverride < 0) ? 0 : static_cast<uint8_t>(s->pendingFontSizeOverride + 1);
+            if (s->pendingFontSizeOverride < 0) return 0;
+            return static_cast<uint8_t>(1 +
+                                        s->pendingSizeList().indexOf(static_cast<uint8_t>(s->pendingFontSizeOverride)));
           },
           [](void* ctx, uint8_t v) {
             auto* s = static_cast<EpubReaderMenuActivity*>(ctx);
-            s->pendingFontSizeOverride = (v == 0) ? -1 : static_cast<int8_t>(v - 1);
+            if (v == 0) {
+              s->pendingFontSizeOverride = -1;
+              return;
+            }
+            const ReaderSizeList sizes = s->pendingSizeList();
+            if (v - 1 < sizes.count) s->pendingFontSizeOverride = static_cast<int8_t>(sizes.points[v - 1]);
           })
+          .withDynamicOptions(
+              [](const void* ctx) -> uint8_t {
+                return static_cast<uint8_t>(1 +
+                                            static_cast<const EpubReaderMenuActivity*>(ctx)->pendingSizeList().count);
+              },
+              [](const void* ctx, const uint8_t index) -> std::string {
+                if (index == 0) return tr(STR_DEFAULT_VALUE);
+                const ReaderSizeList sizes = static_cast<const EpubReaderMenuActivity*>(ctx)->pendingSizeList();
+                return index - 1 < sizes.count ? fontPointSizeLabel(sizes.points[index - 1]) : std::string();
+              })
           .withSelectorActivity();
-  fontSizeSetting.enumLabels = CrossPointSettings::fontSizeLabels(tr(STR_DEFAULT_VALUE));
   settingsItems.push_back(std::move(fontSizeSetting));
 
   // Text darkness. The list is positional -- index IS the stored value -- and
@@ -334,6 +354,9 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
   if (BOOKORBIT_STORE.hasCredentials()) {
     syncItems.push_back(SettingInfo::Action(StrId::STR_PULL_PROGRESS_FROM_OTHER_DEVICES, SettingAction::None));
     syncItems.push_back(SettingInfo::Action(StrId::STR_PUSH_PROGRESS_FROM_THIS_DEVICE, SettingAction::None));
+    // The same comparison a long Confirm press in the reader starts: show which side is further and
+    // let the user choose, instead of forcing one direction.
+    syncItems.push_back(SettingInfo::Action(StrId::STR_COMPARE_PROGRESS_WITH_OTHER_DEVICES, SettingAction::None));
   }
 
   toolsItems.push_back(SettingInfo::Action(StrId::STR_BOOK_INFO, SettingAction::None));
@@ -382,6 +405,8 @@ EpubReaderMenuActivity::MenuAction EpubReaderMenuActivity::actionForNameId(StrId
       return MenuAction::PULL_REMOTE;
     case StrId::STR_PUSH_PROGRESS_FROM_THIS_DEVICE:
       return MenuAction::PUSH_LOCAL;
+    case StrId::STR_COMPARE_PROGRESS_WITH_OTHER_DEVICES:
+      return MenuAction::COMPARE_REMOTE;
     case StrId::STR_SCREENSHOT_BUTTON:
       return MenuAction::SCREENSHOT;
     case StrId::STR_DISPLAY_QR:
@@ -504,7 +529,8 @@ std::string EpubReaderMenuActivity::getItemValueString(int index) const {
       }
     }
     if (item.nameId == StrId::STR_FONT_SIZE && pendingFontSizeOverride < 0) {
-      const auto label = item.getEnumOptionLabel(static_cast<uint8_t>(SETTINGS.fontSize + 1));
+      const auto label =
+          item.getEnumOptionLabel(static_cast<uint8_t>(1 + pendingSizeList().indexOf(SETTINGS.fontPointSize)));
       if (!label.empty()) return std::string(tr(STR_DEFAULT_VALUE)) + " (" + label + ")";
     }
     if (item.nameId == StrId::STR_PARA_ALIGNMENT && pendingParagraphAlignmentOverride < 0) {
@@ -534,13 +560,6 @@ std::string EpubReaderMenuActivity::getItemValueString(int index) const {
   }
 
   return item.getDisplayValue();
-}
-
-void EpubReaderMenuActivity::onEnter() {
-  // Every tab starts focused on the bar rather than on a row; the base puts the ACTIVE tab
-  // there, this resets the others so stepping between them does not reveal a stale selection.
-  for (auto& tab : tabNav) tab.reset(-1);
-  TabbedUiListActivity::onEnter();
 }
 
 void EpubReaderMenuActivity::onExit() { TabbedUiListActivity::onExit(); }
@@ -651,7 +670,7 @@ void EpubReaderMenuActivity::customizeTabBar(UiScreen& screen, fui::TabBarProps&
 #endif
 
 void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
-  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
+  const Rect contentRect = listContentRect();
   const int16_t top = static_cast<int16_t>(contentRect.y + 75);
   screen.setContentMarginFromScreen(
       fui::Insets{top, static_cast<int16_t>(renderer.getScreenWidth() - (contentRect.x + contentRect.width)),
@@ -661,22 +680,18 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
   buildTabBar(screen);
   screen.spacer(6);
 
-  fui::ListProps listProps;
-  listProps.count = static_cast<uint16_t>(listCount());
-  listProps.action = ACTION_ROW;
-  listProps.inputMask = fui::InputTouch;
-  listProps.labelText = screen.theme().bodyText;
-  listProps.labelText.maxLines = 2;
-  syncListViewport(screen, listProps);
+  auto props = listProps(screen);
+  props.count = static_cast<uint16_t>(listCount());
+  syncListViewport(screen, props);
   materializeListWindow();
-  listProps.items = windowItems.data();
-  listProps.itemsWindowFirst = windowFirst;
-  listProps.itemsWindowCount = windowCount;
-  screen.list(listProps);
+  props.items = windowItems.data();
+  props.itemsWindowFirst = windowFirst;
+  props.itemsWindowCount = windowCount;
+  screen.list(props);
 }
 
 void EpubReaderMenuActivity::drawChrome() {
-  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
+  const Rect contentRect = listContentRect();
   const std::string truncTitle =
       renderer.truncatedText(UI_12_FONT_ID, title.c_str(), contentRect.width - 40, EpdFontFamily::BOLD);
   const int titleX =
@@ -690,13 +705,14 @@ void EpubReaderMenuActivity::drawChrome() {
                    std::to_string(totalPages) + std::string(tr(STR_PAGES_SEPARATOR));
   }
   progressLine += std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
-  renderer.drawCenteredText(UI_10_FONT_ID, 45 + contentRect.y, progressLine.c_str());
+  // Centred in the content rect, as the title is, rather than on the screen.
+  const int progressX =
+      contentRect.x + (contentRect.width - renderer.getTextWidth(UI_10_FONT_ID, progressLine.c_str())) / 2;
+  renderer.drawText(UI_10_FONT_ID, progressX, 45 + contentRect.y, progressLine.c_str());
 }
 
-void EpubReaderMenuActivity::drawFooter() {
+const char* EpubReaderMenuActivity::footerConfirmLabel() const {
   // Confirm means "next tab" while the bar holds focus and "select" on a row, so the hint names
   // the tab it would move to, as the settings screen does.
-  const auto confirmLabel = tabsFocused() ? tabLabel((selectedTab() + 1) % tabCount()) : tr(STR_SELECT);
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  return selectedPosition() == 0 ? tabLabel((selectedTab() + 1) % tabCount()) : tr(STR_SELECT);
 }

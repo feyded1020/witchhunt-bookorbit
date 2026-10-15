@@ -18,6 +18,8 @@
 #include "TouchGestures.h"
 #include "TouchUi.h"
 #include "WifiCredentialStore.h"
+#include "activities/home/HomeMenu.h"
+#include "activities/home/LibraryTab.h"
 #include "util/UrlUtils.h"
 
 namespace {
@@ -37,7 +39,10 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   doc["lastSleepImage"] = s.lastSleepImage;
   doc["readerActivityLoadCount"] = s.readerActivityLoadCount;
   doc["lastSleepFromReader"] = s.lastSleepFromReader;
-  doc["recentBooksGridView"] = s.recentBooksGridView;
+  doc["recentBooksView"] = s.recentBooksView;
+  doc["libraryTab"] = s.libraryTab;
+  doc["addedBooksView"] = s.addedBooksView;
+  doc["authorsView"] = s.authorsView;
   doc["showBootScreen"] = s.showBootScreen;
   // Information about a pending KOReader sync session
   JsonObject sync = doc["koReaderSyncSession"].to<JsonObject>();
@@ -48,7 +53,10 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   sync["totalPagesInSpine"] = s.koReaderSyncSession.totalPagesInSpine;
   sync["paragraphIndex"] = s.koReaderSyncSession.paragraphIndex;
   sync["hasParagraphIndex"] = s.koReaderSyncSession.hasParagraphIndex;
-  sync["xhtmlSeekHint"] = s.koReaderSyncSession.xhtmlSeekHint;
+  sync["paragraphIndexBefore"] = s.koReaderSyncSession.paragraphIndexBefore;
+  sync["visibleOffsetAtPage"] = s.koReaderSyncSession.visibleOffsetAtPage;
+  sync["visibleOffsetAtNextPage"] = s.koReaderSyncSession.visibleOffsetAtNextPage;
+  sync["hasVisibleOffset"] = s.koReaderSyncSession.hasVisibleOffset;
   sync["intent"] = static_cast<uint8_t>(s.koReaderSyncSession.intent);
   sync["outcome"] = static_cast<uint8_t>(s.koReaderSyncSession.outcome);
   sync["resultSpineIndex"] = s.koReaderSyncSession.resultSpineIndex;
@@ -57,6 +65,8 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   sync["resultHasParagraphIndex"] = s.koReaderSyncSession.resultHasParagraphIndex;
   sync["resultListItemIndex"] = s.koReaderSyncSession.resultListItemIndex;
   sync["resultHasListItemIndex"] = s.koReaderSyncSession.resultHasListItemIndex;
+  sync["resultVisibleOffset"] = s.koReaderSyncSession.resultVisibleOffset;
+  sync["resultHasVisibleOffset"] = s.koReaderSyncSession.resultHasVisibleOffset;
   sync["postAction"] = static_cast<uint8_t>(s.koReaderSyncSession.postAction);
   sync["postActionTarget"] = s.koReaderSyncSession.postActionTarget;
   sync["autoPullEpubPath"] = s.koReaderSyncSession.autoPullEpubPath;
@@ -97,42 +107,63 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
   s.openEpubPath = doc["openEpubPath"] | std::string("");
   s.syncNoticePath = doc["syncNoticePath"] | std::string("");
   s.lastSleepImage = doc["lastSleepImage"] | SIZE_MAX;
-  s.readerActivityLoadCount = doc["readerActivityLoadCount"] | (uint8_t)0;
-  s.lastSleepFromReader = doc["lastSleepFromReader"] | false;
-  s.recentBooksGridView = doc["recentBooksGridView"] | false;
+  s.readerActivityLoadCount = doc["readerActivityLoadCount"].as<uint8_t>();
+  s.lastSleepFromReader = doc["lastSleepFromReader"].as<bool>();
+  // Before Recent Books became a Browse Files list it had a grid/list switch: the grid is now
+  // the Covers view, the list the Details view. Only a stored false chose the list.
+  const JsonVariantConst legacyGridView = doc["recentBooksGridView"];
+  const bool legacyListView = legacyGridView.is<bool>() && !legacyGridView.as<bool>();
+  const uint8_t fallbackView =
+      legacyListView ? CrossPointSettings::BROWSER_VIEW_DETAILS : CrossPointSettings::BROWSER_VIEW_COVERS;
+  s.recentBooksView = doc["recentBooksView"] | fallbackView;
+  if (s.recentBooksView >= CrossPointSettings::FILE_BROWSER_VIEW_COUNT) s.recentBooksView = fallbackView;
+  s.libraryTab = static_cast<uint8_t>(libraryTabFrom(doc["libraryTab"].as<uint8_t>()));
+  s.addedBooksView = doc["addedBooksView"] | uint8_t{CrossPointSettings::BROWSER_VIEW_COVERS};
+  if (s.addedBooksView >= CrossPointSettings::FILE_BROWSER_VIEW_COUNT) {
+    s.addedBooksView = CrossPointSettings::BROWSER_VIEW_COVERS;
+  }
+  s.authorsView = doc["authorsView"] | uint8_t{CrossPointSettings::BROWSER_VIEW_DETAILS};
+  if (s.authorsView >= CrossPointSettings::FILE_BROWSER_VIEW_COUNT) {
+    s.authorsView = CrossPointSettings::BROWSER_VIEW_DETAILS;
+  }
   s.showBootScreen = doc["showBootScreen"] | true;
   JsonObject sync = doc["koReaderSyncSession"].as<JsonObject>();
-  s.koReaderSyncSession.active = sync["active"] | false;
+  s.koReaderSyncSession.active = sync["active"].as<bool>();
   s.koReaderSyncSession.epubPath = sync["epubPath"] | std::string("");
-  s.koReaderSyncSession.spineIndex = sync["spineIndex"] | 0;
-  s.koReaderSyncSession.page = sync["page"] | 0;
-  s.koReaderSyncSession.totalPagesInSpine = sync["totalPagesInSpine"] | 0;
-  s.koReaderSyncSession.paragraphIndex = sync["paragraphIndex"] | (uint16_t)0;
-  s.koReaderSyncSession.hasParagraphIndex = sync["hasParagraphIndex"] | false;
-  s.koReaderSyncSession.xhtmlSeekHint = sync["xhtmlSeekHint"] | (uint32_t)0;
+  s.koReaderSyncSession.spineIndex = sync["spineIndex"].as<int>();
+  s.koReaderSyncSession.page = sync["page"].as<int>();
+  s.koReaderSyncSession.totalPagesInSpine = sync["totalPagesInSpine"].as<int>();
+  s.koReaderSyncSession.paragraphIndex = sync["paragraphIndex"].as<uint16_t>();
+  s.koReaderSyncSession.hasParagraphIndex = sync["hasParagraphIndex"].as<bool>();
+  s.koReaderSyncSession.paragraphIndexBefore = sync["paragraphIndexBefore"].as<uint16_t>();
+  s.koReaderSyncSession.visibleOffsetAtPage = sync["visibleOffsetAtPage"].as<uint32_t>();
+  s.koReaderSyncSession.visibleOffsetAtNextPage = sync["visibleOffsetAtNextPage"] | (uint32_t)UINT32_MAX;
+  s.koReaderSyncSession.hasVisibleOffset = sync["hasVisibleOffset"].as<bool>();
   s.koReaderSyncSession.intent =
       static_cast<KOReaderSyncIntentState>(sync["intent"] | static_cast<uint8_t>(KOReaderSyncIntentState::COMPARE));
   s.koReaderSyncSession.outcome =
       static_cast<KOReaderSyncOutcomeState>(sync["outcome"] | static_cast<uint8_t>(KOReaderSyncOutcomeState::NONE));
-  s.koReaderSyncSession.resultSpineIndex = sync["resultSpineIndex"] | 0;
-  s.koReaderSyncSession.resultPage = sync["resultPage"] | 0;
-  s.koReaderSyncSession.resultParagraphIndex = sync["resultParagraphIndex"] | (uint16_t)0;
-  s.koReaderSyncSession.resultHasParagraphIndex = sync["resultHasParagraphIndex"] | false;
-  s.koReaderSyncSession.resultListItemIndex = sync["resultListItemIndex"] | (uint16_t)0;
-  s.koReaderSyncSession.resultHasListItemIndex = sync["resultHasListItemIndex"] | false;
+  s.koReaderSyncSession.resultSpineIndex = sync["resultSpineIndex"].as<int>();
+  s.koReaderSyncSession.resultPage = sync["resultPage"].as<int>();
+  s.koReaderSyncSession.resultParagraphIndex = sync["resultParagraphIndex"].as<uint16_t>();
+  s.koReaderSyncSession.resultHasParagraphIndex = sync["resultHasParagraphIndex"].as<bool>();
+  s.koReaderSyncSession.resultListItemIndex = sync["resultListItemIndex"].as<uint16_t>();
+  s.koReaderSyncSession.resultHasListItemIndex = sync["resultHasListItemIndex"].as<bool>();
+  s.koReaderSyncSession.resultVisibleOffset = sync["resultVisibleOffset"].as<uint32_t>();
+  s.koReaderSyncSession.resultHasVisibleOffset = sync["resultHasVisibleOffset"].as<bool>();
   s.koReaderSyncSession.postAction =
       static_cast<KOReaderSyncPostAction>(sync["postAction"] | static_cast<uint8_t>(KOReaderSyncPostAction::Reader));
   s.koReaderSyncSession.postActionTarget = sync["postActionTarget"] | std::string("");
   s.koReaderSyncSession.autoPullEpubPath = sync["autoPullEpubPath"] | std::string("");
-  if (s.koReaderSyncSession.autoPullEpubPath.empty() && (sync["autoPullOnOpen"] | false)) {
+  if (s.koReaderSyncSession.autoPullEpubPath.empty() && sync["autoPullOnOpen"].as<bool>()) {
     LOG_DBG("CPS", "Legacy autoPullOnOpen state found without epubPath - ignoring");
   }
 
   JsonObject jump = doc["pendingBookmarkJump"].as<JsonObject>();
-  s.pendingBookmarkJump.active = jump["active"] | false;
+  s.pendingBookmarkJump.active = jump["active"].as<bool>();
   s.pendingBookmarkJump.bookPath = jump["bookPath"] | std::string("");
-  s.pendingBookmarkJump.spineIndex = jump["spineIndex"] | (uint16_t)0;
-  s.pendingBookmarkJump.pageNumber = jump["pageNumber"] | (uint16_t)0;
+  s.pendingBookmarkJump.spineIndex = jump["spineIndex"].as<uint16_t>();
+  s.pendingBookmarkJump.pageNumber = jump["pageNumber"].as<uint16_t>();
   return true;
 }
 
@@ -140,17 +171,15 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
 
 bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path) {
   JsonDocument doc;
-  const auto settings = getSettingsList();
-
-  for (const auto& info : settings) {
-    if (!info.key) continue;
+  forEachSetting([&](const SettingInfo& info) {
+    if (!info.key) return;
     // persistPtr covers rows whose UI type carries no field pointer of its own (slider ACTIONs).
     // Dynamic entries (KOReader etc.) are stored in their own files — skip.
     const auto field = info.valuePtr ? info.valuePtr : info.persistPtr;
-    if (!field && !info.stringOffset) continue;
+    if (!field && !info.stringOffset) return;
 
     if (info.stringOffset) {
-      const char* strPtr = (const char*)&s + info.stringOffset;
+      const char* strPtr = reinterpret_cast<const char*>(&s) + info.stringOffset;
       if (info.obfuscated) {
         doc[std::string(info.key) + "_obf"] = obfuscation::obfuscateToBase64(strPtr);
       } else {
@@ -159,7 +188,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
     } else {
       doc[info.key] = s.*field;
     }
-  }
+  });
 
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   doc["frontButtonBack"] = s.frontButtonBack;
@@ -173,7 +202,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   // Stamps which generation of gesture defaults this file was written against.
   // See CrossPointSettings::GESTURE_DEFAULTS_VERSION.
   doc["gestureDefaultsV"] = s.gestureDefaultsVersion;
-  // Which numbering the fontSize / txtFontSize values below are in.
+  // Which meaning the fontSize / txtFontSize values below carry (point sizes since version 2).
   // See CrossPointSettings::FONT_SIZE_ORDER_VERSION.
   doc["fontSizeOrderV"] = CrossPointSettings::FONT_SIZE_ORDER_VERSION;
   // Same for the frontlight switch, which is a DynamicToggle because the live
@@ -198,8 +227,22 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   // Left out while unconfigured, so the default keeps following the UI language.
   if (s.keyboardLayouts != 0) doc["keyboardLayouts"] = s.keyboardLayouts;
 
+  // Write nothing rather than a file cut short: a truncated settings.json reads back as a parse
+  // error and every setting returns to its default. The document reports a refused allocation
+  // itself; the String does not (ArduinoJson's String writer counts bytes it failed to append),
+  // so its length is checked against what the document should serialise to.
+  if (doc.overflowed()) {
+    LOG_ERR("CPS", "Settings not saved: JSON document out of memory");
+    return false;
+  }
+  const size_t expected = measureJson(doc);
   String json;
   serializeJson(doc, json);
+  if (json.length() != expected) {
+    LOG_ERR("CPS", "Settings not saved: %u of %u bytes of JSON fitted", static_cast<unsigned>(json.length()),
+            static_cast<unsigned>(expected));
+    return false;
+  }
   return Storage.writeFile(path, json);
 }
 
@@ -214,12 +257,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
 
   auto clamp = [](uint8_t val, uint8_t maxVal, uint8_t def) -> uint8_t { return val < maxVal ? val : def; };
 
-  const auto settings = getSettingsList();
   // Gesture keys written against an older generation of the shipped defaults are
   // ignored below, so the compiled defaults win. Absent (0) counts as older,
   // which is exactly the case for every file written before the stamp existed.
   const bool staleGestureDefaults =
-      (doc["gestureDefaultsV"] | 0) < static_cast<int>(CrossPointSettings::GESTURE_DEFAULTS_VERSION);
+      doc["gestureDefaultsV"].as<int>() < static_cast<int>(CrossPointSettings::GESTURE_DEFAULTS_VERSION);
   // Cannot match on a board with no digitiser: the loop below walks the FILTERED
   // settings list, which carries no gesture rows there, so no gesture key ever
   // reaches this. Gated rather than left to be evaluated and always fail, because
@@ -237,14 +279,14 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     return false;
   };
 
-  for (const auto& info : settings) {
-    if (!info.key) continue;
+  forEachSetting([&](const SettingInfo& info) {
+    if (!info.key) return;
     // See the matching comment in saveSettings.
     const auto field = info.valuePtr ? info.valuePtr : info.persistPtr;
-    if (!field && !info.stringOffset) continue;
+    if (!field && !info.stringOffset) return;
 
     if (info.stringOffset) {
-      const char* strPtr = (const char*)&s + info.stringOffset;
+      const char* strPtr = reinterpret_cast<const char*>(&s) + info.stringOffset;
       const std::string fieldDefault = strPtr;  // current buffer = struct-initializer default
       std::string val;
       if (info.obfuscated) {
@@ -265,12 +307,12 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       } else {
         val = doc[info.key] | fieldDefault;
       }
-      char* destPtr = (char*)&s + info.stringOffset;
+      char* destPtr = reinterpret_cast<char*>(&s) + info.stringOffset;
       if (info.stringMaxLen == 0) {
         LOG_ERR("CPS", "Misconfigured SettingInfo: stringMaxLen is 0 for key '%s'", info.key);
         destPtr[0] = '\0';
         if (needsResave) *needsResave = true;
-        continue;
+        return;
       }
       strncpy(destPtr, val.c_str(), info.stringMaxLen - 1);
       destPtr[info.stringMaxLen - 1] = '\0';
@@ -284,7 +326,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       if (staleGestureDefaults && isGestureKey(info.key)) {
         s.*field = fieldDefault;
         if (needsResave) *needsResave = true;
-        continue;
+        return;
       }
       uint8_t v = doc[info.key] | fieldDefault;
       if (info.persistPtr) {
@@ -306,6 +348,13 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       }
       s.*field = v;
     }
+  });
+
+  // Browse Files and Recent Books had a home entry each before they became the Library's tabs. The
+  // Library shows where either did; the old keys go with the next save.
+  if (doc["showLibraryOnHome"].isNull()) {
+    s.showLibraryOnHome =
+        libraryOnHomeFromLegacy(doc["showBrowseFilesOnHome"] | uint8_t{1}, doc["showRecentBooksOnHome"] | uint8_t{1});
   }
 
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
@@ -325,7 +374,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   s.fontFamily = clamp(doc["fontFamily"] | (uint8_t)CrossPointSettings::BOOKERLY,
                        CrossPointSettings::BUILTIN_FONT_COUNT, CrossPointSettings::BOOKERLY);
   // Frontlight switch: dynamic in SettingsList, so it needs loading manually too.
-  s.frontlightOn = (doc["frontlightOn"] | 0) ? 1 : 0;
+  s.frontlightOn = doc["frontlightOn"].as<int>() != 0 ? 1 : 0;
   const char* dictName = doc["dictionaryName"] | "";
   strncpy(s.dictionaryName, dictName, sizeof(s.dictionaryName) - 1);
   s.dictionaryName[sizeof(s.dictionaryName) - 1] = '\0';
@@ -338,26 +387,28 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   const char* txtSfn = doc["txtSdFontFamilyName"] | "";
   strncpy(s.txtSdFontFamilyName, txtSfn, sizeof(s.txtSdFontFamilyName) - 1);
   s.txtSdFontFamilyName[sizeof(s.txtSdFontFamilyName) - 1] = '\0';
-  s.moveFinishedBooksToCompleted = doc["moveFinishedBooksToCompleted"] | (uint8_t)0;
-  s.removeFinishedBooksFromRecents = doc["removeFinishedBooksFromRecents"] | (uint8_t)0;
-  s.syncFinishedBookToKOReader = doc["syncFinishedBookToKOReader"] | (uint8_t)0;
+  s.moveFinishedBooksToCompleted = doc["moveFinishedBooksToCompleted"].as<uint8_t>();
+  s.removeFinishedBooksFromRecents = doc["removeFinishedBooksFromRecents"].as<uint8_t>();
+  s.syncFinishedBookToKOReader = doc["syncFinishedBookToKOReader"].as<uint8_t>();
   // Unknown bits (a file from a build with more layouts) are dropped by keyboard_layouts::enabled().
-  s.keyboardLayouts = doc["keyboardLayouts"] | (uint16_t)0;
+  s.keyboardLayouts = doc["keyboardLayouts"].as<uint16_t>();
 
   const uint8_t quickResumeBeforeNormalize = s.quickResumeSleepScreen;
   CrossPointSettings::normalizeDependentSettings(s);
-  // Font sizes were renumbered into pixel order; a file written before that holds the old
-  // values. Done here rather than in the generic loop because the loop clamps against the
-  // option count (6 either way, so every legacy value survives it) and knows nothing about what
-  // an individual key means. Idempotent across boots: an unmigrated file keeps its old stamp,
-  // so the same remap is applied to the same stored values every time until it is rewritten.
+  // Reader sizes are point sizes since FONT_SIZE_ORDER_VERSION 2; older files hold FONT_SIZE
+  // values. Read from the document rather than from the fields the loop above filled: that loop
+  // bounds by persistMax and cannot tell an absent key from a stored one, and an absent key must
+  // mean the default, not whatever point size a stale enum value happens to name. Idempotent
+  // across boots: an unconverted file keeps its old stamp until it is rewritten.
   {
-    const auto fileVersion = static_cast<uint8_t>(doc["fontSizeOrderV"] | 0);
-    if (fileVersion < CrossPointSettings::FONT_SIZE_ORDER_VERSION) {
-      s.fontSize = CrossPointSettings::remapLegacyFontSize(s.fontSize, fileVersion);
-      s.txtFontSize = CrossPointSettings::remapLegacyFontSize(s.txtFontSize, fileVersion);
-      if (needsResave) *needsResave = true;
-    }
+    const auto fileVersion = static_cast<uint8_t>(doc["fontSizeOrderV"].as<int>());
+    const auto loadPointSize = [&](const char* key) -> uint8_t {
+      const uint8_t pt = CrossPointSettings::fontPointSizeFromStored(doc[key] | -1, fileVersion);
+      return pt != 0 ? pt : CrossPointSettings::DEFAULT_FONT_POINT_SIZE;
+    };
+    s.fontPointSize = loadPointSize("fontSize");
+    s.txtFontPointSize = loadPointSize("txtFontSize");
+    if (fileVersion < CrossPointSettings::FONT_SIZE_ORDER_VERSION && needsResave) *needsResave = true;
   }
 
   // The retired TIMEZONE enum, read straight out of the document because it is no longer a row
@@ -385,7 +436,10 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
 bool JsonSettingsIO::saveWifi(const WifiCredentialStore& store, const char* path) {
   JsonDocument doc;
   doc["lastConnectedSsid"] = store.getLastConnectedSsid();
-  doc["lastKnownMacAddress"] = store.getLastKnownMacAddress();
+  // The key the passwords below are obfuscated with, whatever the store last recorded: a save that
+  // did not pass through the WiFi screen (the web settings page in hotspot mode) must still say
+  // which key it used. loadWifi() relies on it to read a file another reader wrote.
+  doc["lastKnownMacAddress"] = obfuscation::deviceKeyId();
 
   JsonArray arr = doc["credentials"].to<JsonArray>();
   for (const auto& cred : store.getCredentials()) {
@@ -403,6 +457,7 @@ bool JsonSettingsIO::saveWifi(const WifiCredentialStore& store, const char* path
       obj["bssid"] = bssidHex;
       obj["channel"] = cred.channel;
     }
+    if (cred.apCount > 0) obj["aps"] = cred.apCount;
     if (cred.ip[0] != 0) {
       char buf[16];
       snprintf(buf, sizeof(buf), "%d.%d.%d.%d", cred.ip[0], cred.ip[1], cred.ip[2], cred.ip[3]);
@@ -460,6 +515,24 @@ bool JsonSettingsIO::loadWifi(WifiCredentialStore& store, const char* json, bool
     }
   }
 
+  // Passwords are XORed with the key of the reader that wrote them, and lastKnownMacAddress names
+  // that reader: saveWifi() records its own key, and older firmware re-saved the file under its own
+  // key whenever it recorded a new one. A file from another reader (a card moved over, a copied
+  // wifi.json) is therefore read with the writer's key and re-saved under ours. Read with ours it
+  // gave passwords of the right length and the wrong bytes, which the router rejects as a 4-way
+  // handshake timeout - indistinguishable from a weak signal on the device.
+  uint8_t ownKey[6];
+  uint8_t writerKey[6];
+  const bool fromOtherReader = obfuscation::parseKeyId(obfuscation::deviceKeyId(), ownKey) &&
+                               obfuscation::parseKeyId(store.lastKnownMacAddress, writerKey) &&
+                               std::memcmp(ownKey, writerKey, sizeof(ownKey)) != 0;
+  if (fromOtherReader) {
+    LOG_INF("WCS", "wifi.json was written by reader %s; re-keying its passwords for this one",
+            store.lastKnownMacAddress.c_str());
+    store.lastKnownMacAddress = obfuscation::deviceKeyId();
+    if (needsResave) *needsResave = true;
+  }
+
   store.credentials.clear();
   JsonArray arr = doc["credentials"].as<JsonArray>();
   for (JsonObject obj : arr) {
@@ -468,7 +541,8 @@ bool JsonSettingsIO::loadWifi(WifiCredentialStore& store, const char* json, bool
     cred.ssid = obj["ssid"] | std::string("");
     bool ok = false;
     bool tooLong = false;
-    cred.password = obfuscation::deobfuscateFromBase64(obj["password_obf"] | "", MAX_PASSWORD_LENGTH, &ok, &tooLong);
+    cred.password = obfuscation::deobfuscateFromBase64(obj["password_obf"] | "", MAX_PASSWORD_LENGTH, &ok, &tooLong,
+                                                       fromOtherReader ? writerKey : nullptr);
     if (tooLong) {
       LOG_ERR("WCS", "Discarding oversized password for %s", cred.ssid.c_str());
       if (needsResave) *needsResave = true;
@@ -484,7 +558,7 @@ bool JsonSettingsIO::loadWifi(WifiCredentialStore& store, const char* json, bool
       }
     }
     const std::string bssidHex = obj["bssid"] | std::string("");
-    const int channel = obj["channel"] | 0;
+    const int channel = obj["channel"].as<int>();
     if (bssidHex.size() == 12 && channel > 0 && channel <= 14) {
       bool parseOk = true;
       uint8_t parsed[6] = {0};
@@ -501,6 +575,8 @@ bool JsonSettingsIO::loadWifi(WifiCredentialStore& store, const char* json, bool
         cred.channel = static_cast<uint8_t>(channel);
       }
     }
+    const int aps = obj["aps"].as<int>();  // 0 when absent: files from before the count
+    cred.apCount = static_cast<uint8_t>(aps < 0 ? 0 : (aps > 255 ? 255 : aps));
     const auto parseQuad = [](const std::string& s, uint8_t out[4]) -> bool {
       unsigned int a = 0, b = 0, c = 0, d = 0;
       int consumed = 0;
@@ -526,7 +602,7 @@ bool JsonSettingsIO::loadWifi(WifiCredentialStore& store, const char* json, bool
         std::memcpy(cred.gateway, gw, 4);
         std::memcpy(cred.mask, mask, 4);
         std::memcpy(cred.dns, dns, 4);
-        cred.cacheTimestamp = obj["ts"] | 0u;
+        cred.cacheTimestamp = obj["ts"].as<unsigned>();
       }
     }
     store.credentials.push_back(cred);
@@ -584,9 +660,9 @@ bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) 
 
   store.recentBooks.clear();
   JsonArray arr = doc["books"].as<JsonArray>();
-  // Which FONT_SIZE numbering the per-book overrides in this file are in. Absent (0) is every
-  // file written before the sizes were put in pixel order.
-  const auto fontSizeOrderV = static_cast<uint8_t>(doc["fontSizeOrderV"] | 0);
+  // Which meaning the per-book size overrides in this file carry (point sizes since version 2).
+  // Absent (0) is every file written before the sizes were put in pixel order.
+  const auto fontSizeOrderV = static_cast<uint8_t>(doc["fontSizeOrderV"].as<int>());
   auto clampInt8 = [](int value, int minValue, int maxValue, int8_t fallback) -> int8_t {
     if (value < minValue || value > maxValue) {
       return fallback;
@@ -604,7 +680,7 @@ bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) 
     book.coverBmpPath = obj["coverBmpPath"] | std::string("");
     // Absent in files written before it existed: 0, so an entry whose book has
     // a sidecar is refreshed once.
-    book.metadataStamp = obj["metadataStamp"] | 0u;
+    book.metadataStamp = obj["metadataStamp"].as<unsigned>();
     book.embeddedStyleOverride = clampInt8(obj["embeddedStyleOverride"] | -1, -1, 1, -1);
     book.imageRenderingOverride = clampInt8(obj["imageRenderingOverride"] | -1, -1, 2, -1);
     book.fontFamilyOverride =
@@ -614,12 +690,11 @@ bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) 
       // Keep built-in and SD font overrides mutually exclusive.
       book.fontFamilyOverride = -1;
     }
-    book.fontSizeOverride = clampInt8(obj["fontSizeOverride"] | -1, -1, CrossPointSettings::FONT_SIZE_COUNT - 1, -1);
-    // -1 means "follow the default" and is not a FONT_SIZE, so it is left alone.
-    if (book.fontSizeOverride >= 0) {
-      book.fontSizeOverride = static_cast<int8_t>(
-          CrossPointSettings::remapLegacyFontSize(static_cast<uint8_t>(book.fontSizeOverride), fontSizeOrderV));
-    }
+    // -1 means "follow the default". Anything else is a size in this file's meaning; one that does
+    // not convert to a usable point size goes back to the default rather than to a guess.
+    const uint8_t overridePt =
+        CrossPointSettings::fontPointSizeFromStored(obj["fontSizeOverride"] | -1, fontSizeOrderV);
+    book.fontSizeOverride = overridePt != 0 ? static_cast<int8_t>(overridePt) : -1;
     book.bionicReadingOverride = clampInt8(obj["bionicReadingOverride"] | -1, -1, 1, -1);
     book.paragraphAlignmentOverride =
         clampInt8(obj["paragraphAlignmentOverride"] | -1, -1, CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT - 1, -1);

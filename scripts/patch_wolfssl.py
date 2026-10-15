@@ -102,6 +102,18 @@ OVERRIDES = """
 #ifndef WC_RSA_PSS
 #define WC_RSA_PSS
 #endif
+/* RSA public-key operations only: the client verifies RSA (and RSA-PSS) signatures but never signs
+ * or decrypts with an RSA key. Compiles out the RSA private paths, in wolfCrypt and in SP math
+ * (sp_RsaPrivate_*). The only RSA signer left in a client build is client-certificate
+ * authentication (internal.c RsaSign, for CertificateVerify), so that goes too: the reader never
+ * presents a client certificate. A server that asks for one still gets the empty Certificate
+ * message (tls13.c SendTls13Certificate stays), exactly as before. */
+#ifndef WOLFSSL_RSA_PUBLIC_ONLY
+#define WOLFSSL_RSA_PUBLIC_ONLY
+#endif
+#ifndef WOLFSSL_NO_CLIENT_AUTH
+#define WOLFSSL_NO_CLIENT_AUTH
+#endif
 
 /* Math backend: use SP (single-precision) math instead of TFM fast-math so the
  * SP ECC fast path (P-256/P-384) + WOLFSSL_SP_RISCV32 assembly kick in. Our
@@ -113,6 +125,15 @@ OVERRIDES = """
 #define WOLFSSL_SP_384           /* P-384 (Sectigo/GitHub ECDSA chains use it) */
 /* P-256 is on by default with SP-ECC; keep RSA via SP too for USERTrust RSA. */
 #define WOLFSSL_HAVE_SP_RSA
+/* RSA-4096 through SP as well. Without it a 4096-bit public key falls through to the generic
+ * sp_int exponentiation, and on the device that failed: ISRG Root X1 (RSA-4096) signing the
+ * cross-signed Root YR that raw/objects/release-assets.githubusercontent.com send since 2026
+ * failed ConfirmSignature (-155) at depth 2, while OpenSSL accepts the same chain. Why is not
+ * established: wolfSSL reports an allocation failure inside the signature math as -155 too
+ * (see the verify log in SecureClient.cpp), so it may have been the generic path's larger heap
+ * use on the X3 rather than the math. Either way this define is what made the chain pass on the
+ * device; dropping it to save its ~3.8 KB risks bringing the failure back. */
+#define WOLFSSL_SP_4096
 
 /* Bignum ceiling: sized for RSA-4096 chains (no FFDHE), half of upstream's 16384. */
 #undef  FP_MAX_BITS
@@ -150,9 +171,20 @@ OVERRIDES = """
 #define NO_FILESYSTEM
 #endif
 
-/* Small session cache: we open few concurrent sessions. */
-#ifndef SMALL_SESSION_CACHE
-#define SMALL_SESSION_CACHE
+/* No session cache. The reader never resumes a TLS session: every connection runs a full
+ * handshake and verifies the whole chain, so the cache (and its client index) would only hold
+ * copies of sessions nothing reads back. The library's own user_settings.h asks for
+ * MICRO_SESSION_CACHE further down; NO_SESSION_CACHE overrides any cache size (ssl_sess.c). */
+#undef  SMALL_SESSION_CACHE
+#ifndef NO_SESSION_CACHE
+#define NO_SESSION_CACHE
+#endif
+
+/* RFC 6066 max_fragment_length, so SecureClient can ask servers for 2 KB records instead of 16 KB
+ * ones (each of which needs a ~17 KB contiguous receive buffer). The request in SecureClient is
+ * ported from Free-Ink/freeink-sdk b72416b (Justin Mitchell); this define is ours. */
+#ifndef HAVE_MAX_FRAGMENT
+#define HAVE_MAX_FRAGMENT
 #endif
 
 /* Instrumentation only, off unless -DCROSSPOINT_TLS_VERIFY_TIMING is in build_flags.

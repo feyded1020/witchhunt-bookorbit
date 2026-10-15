@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cassert>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,9 @@
 #include "GfxRenderer.h"
 #include "MappedInputManager.h"
 #include "TouchUi.h"
+#include "activities/browser/OpdsBackTo.h"
+#include "activities/home/LibraryTab.h"
+#include "activities/network/NetworkMode.h"
 
 class Activity;                       // forward declaration
 class RenderLock;                     // forward declaration
@@ -22,7 +26,10 @@ enum class HomeMenuAction : uint8_t;  // activities/home/HomeMenu.h
 
 // Where a "child" activity (launched via one of the replaceWith* helpers) should route
 // control when it exits successfully. See ActivityManager::returnFromChild().
-enum class ReturnTo : uint8_t { Home, FileBrowser, RecentBooks, GlobalBookmarks };
+// Library carries the tab in ReturnHint::selectIndex, and an open author's hash in selectionContext.
+// AllFiles is the file browser opened from Settings on every file of the card: it comes back as
+// itself, so the images and other files it lists do not vanish on the way back from the viewer.
+enum class ReturnTo : uint8_t { Home, Library, AllFiles, GlobalBookmarks };
 
 // Minimal state the returning parent needs to restore its previous view (directory,
 // focused item, list index, or bookmark selection). Kept as a plain struct stored by
@@ -32,7 +39,7 @@ struct ReturnHint {
   ReturnTo target = ReturnTo::Home;
   std::string path;              // FileBrowser directory to restore
   std::string selectName;        // item to re-focus in a list (file name, book title)
-  int selectIndex = -1;          // e.g. Recents index
+  int selectIndex = -1;          // e.g. the Home carousel's index
   std::string selectionContext;  // optional activity-specific restore key
   int selectBookmarkIndex = -1;  // optional bookmark index for GlobalBookmarks
 };
@@ -140,18 +147,24 @@ class ActivityManager {
   void replaceActivity(std::unique_ptr<Activity>&& newActivity);
 
   // goTo... functions are convenient wrapper for replaceActivity()
-  void goToFileTransfer();
+  // File Transfer, its menu opening on `selected`'s row.
+  void goToFileTransfer(NetworkMode selected = NetworkMode::JOIN_NETWORK);
   void goToSerialTransfer();  // direct entry (also used by the boot-into-transfer path)
   void goToUsbDrive();        // no-op logging an error on boards without FREEINK_CAP_USB_MSC
   void goToSettings();
   void goToClockSettings();
   void goToKOReaderSettings();
-  void goToFileBrowser(std::string path = {}, std::string focusName = {});
-  void goToRecentBooks(int focusIndex = -1);
+  // The Library on `tab`: Books in `path` (the root when empty); `focusName` selected; on Authors,
+  // `author` (a hash) open.
+  void goToLibrary(LibraryTab tab, std::string path = {}, std::string focusName = {},
+                   std::optional<uint32_t> author = std::nullopt);
   void goToGlobalBookmarks();
   void goToGlobalBookmarks(ReturnHint hint);
+  // The OPDS catalog, or the server picker first when more than one server is configured. Opened
+  // from File Transfer, so Back returns there.
   void goToBrowser();
   void goToBookOrbitCatalog();
+  // The same, searching `query` on arrival: a finished book's "more by this author". Back goes Home.
   void goToBrowserWithSearch(std::string query);
   void goToReader(std::string path);
   void goToKOReaderSync();
@@ -171,7 +184,6 @@ class ActivityManager {
   // exits. Consumed by returnFromChild().
   void replaceWithReader(std::string path, ReturnHint hint);
   void replaceWithFileBrowser(std::string path, ReturnHint hint, std::string focusName = {});
-  void replaceWithRecentBooks(ReturnHint hint);
 
   // Called by a "child" activity on successful exit. Consults the stored ReturnHint,
   // clears it, and dispatches to the corresponding parent with restoration args. If
@@ -198,7 +210,14 @@ class ActivityManager {
   // Note: if popActivity() on last activity on the stack, we will goHome()
   void popActivity();
 
-  bool currentActivityUsesWifi() const { return activityUsesWifi.load(std::memory_order_relaxed); }
+  // Asks every activity buried on the stack to drop what it built only to draw itself
+  // (Activity::releaseBuriedState()), for a download that needs the heap in one piece. A pop that
+  // would resume one that dropped something reboots to Settings instead; the activities above it,
+  // the caller's own children included, pop as usual. Returns how many dropped something.
+  int releaseBuriedActivityState();
+
+  // An activity on the stack, current or buried under a child, holds the radio.
+  bool wifiActivityOnStack() const { return activityUsesWifi.load(std::memory_order_relaxed); }
 
   bool inSleepTransition() const { return sleepTransition; }
 

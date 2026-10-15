@@ -34,6 +34,15 @@ class ChapterXPathIndexer {
   static std::string findXPathForProgress(const std::shared_ptr<Epub>& epub, int spineIndex, float intraSpineProgress);
 
   /**
+   * The XPath of the text at a visible-text offset (Section::getVisibleTextOffsetForPage), named
+   * to the codepoint (/text()[N].M) in a block element or inside inline elements; stray text in
+   * table rows by its element. Never an image: an offset before one names the text after it, and
+   * the chapter's total names the end of its last text node. Empty on failure.
+   */
+  static std::string findXPathForVisibleOffset(const std::shared_ptr<Epub>& epub, int spineIndex,
+                                               uint32_t visibleOffset);
+
+  /**
    * Resolve a KOReader XPath to an intra-spine progress ratio.
    *
    * Matching strategy:
@@ -50,11 +59,20 @@ class ChapterXPathIndexer {
    *                 is /li[N], receives the running <li> count at the matched element so the
    *                 caller can snap to the precise page via Section::getPageForListItemIndex().
    *                 Set to 0 if the target wasn't <li>-anchored.
+   * @param outVisibleOffset Optional. When non-null, receives the match's anchor as a
+   *                 visible-text offset in the chapter, the coordinate of
+   *                 Section::getPageForVisibleTextOffset(). A position only when
+   *                 *outIsTextPoint is true. Set to 0 when no match was found.
+   * @param outIsTextPoint Optional. When non-null, true only when the match is a
+   *                 /text()[N].M point resolved to the codepoint. An element match, exact or
+   *                 not, is anchored at its first direct text or, lacking any, at its END tag
+   *                 (a Calibre <p><span>text</span></p>), which is no page start.
    * @return true if any match was resolved; false means caller should fallback
    */
   static bool findProgressForXPath(const std::shared_ptr<Epub>& epub, int spineIndex, const std::string& xpath,
                                    float& outIntraSpineProgress, bool& outExactMatch,
-                                   uint16_t* outListItemIndex = nullptr);
+                                   uint16_t* outListItemIndex = nullptr, uint32_t* outVisibleOffset = nullptr,
+                                   bool* outIsTextPoint = nullptr);
 
   /**
    * Parse DocFragment index from KOReader-style path segment:
@@ -69,28 +87,6 @@ class ChapterXPathIndexer {
    *         (converted to 0-based outSpineIndex); false otherwise
    */
   static bool tryExtractSpineIndexFromXPath(const std::string& xpath, int& outSpineIndex);
-
-  /**
-   * Find the full-ancestry XPath for the Nth direct-body-child <p> element.
-   *
-   * Counts only <p> elements that are direct children of <body>, matching the semantics
-   * of the section paragraph LUT built by ChapterHtmlSlimParser.
-   *
-   * @param epub Loaded EPUB instance
-   * @param spineIndex Spine item index to parse
-   * @param paragraphIndex 1-based paragraph index (from section LUT or XPath p[N])
-   * @param seekHint Optional XHTML byte offset to start scanning from (0 = from beginning).
-   *                 Pass Section::getXhtmlByteOffsetForPage() to avoid scanning the whole file.
-   * @param startParagraphCount Optional seed count (default 0) of direct-body-child <p> elements
-   *                 that precede the seekHint position. Should be provided when seekHint > 0 to
-   *                 avoid counting from scratch mid-document; callers should pass the paragraph
-   *                 index of the LUT entry at the seek page minus 1. If the partial parse with
-   *                 this seed doesn't find the target, the function falls back to runParse from
-   *                 byte 0 and re-counts with startParagraphCount = 0.
-   * @return Full-ancestry XPath like "/body/DocFragment[N]/body/div[1]/p[3]", or empty on failure
-   */
-  static std::string findXPathForParagraph(const std::shared_ptr<Epub>& epub, int spineIndex, uint16_t paragraphIndex,
-                                           uint32_t seekHint = 0, uint16_t startParagraphCount = 0);
 
   /**
    * Extract the paragraph index from a KOReader XPath.

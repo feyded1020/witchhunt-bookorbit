@@ -47,6 +47,8 @@ class Epub {
   mutable TocReliability tocReliability = TocReliability::Unknown;
   // Library-level option: app code can override this per-book instance.
   bool syntheticTocFallbackEnabled = false;
+  // See setLostTocRetryEnabled().
+  bool lostTocRetryEnabled_ = false;
 
   bool findContentOpfFile(std::string* contentOpfFile) const;
   bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, OpfCacheMode cacheMode);
@@ -107,6 +109,15 @@ class Epub {
   bool readStoredFingerprint(uint64_t* out) const;
   void writeStoredFingerprint(uint64_t fp) const;
 
+  // toc.retry sidecar in the cache dir: how many index builds ended without the TOC the book
+  // declares (0 when there is none). book.bin is reused as it is, so without it a TOC lost to a
+  // passing shortage -- the parser or its inflate ring refused on a fragmented heap -- would stay
+  // lost for good.
+  uint8_t readTocLossCount() const;
+  void writeTocLossCount(uint8_t count) const;
+  // True while a lost TOC has rebuilds left (see setLostTocRetryEnabled()).
+  bool lostTocRetryDue() const;
+
   // Overlay a "<book>.opf" metadata sidecar onto the loaded coreMetadata, if one
   // exists. Called from every load path once coreMetadata is final — including
   // the cached ones, which is the point: the sidecar is never baked into
@@ -136,6 +147,10 @@ class Epub {
   // — the spine/TOC accessors are NOT populated. Returns false if the cover reference can't be found.
   // `scratch`: as for load(); the content.opf read takes its inflate ring from it.
   bool loadForCover(BuildArena* scratch = nullptr);
+  // Why loadForCover() last returned false: true when the book simply has no cover -- its OPF was
+  // read and names none (nor did the archive scan find one) -- and false when the OPF could not be
+  // read at all, a failure worth retrying. The first is a structural absence, the second transient.
+  bool coverKnownAbsent() const { return coverKnownAbsent_; }
 
   // Lightweight load for CATALOGUE METADATA only (title/author/series/seriesIndex/language), WITHOUT
   // building the spine/TOC book.bin. Same rationale and mechanism as loadForCover(): uses book.bin if
@@ -148,19 +163,26 @@ class Epub {
   // inside the reader with its heap still committed — the finished-book reboot on a large series folder
   // (issue #104). Cheap enough to call in a loop; still not free (one OPF parse per call), so callers
   // scanning many books should bound the candidate set first.
-  bool loadForMetadata();
+  // `scratch`: as for loadForCover(). The OPF inflate ring is up to 32 KB of contiguous memory, which
+  // a screen holding both framebuffers may not have -- seen as "Failed to init inflate reader" on an
+  // X3 with 39 KB contiguous and a 350 KB OPF.
+  // useBookBin = false skips book.bin and always parses the OPF: book.bin keeps no primary author.
+  bool loadForMetadata(BuildArena* scratch = nullptr, bool useBookBin = true);
 
   // True when opening the book will trigger the (multi-second) first-open index
   // build inside load(): the spine/TOC cache (book.bin) or the compiled CSS rules
-  // cache is missing. Cheap (only file-existence checks) so callers can decide
+  // cache is missing, or a TOC an earlier build lost is due for a retry. Cheap
+  // (file-existence checks and small sidecar reads) so callers can decide
   // whether to show a progress popup before calling load().
   bool needsFirstOpenIndexing() const;
 
-  // Path of the Calibre-style metadata sidecar for a book ("/Books/x.epub" ->
-  // "/Books/x.opf"), or "" when there is none. Mirrors
-  // ReaderActivity::sidecarCoverPath, and the same rule applies: a file beside
-  // the book wins over what is embedded in it.
-  static std::string metadataSidecarPath(const std::string& bookPath);
+  // Lets load() rebuild the cache when an earlier build lost the TOC the book declares, for at
+  // most three builds in all, so a TOC that never parses stops costing a rebuild per open. Only
+  // the reader's open turns this on: it shows the indexing popup and lends the secondary
+  // framebuffer for the rebuild. The sleep screen, book info and KOReader sync also call
+  // load(true, ...), for metadata, and must not re-index on the way.
+  void setLostTocRetryEnabled(bool enabled) { lostTocRetryEnabled_ = enabled; }
+
   // Sidecars above this are treated as not-a-metadata-file and ignored. A
   // Calibre metadata OPF is a couple of KB; the cap stops a stray large file
   // sharing the book's basename from being read into the heap.
@@ -182,10 +204,16 @@ class Epub {
   const std::string& getPath() const;
   const std::string& getTitle() const;
   const std::string& getAuthor() const;
+  const std::string& getPrimaryAuthor() const;
+  const std::string& getAuthorSort() const;
   const std::string& getLanguage() const;
   const std::string& getSeries() const;
   const std::string& getSeriesIndex() const;
   const std::string& getDescription() const;
+  // ISBN and Amazon ASIN, like the primary author not kept in book.bin: set by a fresh OPF parse
+  // (loadForMetadata past book.bin) and by the metadata sidecar. Empty when the book gives none.
+  const std::string& getIsbn() const;
+  const std::string& getAsin() const;
   std::string getCoverBmpPath(bool cropped = false) const;
   std::string getCoverImageCachePath() const;
   // Returns the raw ZIP entry path for the cover image (empty if none).
@@ -225,7 +253,10 @@ class Epub {
   // owns a session-scoped counter that promotes a repeatedly-transient book to a sentinel.
   // `scratch`: a lent region for the JPEG decoder's working memory (see JpegToBmpConverter).
   ThumbResult generateThumbBmp(int height, bool allowExtract = true, BuildArena* scratch = nullptr) const;
-  ThumbResult generateThumbBmp(int width, int height, bool allowExtract = true, BuildArena* scratch = nullptr) const;
+  // crop=false fits the whole cover inside width x height instead of filling the box and cropping
+  // (the cover grids' thumbnail; the carousel's stays cropped).
+  ThumbResult generateThumbBmp(int width, int height, bool allowExtract = true, BuildArena* scratch = nullptr,
+                               bool crop = true) const;
   // Every size in `sizes` (width, height) that is not already a complete thumbnail, from ONE decode
   // of a JPEG cover (a PNG cover is converted once per size). Same sentinel / transient contract as
   // the single-size overload, answered for the cover as a whole: Ok when every size is complete.
@@ -242,7 +273,12 @@ class Epub {
                                                        BuildArena* scratch = nullptr) const;
   uint8_t* readItemContentsToBytes(const std::string& itemHref, size_t* size = nullptr,
                                    bool trailingNullByte = false) const;
-  bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize) const;
+  bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize,
+                                const bool* stop = nullptr) const;
+  // Where the OPF package document sits inside the book, read from META-INF/container.xml without
+  // loading anything else: for handing the OPF out as it is, sidecar or not (the web interface's
+  // Details dialog reads a book's own metadata from it).
+  bool contentOpfPath(std::string* out) const { return findContentOpfFile(out); }
   // Read up to maxBytes decompressed bytes from a ZIP entry — no SD write, header-only use.
   size_t readItemHeaderBytes(const std::string& itemHref, uint8_t* outBuf, size_t maxBytes) const;
   // Arena bytes one extractItemToFile() needs to keep its inflate ring off the heap:
@@ -356,10 +392,12 @@ class Epub {
   // Removes a partial destination file on failure, so the caller can simply retry.
   bool extractItemToFileOnce(const std::string& itemHref, const std::string& destPath, BuildArena* arena) const;
   // Drain one ZIP entry into `out` through an arena-backed EntryReader.
-  bool readItemContentsToStreamWithArena(const std::string& itemHref, Print& out, BuildArena* arena) const;
+  bool readItemContentsToStreamWithArena(const std::string& itemHref, Print& out, BuildArena* arena,
+                                         const bool* stop) const;
   // Set for the duration of load() / a cover session: readItemContentsToStream takes its inflate
   // ring from here when the region has room, else from the heap as before. Not owned.
   BuildArena* loadScratch_ = nullptr;
+  bool coverKnownAbsent_ = false;  // see coverKnownAbsent()
 
   // Streams pagelist.bin at path into visit(href, anchor, label) per entry; visit returns false to
   // stop early. The single place that knows the on-disk format, so no caller reserves the whole

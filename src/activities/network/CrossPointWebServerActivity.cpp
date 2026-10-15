@@ -1,24 +1,19 @@
 #include "CrossPointWebServerActivity.h"
 
 #include <DNSServer.h>
-#include <ESPmDNS.h>
 #include <GfxRenderer.h>
-#include <HalPowerManager.h>
-#include <HalSystem.h>  // feedWatchdog()
 #include <I18n.h>
-#include <Memory.h>
 #include <WiFi.h>
 
 #include <cstddef>
+#include <new>
 
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
-#include "SdCardFontGlobals.h"
-#include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
-#include "activities/NetworkMemoryTrim.h"
 #include "activities/network/CalibreConnectActivity.h"
 #include "activities/network/SignalStrengthWidget.h"
+#include "components/TouchExitButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/QrUtils.h"
@@ -27,7 +22,6 @@ namespace {
 // AP Mode configuration
 constexpr const char* AP_SSID = "CrossPoint-Reader";
 constexpr const char* AP_PASSWORD = nullptr;  // Open network for ease of use
-constexpr const char* AP_HOSTNAME = "crosspoint";
 constexpr uint8_t AP_CHANNEL = 1;
 constexpr uint8_t AP_MAX_CONNECTIONS = 2;  // reduce from default 4 to save resources
 // Fixed AP addressing (the esp32 softAP default, pinned explicitly) so the
@@ -60,16 +54,14 @@ void CrossPointWebServerActivity::onEnter() {
   state = WebServerActivityState::MODE_SELECTION;
   networkMode = NetworkMode::JOIN_NETWORK;
   isApMode = false;
-  webServerStarted = false;
   buffersReleased = false;
   connectedIP.clear();
   connectedSSID.clear();
-  lastHandleClientTime = 0;
   requestUpdate();
 
   // Launch network mode selection subactivity
   LOG_DBG("WEBACT", "Launching NetworkModeSelectionActivity...");
-  startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput),
+  startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput, initialSelection),
                          [this](const ActivityResult& result) {
                            if (result.isCancelled) {
                              onGoHome();
@@ -84,18 +76,7 @@ void CrossPointWebServerActivity::onExit() {
 
   state = WebServerActivityState::SHUTTING_DOWN;
   stopDnsServer();
-  MDNS.end();
-
-  // Skip reboot if WiFi was never activated (e.g. user backed out of mode selection).
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
-    if (isApMode) {
-      WiFi.softAPdisconnect(true);
-    } else {
-      WiFi.disconnect(false);
-    }
-    delay(30);
-    silentRestart();
-  }
+  session.end();
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
@@ -132,8 +113,7 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
     LOG_DBG("WEBACT", "Turning on WiFi (STA mode)...");
     // BEFORE the radio: association itself is allocation-heavy, and on a lean heap it is the
     // join that fails, not the server that follows it.
-    freeMemoryBeforeRadio();
-    powerManager.ensureFullSpeedForRadio();  // WiFi needs >=80 MHz; see HalPowerManager
+    session.prepareRadio();
     WiFi.mode(WIFI_STA);
 
     state = WebServerActivityState::WIFI_SELECTION;
@@ -159,15 +139,7 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
   LOG_DBG("WEBACT", "WifiSelectionActivity completed, connected=%d", connected);
 
   if (connected) {
-    // Get connection info before exiting subactivity
     isApMode = false;
-
-    // Start mDNS for hostname resolution
-    if (MDNS.begin(AP_HOSTNAME)) {
-      LOG_DBG("WEBACT", "mDNS started: http://%s.local/", AP_HOSTNAME);
-    }
-
-    // Start the web server
     startWebServer();
   } else {
     // User cancelled - go back to mode selection
@@ -200,8 +172,7 @@ void CrossPointWebServerActivity::startAccessPoint() {
 
   LOG_DBG("WEBACT", "Free heap before AP start: %d bytes", ESP.getFreeHeap());
 
-  // Configure and start the AP
-  powerManager.ensureFullSpeedForRadio();  // WiFi needs >=80 MHz; see HalPowerManager
+  // Configure and start the AP. The screen painted above ran ServerSession::prepareRadio().
   WiFi.mode(WIFI_AP);
   delay(100);
 
@@ -231,13 +202,6 @@ void CrossPointWebServerActivity::startAccessPoint() {
   LOG_DBG("WEBACT", "SSID: %s", AP_SSID);
   LOG_DBG("WEBACT", "IP: %s", connectedIP.c_str());
 
-  // Start mDNS for hostname resolution
-  if (MDNS.begin(AP_HOSTNAME)) {
-    LOG_DBG("WEBACT", "mDNS started: http://%s.local/", AP_HOSTNAME);
-  } else {
-    LOG_DBG("WEBACT", "WARNING: mDNS failed to start");
-  }
-
   // Start DNS server for captive portal behavior
   // This redirects all DNS queries to our IP, making any domain typed resolve to us
   stopDnsServer();
@@ -258,32 +222,12 @@ void CrossPointWebServerActivity::startAccessPoint() {
   startWebServer();
 }
 
-// Everything that frees memory but needs nothing from the network. Split out of
-// showServerScreenAndReleaseBuffers() because that one cannot run until the join succeeded —
-// it paints the assigned IP — and waiting until then meant the STA path brought the radio up
-// on an untrimmed heap and failed to associate at all on an X3.
-void CrossPointWebServerActivity::freeMemoryBeforeRadio() {
-  if (memoryFreedForRadio) return;
-  memoryFreedForRadio = true;
-
-  // A loaded SD font (Literata etc.) holds ~24-60KB of kern/ligature/glyph data that is
-  // completely unused during a web server session. The device restarts when the session ends
-  // (silentRestart in onExit), so it is reloaded fresh on the next boot anyway.
-  LOG_DBG("WEBACT", "Free heap before SD font unload: %d bytes", ESP.getFreeHeap());
-  sdFontSystem.unload(renderer);
-  LOG_DBG("WEBACT", "Free heap after SD font unload: %d bytes", ESP.getFreeHeap());
-
-  // The secondary framebuffer and the glyph cache, on the same reasoning as every other
-  // network activity. WifiSelectionActivity does this too; both are idempotent, and this call
-  // covers the AP path, which never goes through that activity.
-  trimMemoryForNetworkSession(renderer, "WEBACT");
-}
-
 void CrossPointWebServerActivity::showServerScreenAndReleaseBuffers() {
   // The AP path reaches this before WiFi.mode(WIFI_AP), so here it does the real work; the STA
-  // path already ran it before the join and this is a no-op. Either way the memory is gone
-  // before the radio, which is the invariant worth keeping.
-  freeMemoryBeforeRadio();
+  // path already ran it before the join (it cannot wait for this screen, which needs the assigned
+  // IP: an X3 then failed to associate at all), and this only re-trims. Either way the memory is
+  // gone before the radio, which is the invariant worth keeping.
+  session.prepareRadio();
 
   // Set running state now so the paint below uses the correct UI branch.
   state = WebServerActivityState::SERVER_RUNNING;
@@ -307,110 +251,42 @@ void CrossPointWebServerActivity::showServerScreenAndReleaseBuffers() {
 void CrossPointWebServerActivity::startWebServer() {
   LOG_DBG("WEBACT", "Starting web server...");
 
-  // Both paths have already freed the memory the radio needed (freeMemoryBeforeRadio). What is
-  // left is the final paint plus releasing BOTH buffers, and only that needs the assigned IP,
+  // Both paths have already freed the memory the radio needed (ServerSession::prepareRadio). What
+  // is left is the final paint plus releasing BOTH buffers, and only that needs the assigned IP,
   // which is why the STA path reaches it here rather than before the join.
   if (!buffersReleased) {
     showServerScreenAndReleaseBuffers();
   }
-
-  // Create the web server instance
-  webServer = makeUniqueNoThrow<CrossPointWebServer>();
-  if (!webServer) {
-    LOG_ERR("WEBACT", "OOM allocating web server");
-    onGoHome();
-    return;
-  }
-  webServer->begin();
-
-  if (webServer->isRunning()) {
-    webServerStarted = true;
-    LOG_DBG("WEBACT", "Web server started successfully");
-  } else {
-    LOG_ERR("WEBACT", "ERROR: Failed to start web server!");
-    webServer.reset();
-    // Go back on error
-    onGoHome();
-  }
+  if (!session.start(isApMode)) onGoHome();
 }
 
 void CrossPointWebServerActivity::loop() {
-  // Handle different states
-  if (state == WebServerActivityState::SERVER_RUNNING) {
-    // Handle DNS requests for captive portal (AP mode only)
-    if (isApMode && dnsServer) {
-      dnsServer->processNextRequest();
-    }
+  if (state != WebServerActivityState::SERVER_RUNNING) return;
 
-    // STA mode: Monitor WiFi connection health
-    if (!isApMode && webServer && webServer->isRunning()) {
-      static unsigned long lastWifiCheck = 0;
-      if (millis() - lastWifiCheck > 2000) {  // Check every 2 seconds
-        lastWifiCheck = millis();
-        const wl_status_t wifiStatus = WiFi.status();
-        if (wifiStatus != WL_CONNECTED) {
-          LOG_DBG("WEBACT", "WiFi disconnected! Status: %d", wifiStatus);
-          // Show error and exit gracefully
-          state = WebServerActivityState::SHUTTING_DOWN;
-          requestUpdate();
-          return;
-        }
-        // Log weak signal warnings
-        const int rssi = WiFi.RSSI();
-        if (rssi < -75) {
-          LOG_DBG("WEBACT", "Warning: Weak WiFi signal: %d dBm", rssi);
-        }
-      }
-
-      // RSSI indicator update intentionally removed: the 640ms e-ink refresh
-      // every 5 seconds blocked handleClient, fragmented heap, and gave no
-      // meaningful benefit since the user is interacting with the browser, not
-      // watching the device screen.
-    }
-
-    // Handle web server requests - maximize throughput with watchdog safety
-    if (webServer && webServer->isRunning()) {
-      const unsigned long timeSinceLastHandleClient = millis() - lastHandleClientTime;
-
-      // Log if there's a significant gap between handleClient calls (>100ms)
-      if (lastHandleClientTime > 0 && timeSinceLastHandleClient > 100) {
-        LOG_DBG("WEBACT", "WARNING: %lu ms gap since last handleClient", timeSinceLastHandleClient);
-      }
-
-      // Reset watchdog BEFORE processing - HTTP header parsing can be slow
-      HalSystem::feedWatchdog();
-
-      // Process HTTP requests in tight loop for maximum throughput
-      // More iterations = more data processed per main loop cycle
-      constexpr int MAX_ITERATIONS = 500;
-      for (int i = 0; i < MAX_ITERATIONS && webServer->isRunning(); i++) {
-        webServer->handleClient();
-        // Reset watchdog every 32 iterations
-        if ((i & 0x1F) == 0x1F) {
-          HalSystem::feedWatchdog();
-        }
-        // Yield and check for exit button every 64 iterations
-        if ((i & 0x3F) == 0x3F) {
-          yield();
-          // Force trigger an update of which buttons are being pressed so be have accurate state
-          // for back button checking
-          mappedInput.update();
-          // Check for exit button inside loop for responsiveness
-          if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-            onGoHome();
-            return;
-          }
-        }
-      }
-      lastHandleClientTime = millis();
-    }
-
-    // Handle exit on Back button (also check outside loop)
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-      onGoHome();
-      return;
-    }
+  // Handle DNS requests for captive portal (AP mode only)
+  if (isApMode && dnsServer) {
+    dnsServer->processNextRequest();
   }
+
+  // STA mode: a drop used to end the session on the spot, and badly: the state went to
+  // SHUTTING_DOWN, which loop() ignores -- Back included -- and render() cannot paint with the
+  // buffers released, so the device sat on a dead File Transfer screen until it was switched off.
+  // Now the server and Back keep working while the driver reconnects, and a link still gone after
+  // the grace period ends the session as Back does: restart to Home. The screen cannot be
+  // repainted to show the loss, nor a new address if the link comes back on one; the log has both.
+  //
+  // RSSI indicator update intentionally removed: the 640ms e-ink refresh every 5 seconds blocked
+  // handleClient, fragmented heap, and gave no meaningful benefit since the user is interacting
+  // with the browser, not watching the device screen.
+  if (!isApMode && session.running() && session.link(connectedIP) == WifiLinkWatch::Link::Gone) {
+    LOG_DBG("WEBACT", "Leaving File Transfer: the WiFi did not come back");
+    onGoHome();
+    return;
+  }
+
+  // Many rounds per pass, for throughput: this screen is never repainted, so there is nothing else
+  // for the loop to do.
+  if (!session.serve(500)) onGoHome();
 }
 
 void CrossPointWebServerActivity::render(RenderLock&&) {
@@ -480,7 +356,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
                       EpdFontFamily::BOLD);
     startY += height10 + metrics.verticalSpacing * 2;
 
-    std::string hostnameUrl = std::string("http://") + AP_HOSTNAME + ".local/";
+    std::string hostnameUrl = std::string("http://") + ServerSession::HOSTNAME + ".local/";
     std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
 
     // Show QR code for URL
@@ -498,6 +374,9 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     const int signalY = startY + 120;
     drawWifiSignalStrength(renderer, contentRect.x + metrics.contentSidePadding, signalY, signalWidth, signalHeight, 0);
     renderer.drawCenteredText(SMALL_FONT_ID, signalY + signalHeight + 2, tr(STR_HOTSPOT_MODE));
+    TouchExitButton::draw(
+        renderer, mappedInput, contentRect.x + metrics.contentSidePadding,
+        signalY + signalHeight + 2 + renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing * 2, signalWidth);
   } else {
     startY += metrics.verticalSpacing * 2;
 
@@ -519,7 +398,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     startY += height10 + 5;
 
     // Also show hostname URL
-    std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
+    std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + ServerSession::HOSTNAME + ".local/";
     renderer.drawCenteredText(SMALL_FONT_ID, startY, hostnameUrl.c_str(), true);
 
     // AP mode: no external RSSI metric available, but keep UI spacing consistent.
@@ -532,6 +411,9 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     drawWifiSignalStrength(renderer, contentRect.x + metrics.contentSidePadding, signalY, signalWidth, signalHeight,
                            currentRssi);
     renderer.drawCenteredText(SMALL_FONT_ID, signalY + signalHeight + 2, rssiLabel(currentRssi).c_str(), true);
+    TouchExitButton::draw(
+        renderer, mappedInput, contentRect.x + metrics.contentSidePadding,
+        signalY + signalHeight + 2 + renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing * 2, signalWidth);
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");

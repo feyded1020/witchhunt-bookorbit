@@ -61,7 +61,17 @@ struct KOReaderSyncSessionState {
   int totalPagesInSpine = 0;
   uint16_t paragraphIndex = 0;
   bool hasParagraphIndex = false;
-  uint32_t xhtmlSeekHint = 0;  // byte offset hint for findXPathForParagraph (0 = no hint)
+  // The paragraph LUT index at the end of the page BEFORE `page` (0 on the first page). With
+  // paragraphIndex it bounds the paragraphs that open on `page`, which is how the sync screen
+  // tells "same page" from "ahead" without the section cache (ProgressComparison).
+  uint16_t paragraphIndexBefore = 0;
+  // The page's start and the end of its window as content offsets (Section::getVisibleTextOffsetForPage
+  // and getVisibleTextOffsetAfterPage), for the sync screen to push the page exactly and to compare a
+  // mapped record's offset against [visibleOffsetAtPage, visibleOffsetAtNextPage). hasVisibleOffset
+  // false when the chapter has no LUT.
+  uint32_t visibleOffsetAtPage = 0;
+  uint32_t visibleOffsetAtNextPage = UINT32_MAX;
+  bool hasVisibleOffset = false;
   KOReaderSyncIntentState intent = KOReaderSyncIntentState::COMPARE;
   KOReaderSyncOutcomeState outcome = KOReaderSyncOutcomeState::NONE;
   int resultSpineIndex = 0;
@@ -73,6 +83,11 @@ struct KOReaderSyncSessionState {
   // Preferred over resultParagraphIndex when the deepest target element is /li[N].
   uint16_t resultListItemIndex = 0;
   bool resultHasListItemIndex = false;
+  // The remote position as a visible-text offset in resultSpineIndex (only for a KOReader text
+  // point matched to the codepoint), which EpubReaderActivity turns into the exact page via
+  // Section::getPageForVisibleTextOffset. Preferred over both LUT indices above.
+  uint32_t resultVisibleOffset = 0;
+  bool resultHasVisibleOffset = false;
   // Where to land once this sync (and its reboot) completes. Defaults to Reader so auto-push-on-
   // close and reader-menu-triggered syncs keep their existing behavior without every call site
   // having to set it explicitly; AUTO_PUSH's caller sets it to Home, the finished-book flow sets
@@ -84,6 +99,19 @@ struct KOReaderSyncSessionState {
   // before rendering its first page. Stored by EPUB path so the flag cannot leak across books.
   std::string autoPullEpubPath;
 
+  // Every result* field: where an applied remote position lands. One list, so a new result field
+  // cannot be missed by one of the sites that reset them.
+  void clearResult() {
+    resultSpineIndex = 0;
+    resultPage = 0;
+    resultParagraphIndex = 0;
+    resultHasParagraphIndex = false;
+    resultListItemIndex = 0;
+    resultHasListItemIndex = false;
+    resultVisibleOffset = 0;
+    resultHasVisibleOffset = false;
+  }
+
   void clear() {
     active = false;
     epubPath.clear();
@@ -92,15 +120,13 @@ struct KOReaderSyncSessionState {
     totalPagesInSpine = 0;
     paragraphIndex = 0;
     hasParagraphIndex = false;
-    xhtmlSeekHint = 0;
+    paragraphIndexBefore = 0;
+    visibleOffsetAtPage = 0;
+    visibleOffsetAtNextPage = UINT32_MAX;
+    hasVisibleOffset = false;
     intent = KOReaderSyncIntentState::COMPARE;
     outcome = KOReaderSyncOutcomeState::NONE;
-    resultSpineIndex = 0;
-    resultPage = 0;
-    resultParagraphIndex = 0;
-    resultHasParagraphIndex = false;
-    resultListItemIndex = 0;
-    resultHasListItemIndex = false;
+    clearResult();
     postAction = KOReaderSyncPostAction::Reader;
     postActionTarget.clear();
     autoPullEpubPath.clear();
@@ -121,7 +147,16 @@ class CrossPointState {
   size_t lastSleepImage = SIZE_MAX;  // SIZE_MAX = unset sentinel
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
-  bool recentBooksGridView = false;  // true = grid/thumbnail view, false = list view
+  // How Recent Books shows its list: a CrossPointSettings::FILE_BROWSER_VIEW, chosen there from
+  // Options > View. Its own, not Browse Files' (SETTINGS.fileBrowserView): changing one leaves the
+  // other as it was. Covers by default, as the grid was the screen's own view.
+  uint8_t recentBooksView = 2;
+  // The Library tab last left (a LibraryTab), reopened from Home.
+  uint8_t libraryTab = 0;
+  // How New and Authors show their lists, each chosen there from Options > View: New as covers, like
+  // Recent Books; Authors in Details, its rows being names.
+  uint8_t addedBooksView = 2;
+  uint8_t authorsView = 1;
   // When false, setup() skips the boot screen on wake and instead restores the
   // saved framebuffer overlaid with a loading icon (Quick Resume).
   bool showBootScreen = true;

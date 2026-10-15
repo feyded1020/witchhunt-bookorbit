@@ -33,6 +33,11 @@ jobs:
           PATH="/usr/lib/llvm-21/bin:$PATH" ./bin/clang-format-fix
           git diff --exit-code || (echo "Please run 'bin/clang-format-fix' to fix formatting issues" && exit 1)
 
+      # The web Plugins page installs from plugins/catalog.json on master; a plugin changed without
+      # regenerating it would be offered with stale file names or versions.
+      - name: Check the plugin catalog
+        run: python3 scripts/build_plugin_catalog.py --check
+
   cppcheck:
     runs-on: ubuntu-latest
     steps:
@@ -222,11 +227,27 @@ jobs:
                ".pio/build/${{ matrix.env }}/${{ matrix.asset }}"
           fi
 
+      # The web interface is not in the firmware: build_html.py writes it as one
+      # bundle, web-<hash>.bin, which the device fetches from the release or the
+      # user uploads (src/network/WebAssets.h). Every leg builds the same bundle,
+      # because the pages are board-independent and the bundle is
+      # byte-reproducible, so the merged download holds one copy for all boards.
+      - name: Check the web bundle
+        run: |
+          set -euo pipefail
+          count=$(ls .pio/build/${{ matrix.env }}/web-*.bin 2>/dev/null | wc -l)
+          if [ "$count" != "1" ]; then
+            echo "::error::expected one web-*.bin in .pio/build/${{ matrix.env }}, found $count"
+            exit 1
+          fi
+
       - name: Upload ${{ matrix.asset }} artifact
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.asset }}
-          path: .pio/build/${{ matrix.env }}/${{ matrix.asset }}
+          path: |
+            .pio/build/${{ matrix.env }}/${{ matrix.asset }}
+            .pio/build/${{ matrix.env }}/web-*.bin
           if-no-files-found: error
 
   unit-tests:
@@ -256,6 +277,29 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build/test --output-on-failure -j
 
+  # The web pages' scripts that can run outside a browser: test/web/*_test.mjs, each given a folder
+  # with jsdom and jszip (pinned here, not added to the repository).
+  web-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install the test libraries
+        run: npm install --prefix "$RUNNER_TEMP/web-deps" --no-save --no-audit --no-fund jsdom@24.1.3 jszip@3.10.1
+
+      - name: Run the tests
+        run: |
+          status=0
+          for t in test/web/*_test.mjs; do
+            echo "== $t"
+            node "$t" "$RUNNER_TEMP/web-deps" || status=1
+          done
+          exit $status
+
   # This job is used as the PR required actions check, allows for changes to other steps in the future without breaking
   # PR requirements.
   test-status:
@@ -263,6 +307,7 @@ jobs:
     needs:
       - build
       - unit-tests
+      - web-tests
       - clang-format
       - cppcheck
     if: always()

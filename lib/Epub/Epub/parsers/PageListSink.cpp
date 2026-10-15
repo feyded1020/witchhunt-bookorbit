@@ -26,6 +26,12 @@ void PageListSink::addEntry(const std::string& href, const std::string& anchor, 
   count++;
 }
 
+void PageListSink::discard() {
+  finalized = true;
+  if (file.isOpen()) file.close();
+  Storage.remove(path.c_str());
+}
+
 void PageListSink::finalize() {
   if (finalized) return;
   finalized = true;

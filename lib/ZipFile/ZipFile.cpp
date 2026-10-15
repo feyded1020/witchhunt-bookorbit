@@ -614,7 +614,7 @@ uint8_t* ZipFile::readFileToMemory(const char* filename, size_t* size, const boo
   return data;
 }
 
-bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t chunkSize) {
+bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t chunkSize, const bool* stop) {
   const ScopedOpenClose zip{*this};
   if (!zip) return false;
 
@@ -651,6 +651,7 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
         return false;
       }
       remaining -= dataRead;
+      if (stop && *stop) break;
     }
 
     free(buffer);
@@ -703,6 +704,10 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
       if (produced > 0) {
         if (out.write(outputBuffer, produced) != produced) {
           LOG_ERR("ZIP", "Failed to write all output bytes to stream");
+          break;
+        }
+        if (stop && *stop) {
+          success = true;
           break;
         }
       }
@@ -921,14 +926,23 @@ struct ZipFile::EntryReader::Impl {
   }
 };
 
+// Nothrow: Impl carries the inflater's decode trees (~1.3 KB), and callers construct the reader
+// with new (std::nothrow) / makeUniqueNoThrow precisely so a low heap fails the read rather than
+// aborting the device -- a throwing allocation in here would undo that. Without it every call
+// below fails like a missing entry.
 ZipFile::EntryReader::EntryReader(ZipFile& zf, const size_t chunkSize, BuildArena* arena)
-    : impl_(std::make_unique<Impl>(zf, chunkSize, arena)) {}
+    : impl_(makeUniqueNoThrow<Impl>(zf, chunkSize, arena)) {
+  if (!impl_) {
+    LOG_ERR("ZIP", "EntryReader: out of memory for the reader state");
+  }
+}
 
 ZipFile::EntryReader::~EntryReader() = default;
 ZipFile::EntryReader::EntryReader(EntryReader&&) noexcept = default;
 ZipFile::EntryReader& ZipFile::EntryReader::operator=(EntryReader&&) noexcept = default;
 
 bool ZipFile::EntryReader::open(const char* filename) {
+  if (!impl_) return false;
   FileStatSlim fileStat = {};
   if (!impl_->zf.loadFileStatSlim(filename, &fileStat)) {
     LOG_ERR("ZIP", "EntryReader::open: entry not found: %s", filename);
@@ -940,6 +954,7 @@ bool ZipFile::EntryReader::open(const char* filename) {
 bool ZipFile::EntryReader::open(const FileStatSlim& fileStat) { return open(fileStat, 0); }
 
 bool ZipFile::EntryReader::open(const FileStatSlim& fileStat, const size_t outputCap) {
+  if (!impl_) return false;
   impl_->reset();
   impl_->outputCap_ = outputCap;
   // What the ring must cover: the whole entry, or only the prefix the caller will read.
@@ -1013,6 +1028,7 @@ bool ZipFile::EntryReader::step(uint8_t* out, size_t cap, size_t* produced, bool
   *produced = 0;
   *done = false;
 
+  if (!impl_) return false;
   if (impl_->done_) {
     *done = true;
     return true;
@@ -1075,7 +1091,9 @@ bool ZipFile::EntryReader::step(uint8_t* out, size_t cap, size_t* produced, bool
   return false;
 }
 
-void ZipFile::EntryReader::close() { impl_->reset(); }
+void ZipFile::EntryReader::close() {
+  if (impl_) impl_->reset();
+}
 bool ZipFile::EntryReader::isOpen() const { return impl_ && static_cast<bool>(impl_->file); }
 size_t ZipFile::EntryReader::inflatedSize() const { return impl_ ? impl_->inflatedSize_ : 0; }
 size_t ZipFile::EntryReader::bytesProduced() const { return impl_ ? impl_->bytesProduced_ : 0; }

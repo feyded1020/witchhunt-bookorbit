@@ -22,6 +22,9 @@ namespace BookProgressPresentation {
 // Cheap: derives the cache path from the book path, no book parsing. Returns -1 when the
 // book was never opened or the percent byte isn't written yet.
 int readPercent(const RecentBook& book);
+// The same for any book by path, recent or not -- the book browser's Details view asks it for
+// each row it draws.
+int readPercent(const std::string& bookPath);
 
 // Draws a reading-progress overlay directly on a cover thumbnail: a thin bar along the
 // bottom edge while in progress (1..99%), a folded top-right corner when finished (100%),

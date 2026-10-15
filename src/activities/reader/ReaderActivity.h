@@ -56,8 +56,10 @@ class ReaderActivity final : public Activity {
   // `scratch` (here and on the session starters below): a lent region -- HomeActivity lends
   // the secondary framebuffer for the whole cover pass -- for the OPF inflate ring, the cover
   // extraction ring and the decoders' working memory. Null uses the heap as before.
-  static ThumbResult ensureCoverThumb(const std::string& bookPath, int width, int height,
-                                      BuildArena* scratch = nullptr);
+  // crop=false fits the whole cover inside width x height (the cover grids' thumbnail) instead of
+  // filling the box and cropping the overflow (the carousel's).
+  static ThumbResult ensureCoverThumb(const std::string& bookPath, int width, int height, BuildArena* scratch = nullptr,
+                                      bool crop = true);
   // Every (width, height) in `sizes` for this book, from ONE decode of an embedded EPUB JPEG cover
   // (the Lyra carousel's two thumbnail sizes used to cost two full decodes). A sidecar image, an XTC
   // or a TXT source keeps the per-size path. Ok only when every size is complete.
@@ -150,7 +152,8 @@ class ReaderActivity final : public Activity {
   // alive until the session completes and then close them.
   // On failure (nullptr return), the thumb file is left as a 0-byte sentinel.
   static std::unique_ptr<PngDecodeSession> beginPngThumbSession(const std::string& bookPath, int width, int height,
-                                                                PngThumbFiles& filesOut, BuildArena* scratch = nullptr);
+                                                                PngThumbFiles& filesOut, BuildArena* scratch = nullptr,
+                                                                bool crop = true);
 
   // Single-height variant: writes the "thumb_<H>.bmp" form used by the non-carousel themes, at
   // width = H*0.6 (matching the synchronous single-height decode). Same contract as above.
@@ -160,7 +163,7 @@ class ReaderActivity final : public Activity {
   // Render a sidecar image (or copy a sidecar BMP) into a scaled 1-bit BMP at
   // "<cacheDir>/<fileName>". Returns the written path, or "" on failure.
   static std::string convertSidecarToBmp(const std::string& cacheDir, const std::string& sidecarPath, int width,
-                                         int height, const std::string& fileName);
+                                         int height, const std::string& fileName, bool crop = true);
 
   explicit ReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialBookPath)
       : Activity("Reader", renderer, mappedInput), initialBookPath(std::move(initialBookPath)) {}

@@ -302,6 +302,7 @@ bool SerialTransferDevice::makeDir(const std::string& path) {
 
 std::vector<serialtransfer::BookEntry> SerialTransferDevice::listBooks() {
   emitStatus("Listing books...");
+  const RecentBooksStore::Hold recents;  // one load for every book's lookup below
   std::vector<std::string> paths;
   collectEpubs("/", paths);
 

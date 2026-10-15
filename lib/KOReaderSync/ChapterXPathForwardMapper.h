@@ -9,13 +9,12 @@ namespace ChapterXPathIndexerInternal {
 
 std::string findXPathForProgressInternal(const std::shared_ptr<Epub>& epub, int spineIndex, float intraSpineProgress);
 
-// Find the full-ancestry XPath for the paragraphIndex-th direct-body-child <p> element.
-// paragraphIndex is 1-based, matching the section paragraph LUT and KOReader XPath convention.
-// seekHint is an optional XHTML byte offset to start scanning from (0 = scan from beginning).
-// startParagraphCount is the number of body-child <p> elements already seen before seekHint
-// (i.e. the paragraphIndex of the LUT entry at the seek page, minus 1). Ignored when seekHint=0.
-// Returns empty string on failure; caller should fall back to findXPathForProgressInternal.
-std::string findXPathForParagraphInternal(const std::shared_ptr<Epub>& epub, int spineIndex, uint16_t paragraphIndex,
-                                          uint32_t seekHint = 0, uint16_t startParagraphCount = 0);
+// The XPath of the text at `visibleOffset` (VisibleText.h's count from the chapter's start), named
+// to the codepoint as /text()[N].M in a block element or inside inline elements
+// (/p[K]/span[1]/text()[N].M); stray text in table rows by its element. An offset before an image
+// names the first text after it; an offset equal to the chapter's total names the end of its last
+// text node. Empty when the offset is past the chapter's text or the parse fails.
+std::string findXPathForVisibleOffsetInternal(const std::shared_ptr<Epub>& epub, int spineIndex,
+                                              uint32_t visibleOffset);
 
 }  // namespace ChapterXPathIndexerInternal

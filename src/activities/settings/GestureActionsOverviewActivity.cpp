@@ -8,6 +8,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -23,20 +24,35 @@ namespace {
 
 using TouchGestures::Gesture;
 
-// What the settings screen currently shows for one gesture. Looked up by the gesture's own
-// label StrId, so BINDINGS stays the single source of truth for which row is which -- the
-// same reason ButtonActionsOverviewActivity looks its cells up by (submenu, press kind)
-// instead of keeping a parallel table.
+// What the settings screen currently shows for each gesture, indexed by Gesture. A gesture's
+// row is found by the gesture's own label StrId, so BINDINGS stays the single source of truth
+// for which row is which -- the same reason ButtonActionsOverviewActivity finds its cells by
+// (submenu, press kind) instead of keeping a parallel table. Read in ONE walk of the settings:
+// looked up gesture by gesture, the page needs the whole list at hand, which is one 11.5 KB
+// block (see forEachSetting()). On the heap, like the button table: twenty strings are too much
+// for a render's stack frame.
 //
 // Empty when the row is absent, which is how a board without a warm light or without
-// multi-touch drops those actions for free: getSettingsList() has already filtered them.
-std::string actionText(const std::vector<SettingInfo>& settings, const Gesture gesture) {
-  const StrId label = TouchGestures::BINDINGS[static_cast<size_t>(gesture)].label;
-  const auto it = std::find_if(settings.begin(), settings.end(), [label](const SettingInfo& s) {
-    return s.nameId == label && s.submenu == StrId::STR_MENU_GESTURE_ACTIONS;
+// multi-touch drops those actions for free: forEachSetting() never visits them.
+using GestureTexts = std::vector<std::string>;
+
+GestureTexts gestureTexts() {
+  constexpr size_t kGestures = static_cast<size_t>(Gesture::Count);
+  GestureTexts texts(kGestures);
+  std::array<bool, kGestures> found{};
+  forEachSetting([&](const SettingInfo& s) {
+    if (s.submenu != StrId::STR_MENU_GESTURE_ACTIONS) return;
+    for (size_t g = 0; g < kGestures; g++) {
+      if (found[g] || TouchGestures::BINDINGS[g].label != s.nameId) continue;
+      texts[g] = s.getDisplayValue();
+      found[g] = true;
+    }
   });
-  if (it == settings.end()) return {};
-  return it->getDisplayValue();
+  return texts;
+}
+
+const std::string& actionText(const GestureTexts& texts, const Gesture gesture) {
+  return texts[static_cast<size_t>(gesture)];
 }
 
 // Whether a sideways swipe currently turns pages. Only Swipe reading mode uses horizontal
@@ -169,7 +185,7 @@ void GestureActionsOverviewActivity::render(RenderLock&&) {
   }
   const Rect frame{contentRect.x + (contentRect.width - frameW) / 2, top, frameW, frameH};
 
-  const auto settings = getSettingsList();
+  const GestureTexts texts = gestureTexts();
 
   if (page == 2) {
     // No zones to draw: pinch and rotate happen wherever the fingers are. A plain two-column
@@ -183,7 +199,7 @@ void GestureActionsOverviewActivity::render(RenderLock&&) {
       const StrId label = TouchGestures::BINDINGS[static_cast<size_t>(g)].label;
       renderer.drawText(fontId, frame.x, y, renderer.truncatedText(fontId, I18N.get(label), labelW).c_str(), true,
                         EpdFontFamily::BOLD);
-      const std::string action = actionText(settings, g);
+      const std::string action = actionText(texts, g);
       renderer.drawText(fontId, frame.x + labelW, y,
                         renderer.truncatedText(fontId, action.c_str(), frame.width - labelW).c_str());
       y += lineH + 6;
@@ -222,8 +238,8 @@ void GestureActionsOverviewActivity::render(RenderLock&&) {
           {Rect(frame.x + colW, frame.y + rowH * 2, colW, rowH), Gesture::TapBottom, Gesture::LongTapBottom},
       };
       for (const auto& cell : cells) {
-        const std::string tapAction = actionText(settings, cell.tap);
-        const std::string holdAction = actionText(settings, cell.hold);
+        const std::string tapAction = actionText(texts, cell.tap);
+        const std::string holdAction = actionText(texts, cell.hold);
         drawBoxedPair(renderer, fontId, cell.box, tapAction.c_str(), holdAction.c_str());
       }
 
@@ -240,7 +256,7 @@ void GestureActionsOverviewActivity::render(RenderLock&&) {
           {frame.x + frame.width - side - 2, frame.y + frame.height - side, Gesture::LongTapBottomRight},
       };
       for (const auto& corner : corners) {
-        const std::string action = actionText(settings, corner.hold);
+        const std::string action = actionText(texts, corner.hold);
         if (action.empty()) continue;
         const std::string clipped = renderer.truncatedText(fontId, action.c_str(), colW - side);
         const int w = renderer.getTextWidth(fontId, clipped.c_str());
@@ -286,9 +302,9 @@ void GestureActionsOverviewActivity::render(RenderLock&&) {
            Gesture::SwipeDownRight, Gesture::SwipeInRightZone},
       };
       for (const auto& zone : zones) {
-        const std::string up = actionText(settings, zone.up);
-        const std::string down = actionText(settings, zone.down);
-        const std::string sideways = actionText(settings, zone.sideways);
+        const std::string up = actionText(texts, zone.up);
+        const std::string down = actionText(texts, zone.down);
+        const std::string sideways = actionText(texts, zone.sideways);
         const char* lines[3] = {up.c_str(), down.c_str(), sideways.c_str()};
         drawBoxedLines(renderer, fontId, zone.box, lines, 3);
       }

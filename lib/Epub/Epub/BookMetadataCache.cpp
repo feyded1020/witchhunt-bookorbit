@@ -1,6 +1,7 @@
 #include "BookMetadataCache.h"
 
 #include <Logging.h>
+#include <Memory.h>
 #include <Serialization.h>
 #include <ZipFile.h>
 #include <esp_heap_caps.h>
@@ -58,44 +59,75 @@ bool BookMetadataCache::beginTocPass() {
     return false;
   }
   tocWriter_.emplace(tocFile);
+  tocLookupPrepared_ = false;
+  return true;
+}
+
+void BookMetadataCache::prepareTocLookup() {
+  tocLookupPrepared_ = true;
+  tocScanNextIndex_ = 0;
+  tocScanNextOffset_ = 0;
 
   // Past MAX_ADDRESSABLE_SPINES the index's int16_t spineIndex would wrap and resolve TOC entries
   // to wrong (or negative) spines. The linear scan has no such limit, so fall back to it rather
   // than build a silently-corrupt index. No known EPUB comes close; this is a correctness guard,
   // not a memory one.
+  useSpineHrefIndex = false;
   if (spineCount > MAX_ADDRESSABLE_SPINES) {
     LOG_INF("BMC", "Spine count %d exceeds indexable %d; using linear TOC lookup", spineCount, MAX_ADDRESSABLE_SPINES);
-    useSpineHrefIndex = false;
   } else if (spineCount >= LARGE_SPINE_THRESHOLD) {
-    // The index is ~12 B/spine — 21 KB at 1732 spines (King's Avatar, the largest real book we
-    // know of), against ~122 KB free here. Exhausting that would take ~10,000 spines, past the
-    // addressable ceiling handled above, so there is no OOM fallback: deque's chunking already
-    // removes the contiguous-block failure that was actually observed.
-    spineHrefIndex.clear();
-    spineHrefIndex.resize(spineCount);
-    spineFile.seek(0);
-    serialization::BufferedFileReader spineReader(spineFile);
-    SpineEntry scratch;
-    for (int i = 0; i < spineCount; i++) {
-      readSpineEntry(spineReader, scratch);
-      SpineHrefIndexEntry idx;
-      idx.hrefHash = HashUtils::fnvHash64(scratch.href);
-      idx.hrefLen = static_cast<uint16_t>(scratch.href.size());
-      idx.spineIndex = static_cast<int16_t>(i);
-      spineHrefIndex[i] = idx;
+    spineHrefIndex = makeUniqueNoThrow<SpineHrefIndexEntry[]>(spineCount);
+    if (!spineHrefIndex) {
+      LOG_INF("BMC", "No %u B block for the spine href index (%d spines); resuming linear TOC lookup",
+              static_cast<unsigned>(spineCount * sizeof(SpineHrefIndexEntry)), spineCount);
+    } else {
+      spineFile.seek(0);
+      serialization::BufferedFileReader spineReader(spineFile);
+      SpineEntry scratch;
+      for (int i = 0; i < spineCount; i++) {
+        readSpineEntry(spineReader, scratch);
+        SpineHrefIndexEntry idx;
+        idx.hrefHash = HashUtils::fnvHash64(scratch.href);
+        idx.hrefLen = static_cast<uint16_t>(scratch.href.size());
+        idx.spineIndex = static_cast<int16_t>(i);
+        spineHrefIndex[i] = idx;
+      }
+      std::sort(spineHrefIndex.get(), spineHrefIndex.get() + spineCount,
+                [](const SpineHrefIndexEntry& a, const SpineHrefIndexEntry& b) {
+                  return a.hrefHash < b.hrefHash || (a.hrefHash == b.hrefHash && a.hrefLen < b.hrefLen);
+                });
+      useSpineHrefIndex = true;
+      LOG_DBG("BMC", "Using fast index for %d spine items", spineCount);
     }
-    std::sort(spineHrefIndex.begin(), spineHrefIndex.end(),
-              [](const SpineHrefIndexEntry& a, const SpineHrefIndexEntry& b) {
-                return a.hrefHash < b.hrefHash || (a.hrefHash == b.hrefHash && a.hrefLen < b.hrefLen);
-              });
-    spineFile.seek(0);
-    useSpineHrefIndex = true;
-    LOG_DBG("BMC", "Using fast index for %d spine items", spineCount);
-  } else {
-    useSpineHrefIndex = false;
   }
+  if (!useSpineHrefIndex) {
+    spineFile.seek(0);
+    spineScanReader_.emplace(spineFile);
+  }
+}
 
-  return true;
+int16_t BookMetadataCache::findSpineByScan(const std::string& href) {
+  SpineEntry entry;
+  // From the resume point to the end, then from the first spine up to the resume point.
+  const int resumeIndex = tocScanNextIndex_;
+  for (int pass = 0; pass < 2; pass++) {
+    const int first = pass == 0 ? resumeIndex : 0;
+    const int last = pass == 0 ? spineCount : resumeIndex;
+    spineScanReader_->seek(pass == 0 ? tocScanNextOffset_ : 0);
+    for (int i = first; i < last; i++) {
+      readSpineEntry(*spineScanReader_, entry);
+      if (entry.href == href) {
+        tocScanNextIndex_ = i + 1;
+        tocScanNextOffset_ = spineScanReader_->position();
+        if (tocScanNextIndex_ >= spineCount) {
+          tocScanNextIndex_ = 0;
+          tocScanNextOffset_ = 0;
+        }
+        return static_cast<int16_t>(i);
+      }
+    }
+  }
+  return -1;
 }
 
 bool BookMetadataCache::resetTocPassOutput() {
@@ -116,6 +148,9 @@ bool BookMetadataCache::resetTocPassOutput() {
   tocWriter_.emplace(tocFile);
 
   tocCount = 0;
+  // The fallback parse restarts the TOC from its first entry; scan from the first spine again.
+  tocScanNextIndex_ = 0;
+  tocScanNextOffset_ = 0;
   LOG_DBG("BMC", "Reset TOC temp output for fallback parse");
   return true;
 }
@@ -125,12 +160,13 @@ bool BookMetadataCache::endTocPass() {
     tocWriter_->flush();
     tocWriter_.reset();
   }
+  spineScanReader_.reset();  // views spineFile, so dropped before it closes
   tocFile.close();
   spineFile.close();
 
-  spineHrefIndex.clear();
-  spineHrefIndex.shrink_to_fit();
+  spineHrefIndex.reset();
   useSpineHrefIndex = false;
+  tocLookupPrepared_ = false;
 
   return true;
 }
@@ -487,38 +523,33 @@ void BookMetadataCache::createTocEntry(const std::string& title, const std::stri
     return;
   }
 
+  // Prepared on the first entry rather than in beginTocPass(): by now the TOC parser and its
+  // inflate ring hold their memory, so the optional index can only take what they left. Built
+  // first, it once left the NCX parser no room to start, and the book was cached with no TOC.
+  if (!tocLookupPrepared_) prepareTocLookup();
+
   int16_t spineIndex = -1;
 
   if (useSpineHrefIndex) {
     uint64_t targetHash = HashUtils::fnvHash64(href);
     uint16_t targetLen = static_cast<uint16_t>(href.size());
 
-    auto it =
-        std::lower_bound(spineHrefIndex.begin(), spineHrefIndex.end(), SpineHrefIndexEntry{targetHash, targetLen, 0},
-                         [](const SpineHrefIndexEntry& a, const SpineHrefIndexEntry& b) {
-                           return a.hrefHash < b.hrefHash || (a.hrefHash == b.hrefHash && a.hrefLen < b.hrefLen);
-                         });
+    const SpineHrefIndexEntry* const indexBegin = spineHrefIndex.get();
+    const SpineHrefIndexEntry* const indexEnd = indexBegin + spineCount;
+    auto it = std::lower_bound(indexBegin, indexEnd, SpineHrefIndexEntry{targetHash, targetLen, 0},
+                               [](const SpineHrefIndexEntry& a, const SpineHrefIndexEntry& b) {
+                                 return a.hrefHash < b.hrefHash || (a.hrefHash == b.hrefHash && a.hrefLen < b.hrefLen);
+                               });
 
-    while (it != spineHrefIndex.end() && it->hrefHash == targetHash && it->hrefLen == targetLen) {
+    while (it != indexEnd && it->hrefHash == targetHash && it->hrefLen == targetLen) {
       spineIndex = it->spineIndex;
       break;
     }
-
-    if (spineIndex == -1) {
-      LOG_DBG("BMC", "createTocEntry: Could not find spine item for TOC href %s", href.c_str());
-    }
   } else {
-    spineFile.seek(0);
-    for (int i = 0; i < spineCount; i++) {
-      auto spineEntry = readSpineEntry(spineFile);
-      if (spineEntry.href == href) {
-        spineIndex = static_cast<int16_t>(i);
-        break;
-      }
-    }
-    if (spineIndex == -1) {
-      LOG_DBG("BMC", "createTocEntry: Could not find spine item for TOC href %s", href.c_str());
-    }
+    spineIndex = findSpineByScan(href);
+  }
+  if (spineIndex == -1) {
+    LOG_DBG("BMC", "createTocEntry: Could not find spine item for TOC href %s", href.c_str());
   }
 
   const TocEntry entry(title, href, anchor, level, spineIndex);

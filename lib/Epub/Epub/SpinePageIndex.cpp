@@ -136,4 +136,9 @@ Totals sumRange(const std::string& bookCachePath, const Variant variant, const i
   return totals;
 }
 
+void discard(const std::string& bookCachePath) {
+  const std::string path = indexPath(bookCachePath);
+  if (Storage.exists(path.c_str())) Storage.remove(path.c_str());
+}
+
 }  // namespace SpinePageIndex

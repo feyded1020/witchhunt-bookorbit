@@ -58,8 +58,9 @@ enum class CssFontWeight : uint8_t { Normal = 0, Bold = 1 };
 // Text decoration options
 enum class CssTextDecoration : uint8_t { None = 0, Underline = 1, LineThrough = 2, UnderlineLineThrough = 3 };
 
-// Display options - only None and Block are relevant for e-ink rendering
-enum class CssDisplay : uint8_t { Block = 0, None = 1 };
+// Display options. Block and Inline only matter where the tag does not already decide it: a
+// <span> styled display:block is laid out as a block, one styled display:inline is not.
+enum class CssDisplay : uint8_t { Block = 0, None = 1, Inline = 2 };
 
 // Vertical align options relevant for inline text positioning
 enum class CssVerticalAlign : uint8_t { Baseline = 0, Super = 1, Sub = 2 };
@@ -166,7 +167,7 @@ struct CssStyle {
   CssLength paddingRight;   // Padding right
   CssLength imageHeight;    // Height for img (e.g. 2em) – width derived from aspect ratio when only height set
   CssLength imageWidth;     // Width for img when both or only width set
-  CssDisplay display = CssDisplay::Block;                       // display property (Block or None)
+  CssDisplay display = CssDisplay::Block;                       // display property (Block, Inline or None)
   CssVerticalAlign verticalAlign = CssVerticalAlign::Baseline;  // vertical-align for inline elements
 
   bool listStyleNone = false;          // true when list-style-type: none / list-style: none

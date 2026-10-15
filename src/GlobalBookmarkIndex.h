@@ -26,6 +26,13 @@ class GlobalBookmarkIndex {
   // Persist/load the index to/from /.crosspoint/global_bookmarks.bin.
   void load();
   void save() const;
+  // Frees the entries, for a download that needs the heap. The next upsert, remove or reconcile
+  // loads them again first, so nothing is lost on disk; until then getEntries() and isEmpty()
+  // see an empty index, which only matters to a screen drawn before the next load.
+  void unload() {
+    std::vector<Entry>().swap(entries);
+    loaded = false;
+  }
 
   // Per-book update. Replaces (or removes when empty) the entry for this source path.
   // Safe to call during BookmarkStore::save() hook.
@@ -34,6 +41,10 @@ class GlobalBookmarkIndex {
 
   // Drop an entry (e.g. when a book is deleted). No-op if not indexed.
   void removeBySourcePath(const std::string& sourcePath);
+
+  // A book renamed or moved on the card (BookRelocation): its entry follows it, and so does the
+  // cache folder its bookmarks are read from. No-op if not indexed.
+  void relocate(const std::string& oldPath, const std::string& newPath, const std::string& newCacheDir);
 
   // Convenience wrapper that pulls bookmarks out of a BookmarkStore and upserts.
   // Also removes the entry if the store is empty.

@@ -45,6 +45,8 @@ struct MenuResult {
   // reader overrides: -1 = default, 0 = off, 1 = on.
   int8_t guideDotsOverride = -1;
   int8_t inlineFootnotePreviewsOverride = -1;
+  // Browse Files view (CrossPointSettings::FILE_BROWSER_VIEW), appended like the above.
+  uint8_t browserView = 0;
 };
 
 struct ChapterResult {
@@ -71,6 +73,8 @@ struct SyncResult {
   bool hasParagraphIndex = false;  // true when paragraphIndex is available
   uint16_t listItemIndex = 0;      // running <li> count when XPath ends in /li[N]
   bool hasListItemIndex = false;   // true when listItemIndex is available
+  uint32_t visibleOffset = 0;
+  bool hasVisibleOffset = false;  // content offset in the spine (exact page via the section LUT)
 };
 
 enum class NetworkMode;
@@ -110,10 +114,16 @@ struct StarredPageResult {
   int pageNumber = 0;
 };
 
+// Which answer ConfirmationActivity was given, when it was not Cancel. Only a question with an
+// alternate answer needs to look: for a yes/no question isCancelled already says it all.
+struct ConfirmResult {
+  bool alternate = false;
+};
+
 using ResultVariant =
     std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, PageResult,
                  SyncResult, NetworkModeResult, FootnoteResult, FilePathResult, StarredPageResult, PrintedPageResult,
-                 DictionarySwitchResult, HighlightResult, HighlightJumpResult>;
+                 DictionarySwitchResult, ConfirmResult, HighlightResult, HighlightJumpResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

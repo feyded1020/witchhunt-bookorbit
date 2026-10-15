@@ -1,10 +1,10 @@
 #include "ChapterXPathForwardMapper.h"
 
-#include <HalStorage.h>
 #include <Logging.h>
 #include <SaxParser/SaxParser.h>
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -13,104 +13,102 @@
 
 namespace ChapterXPathIndexerInternal {
 
+// Forward mapper: the XPath of the text at a visible-byte offset.
+//
+// Where the cursor lands in text that is a direct child of a BLOCK element (isBlockTag: p, li,
+// headings, div, td, ...; not table/thead/tbody/tfoot/tr, which keep no text in crengine, see
+// allowsTextChildren) the result is .../block[K]/text()[N].M: N the text node within the
+// block, M the codepoint within the node. That is the shape KOReader emits itself, and the shape
+// our reverse mapper resolves at its text-node-exact tier. Inline elements (em, span, a, ...) are
+// named through: .../p[K]/span[1]/text()[N].M (kTextPointsInsideInlineElements). The element path
+// remains only where allowsTextChildren is false (stray text in table rows). The result is set only
+// in onCharData, so the push never names an image: an image-led page names the first text after
+// it, and a page starting at the chapter's total gets the end of the last text node (second pass
+// in findXPathForVisibleOffsetInternal).
+//
+// N and M count crengine's DOM, not our SAX stream (koreader/crengine, crengine/src/lvtinydom.cpp
+// and lvxml.cpp, read 2026-10-06). StackState::onTextChunk/closeTextRun keep one counter for both
+// mappers:
+//   R1 ldomElementWriter::onText: the first whitespace-only text run of a non-pre block element
+//      (no child yet) is dropped at parse time; <p>\n  <em>x</em> rest</p> has one text node.
+//   R2 PreProcessXmlString (non-pre): CR, LF and TAB become spaces and a run of spaces is stored
+//      as ONE space (the first, even at node start; nothing is trimmed). M indexes this stored
+//      text in codepoints: <p>Hello\n      world</p> stores "Hello world", w at M=6.
+//   R3 ldomNode::removeStandaloneWhitespaceTextChildrenInMixedContent: in an element with block
+//      children AND inline content, a whitespace-only text node is deleted unless it sits between
+//      two inline-ish siblings (an inline element or a text node).
+//   R4 createXPointerV1/V2: a text()[N] that does not exist is a null XPointer, and
+//      LVDocView::getBookmarkPage(null) is page 0: one node too many sends KOReader to the book's
+//      first page.
+//   R5 <pre> (TXTFLG_PRE, inherited by descendants): R1 and R2 do not apply; text is stored raw.
+//   R6 (accepted gap) a comment splits a text node in crengine; our SAX parser reports no comment.
+//   R7 (accepted gap) crengine decides block-ness and pre from computed CSS (isBlockNode,
+//      white_space >= pre-line); we decide from tag names (isBlockTag, <pre>). span{display:block},
+//      div{display:inline} or white-space: pre-wrap over pretty-printed whitespace can shift N or M.
+// Whitespace for R1-R3 is crengine's IsEmptySpace set: space, CR, LF, TAB. NBSP is a character.
+//
+// The fraction path (no page offset) keeps the form it had before: the element path, so the
+// paragraph rather than a character in it, since its target is a byte fraction of the chapter and
+// not a page's start. Only text directly in <body>, which has no element of its own to name, gets
+// a text point there (1.42's rule).
 namespace {
 
-// Forward mapper: translate intra-spine progress to a KOReader-compatible XPath.
-// Strategy:
-// 1) Count total visible text bytes in chapter.
-// 2) Stream parse again and stop when target byte offset is reached.
-// 3) Emit either /text()[N].M when the cursor is at a direct text child of
-//    <body>, or the bare element path otherwise.
-//
-// Why body-level only (and not deep nested /p[i]/span[j]/text()[k].M):
-//   KOReader's crengine normalises the DOM differently than expat — it merges
-//   adjacent inline elements, drops empty wrappers, and renumbers text nodes
-//   inside <p>/<span>/<em>. A deep XPath we emit (e.g. /p[17]/span[1]/text()[1].26)
-//   often fails to match crengine's tree, and KOReader stores a degraded
-//   fallback position (start-of-wrapper-div or off-by-N text node) that
-//   round-trips back to the wrong page on pull. Body-level text-point XPaths
-//   have a much higher round-trip success rate even though they sacrifice
-//   character-precision inside paragraphs. The Section paragraph LUT then
-//   snaps the pulled position to the correct page anyway, so the precision
-//   loss is invisible to users.
-//
-// This matches the 1.42 behavior. The pre-1.43 forward mapper only emitted
-// text-point XPaths when the cursor was a direct text child of <body>; the
-// 1.43 change to deep emission is the regression we're undoing here.
+// Text points for text directly inside an inline element (span, em, a, ...), named through the
+// inline elements: /p[K]/span[1]/text()[N].M. On: release 1.43 emitted these and KOReader landed
+// on wrong pages, which was the text-node numbering and codepoint counting that 5b corrected to
+// follow crengine's DOM. A live KOReader then resolved such a point (2026-10-06, probe
+// /body/DocFragment[10]/body/p[18]/i[1]/text()[1].39 landed on the page holding its target).
+// The constant stays as the one-line way back to element paths inside inline elements.
+constexpr bool kTextPointsInsideInlineElements = true;
 
 struct ForwardState : StackState {
   int spineIndex;
   size_t targetOffset;
+  // The fraction path's target can equal the chapter's total (intra 1.0) and must name the chunk
+  // that ENDS there; a page's start is a byte of text and must name the chunk that CONTAINS it.
+  bool inclusive = true;
+  // Which text is named to the character: in any block element (a page's start), or only directly
+  // in <body> (the fraction path; see the header comment).
+  bool textPointsInBlocks = false;
   std::string result;
   bool found = false;
   SaxParser* saxParser = nullptr;
 
-  // Body-level text-node bookkeeping: only counts text nodes that are direct
-  // children of <body>. Inline-element text contributes to totalTextBytes via
-  // the StackState base, but does not advance bodyTextNodeCount because
-  // KOReader can't round-trip a deep text-node XPath reliably.
-  int bodyTextNodeCount = 0;
-  size_t codepointsInBodyTextNode = 0;
-  bool inBodyTextNode = false;
-
   ForwardState(const int spineIndex, const size_t targetOffset) : spineIndex(spineIndex), targetOffset(targetOffset) {}
 
-  void onStartElement(const char* rawName) {
-    inBodyTextNode = false;
-    pushElement(rawName);
-  }
-
-  void onEndElement() {
-    inBodyTextNode = false;
-    popElement();
-  }
+  void onStartElement(const char* rawName) { pushElement(rawName); }
+  void onEndElement() { popElement(); }
 
   void onCharData(const char* text, const int len) {
-    if (shouldSkipText(len) || found) {
+    if (shouldSkipText(len) || found || stack.empty()) {
       return;
     }
-
-    const bool atBodyLevel = bodyIdx() + 1 == static_cast<int>(stack.size());
-    if (atBodyLevel && !inBodyTextNode) {
-      inBodyTextNode = true;
-      bodyTextNodeCount++;
-      codepointsInBodyTextNode = 0;
-    }
-
-    if (isWhitespaceOnly(text, len)) {
-      if (atBodyLevel) {
-        codepointsInBodyTextNode += countUtf8Codepoints(text, len);
-      }
-      return;
-    }
-
+    StackNode& parent = stack.back();
+    const TextRun run = onTextChunk(text, len);  // every chunk, before any early return
     const size_t visible = countVisibleBytes(text, len);
-    if (totalTextBytes + visible >= targetOffset) {
-      if (atBodyLevel && bodyTextNodeCount > 0) {
-        // KOReader/crengine text-point semantics use codepoint offsets.
+    if (!run.counts || visible == 0) {
+      return;
+    }
+    // Fraction path: the target can equal the chapter total and names the chunk that ENDS there.
+    // Offset path: a page's start is a byte of text and names the chunk that CONTAINS it.
+    const bool reached = inclusive ? totalTextBytes + visible >= targetOffset : totalTextBytes + visible > targetOffset;
+    if (reached) {
+      const bool blockParent = textPointsInBlocks ? isBlockTag(parent.tag) : parent.tag == "body";
+      const bool inlineParent = textPointsInBlocks && kTextPointsInsideInlineElements && !isBlockTag(parent.tag);
+      if ((blockParent || inlineParent) && allowsTextChildren(parent.tag)) {
         const size_t targetVisibleByteInChunk = targetOffset - totalTextBytes;
-        const size_t cpInChunk = codepointAtVisibleByte(text, len, targetVisibleByteInChunk);
-        const size_t charOff = codepointsInBodyTextNode + cpInChunk;
-        result =
-            currentXPath(spineIndex) + "/text()[" + std::to_string(bodyTextNodeCount) + "]." + std::to_string(charOff);
+        const size_t cpInChunk =
+            collapsedCodepointAtVisibleByte(text, len, targetVisibleByteInChunk, preDepth == 0, run.spaceBefore);
+        result = currentXPath(spineIndex) + "/text()[" + std::to_string(run.nodeIndex) + "]." +
+                 std::to_string(run.codepointsBefore + cpInChunk);
       } else {
-        // Cursor is inside a nested element. Emit the element path without a
-        // text-point suffix — KOReader will treat this as a position at the
-        // start of the named element, which is good enough for paragraph-level
-        // accuracy. Don't emit a deep text() index here: see header comment.
         result = currentXPath(spineIndex);
       }
       found = true;
-      if (saxParser) {
-        saxParser->stop();
-      }
+      if (saxParser) saxParser->stop();
       return;
     }
-
     totalTextBytes += visible;
-    if (atBodyLevel) {
-      codepointsInBodyTextNode += countUtf8Codepoints(text, len);
-    }
   }
 };
 
@@ -122,7 +120,7 @@ std::string makeSpineCacheKey(const std::shared_ptr<Epub>& epub, const int spine
   return epub->getCachePath() + "|" + std::to_string(spineIndex) + "|" + spineItem.href;
 }
 
-size_t getTotalTextBytesCached(const std::shared_ptr<Epub>& epub, const int spineIndex, const std::string& tmpPath) {
+std::optional<size_t> getTotalTextBytesCached(const std::shared_ptr<Epub>& epub, const int spineIndex) {
   static std::unordered_map<std::string, size_t> sTotalBytesBySpine;
   static std::string sCachedBookPath;
 
@@ -140,138 +138,24 @@ size_t getTotalTextBytesCached(const std::shared_ptr<Epub>& epub, const int spin
     }
   }
 
-  const size_t totalTextBytes = countTotalTextBytes(tmpPath);
-  if (!key.empty()) {
-    sTotalBytesBySpine[key] = totalTextBytes;
+  // A failed read is not cached: it may be transient (heap, SD), and the next call should retry.
+  const auto totalTextBytes = countTotalTextBytes(epub, spineIndex);
+  if (totalTextBytes && !key.empty()) {
+    sTotalBytesBySpine[key] = *totalTextBytes;
   }
   return totalTextBytes;
 }
 
 }  // namespace
 
-// Paragraph-targeted forward mapper.
-// Counts direct-body-child <p> elements (matching ChapterHtmlSlimParser's xpathBodyDepth guard)
-// and stops at the Nth one, emitting its full-ancestry XPath.  The seek hint avoids scanning
-// from byte 0 when the section LUT has a byte offset for a nearby page break.
-namespace {
-
-struct ParagraphState : StackState {
-  int spineIndex;
-  uint16_t targetParagraph;  // 1-based
-  uint16_t paragraphCount = 0;
-  std::string result;
-  SaxParser* saxParser = nullptr;
-  // When parsing from a seek offset, the DOM context (html/body ancestors) is missing from
-  // the parser's perspective.  partialParse=true relaxes the bodyIdx() check and instead
-  // counts any <p> at depth 0 relative to the first element seen (a heuristic that works
-  // because we know we're already inside <body> in the source document).
-  bool partialParse = false;
-  int partialBaseDepth = -1;  // stack depth when the first element is seen in partial mode
-
-  ParagraphState(const int spineIndex, const uint16_t targetParagraph, const uint16_t startParagraphCount,
-                 const bool partialParse)
-      : spineIndex(spineIndex),
-        targetParagraph(targetParagraph),
-        paragraphCount(startParagraphCount),
-        partialParse(partialParse) {}
-};
-
-void paragraphStartCb(void* ud, const char* rawName, const char**) {
-  auto* s = static_cast<ParagraphState*>(ud);
-  s->pushElement(rawName);
-  if (!s->result.empty() || s->stack.empty() || s->stack.back().tag != "p") {
-    return;
-  }
-
-  bool isDirectBodyChild = false;
-  if (s->partialParse) {
-    // In partial mode the DOM context (html/body ancestors) is absent from the parser.
-    // We record the stack depth of the first element encountered as the body-equivalent
-    // depth; direct body children are one level deeper.  This only works for flat EPUBs
-    // where paragraphs are direct children of <body> — for wrapped chapters the partial
-    // parse will find nothing and the caller retries from byte 0 with full context.
-    if (s->partialBaseDepth < 0) {
-      s->partialBaseDepth = static_cast<int>(s->stack.size()) - 1;
-    }
-    isDirectBodyChild = (static_cast<int>(s->stack.size()) - 1 == s->partialBaseDepth);
-  } else {
-    const int bi = s->bodyIdx();
-    isDirectBodyChild = (bi >= 0 && static_cast<int>(s->stack.size()) == bi + 2);
-  }
-
-  if (isDirectBodyChild) {
-    s->paragraphCount++;
-    if (s->paragraphCount >= s->targetParagraph) {
-      s->result = s->currentXPath(s->spineIndex);
-      if (s->saxParser) {
-        s->saxParser->stop();
-      }
-    }
-  }
-}
-
-void paragraphEndCb(void* ud, const char*) { static_cast<ParagraphState*>(ud)->popElement(); }
-
-}  // namespace
-
-std::string findXPathForParagraphInternal(const std::shared_ptr<Epub>& epub, const int spineIndex,
-                                          const uint16_t paragraphIndex, const uint32_t seekHint,
-                                          const uint16_t startParagraphCount) {
-  if (!epub || paragraphIndex == 0) {
-    return "";
-  }
-
-  const std::string tmpPath = decompressToTempFile(epub, spineIndex);
-  if (tmpPath.empty()) {
-    return "";
-  }
-
-  const bool partialParse = seekHint > 0;
-  ParagraphState state(spineIndex, paragraphIndex, partialParse ? startParagraphCount : 0, partialParse);
-  SaxParser saxParser;
-  if (!saxParser.init(&state, paragraphStartCb, paragraphEndCb, nullptr, parserDefaultCb<ParagraphState>)) {
-    Storage.remove(tmpPath.c_str());
-    return "";
-  }
-
-  state.saxParser = &saxParser;
-  // No character data handler needed — we only care about element structure.
-
-  // Use seek hint from section LUT if available — avoids scanning the whole chapter.
-  // If the partial parse misses the target (e.g. the hint overshot), retry from byte 0.
-  runParseFromOffset(saxParser, tmpPath, seekHint);
-
-  if (state.result.empty() && seekHint > 0) {
-    // Partial parse missed — reset and retry from beginning with full-document context.
-    ParagraphState fullState(spineIndex, paragraphIndex, 0, false);
-    SaxParser fullParser;
-    if (!fullParser.init(&fullState, paragraphStartCb, paragraphEndCb, nullptr, parserDefaultCb<ParagraphState>)) {
-      LOG_ERR("KOX", "SaxParser init failed on retry: spine=%d p[%u] tmp=%s", spineIndex, paragraphIndex,
-              tmpPath.c_str());
-    } else {
-      fullState.saxParser = &fullParser;
-      runParse(fullParser, tmpPath);
-      state.result = fullState.result;
-    }
-  }
-
-  Storage.remove(tmpPath.c_str());
-
-  LOG_DBG("KOX", "Paragraph: spine=%d p[%u] seekHint=%u -> %s", spineIndex, paragraphIndex, seekHint,
-          state.result.empty() ? "(not found)" : state.result.c_str());
-  return state.result;
-}
-
 std::string findXPathForProgressInternal(const std::shared_ptr<Epub>& epub, const int spineIndex,
                                          const float intraSpineProgress) {
-  const std::string tmpPath = decompressToTempFile(epub, spineIndex);
-  if (tmpPath.empty()) {
+  const auto counted = getTotalTextBytesCached(epub, spineIndex);
+  if (!counted) {
     return "";
   }
-
-  const size_t totalTextBytes = getTotalTextBytesCached(epub, spineIndex, tmpPath);
+  const size_t totalTextBytes = *counted;
   if (totalTextBytes == 0) {
-    Storage.remove(tmpPath.c_str());
     const std::string base = "/body/DocFragment[" + std::to_string(spineIndex + 1) + "]/body";
     LOG_DBG("KOX", "Forward: spine=%d no text, returning base xpath", spineIndex);
     return base;
@@ -281,16 +165,15 @@ std::string findXPathForProgressInternal(const std::shared_ptr<Epub>& epub, cons
   const size_t targetOffset = static_cast<size_t>(clamped * static_cast<float>(totalTextBytes));
 
   ForwardState state(spineIndex, targetOffset);
+  state.inclusive = true;
   SaxParser saxParser;
   if (!saxParser.init(&state, parserStartCb<ForwardState>, parserEndCb<ForwardState>, parserCharCb<ForwardState>,
-                      parserDefaultCb<ForwardState>)) {
-    Storage.remove(tmpPath.c_str());
+                      parserDefaultCb<ForwardState>, /*htmlVoidTagRepair=*/true, SaxParser::Profile::Lean)) {
     return "";
   }
 
   state.saxParser = &saxParser;
-  runParse(saxParser, tmpPath);
-  Storage.remove(tmpPath.c_str());
+  streamSpine(epub, spineIndex, saxParser);
 
   if (state.result.empty()) {
     state.result = "/body/DocFragment[" + std::to_string(spineIndex + 1) + "]/body";
@@ -299,6 +182,47 @@ std::string findXPathForProgressInternal(const std::shared_ptr<Epub>& epub, cons
   LOG_DBG("KOX", "Forward: spine=%d progress=%.3f target=%zu/%zu -> %s", spineIndex, intraSpineProgress, targetOffset,
           totalTextBytes, state.result.c_str());
   return state.result;
+}
+
+namespace {
+
+// One streamed pass of the offset path. `inclusive` names the chunk that ENDS at the target
+// instead of the one that contains it. `atChapterEnd` reports a pass that found nothing because
+// the target is the chapter's own total: the parse completed and counted exactly that many bytes.
+std::string visibleOffsetPass(const std::shared_ptr<Epub>& epub, const int spineIndex, const uint32_t visibleOffset,
+                              const bool inclusive, bool& atChapterEnd) {
+  atChapterEnd = false;
+  ForwardState state(spineIndex, visibleOffset);
+  state.inclusive = inclusive;
+  state.textPointsInBlocks = true;
+  SaxParser saxParser;
+  if (!saxParser.init(&state, parserStartCb<ForwardState>, parserEndCb<ForwardState>, parserCharCb<ForwardState>,
+                      parserDefaultCb<ForwardState>, /*htmlVoidTagRepair=*/true, SaxParser::Profile::Lean)) {
+    return "";
+  }
+  state.saxParser = &saxParser;
+  const bool completed = streamSpine(epub, spineIndex, saxParser);
+  atChapterEnd = completed && state.result.empty() && state.totalTextBytes == visibleOffset;
+  return state.result;
+}
+
+}  // namespace
+
+std::string findXPathForVisibleOffsetInternal(const std::shared_ptr<Epub>& epub, const int spineIndex,
+                                              const uint32_t visibleOffset) {
+  bool atChapterEnd = false;
+  std::string result = visibleOffsetPass(epub, spineIndex, visibleOffset, /*inclusive=*/false, atChapterEnd);
+  // A page that starts at the chapter's total (a last page holding only an image or spacing) has no
+  // text at or after its start, and the fraction fallback would land early. Name the end of the
+  // last text node instead: the inclusive pass picks the chunk that ends there, and one past its
+  // last visible byte is its collapsed count. The passes run one after the other, never together.
+  if (result.empty() && atChapterEnd && visibleOffset > 0) {
+    bool unused = false;
+    result = visibleOffsetPass(epub, spineIndex, visibleOffset, /*inclusive=*/true, unused);
+  }
+  LOG_DBG("KOX", "Forward: spine=%d offset=%u -> %s", spineIndex, visibleOffset,
+          result.empty() ? "(not found)" : result.c_str());
+  return result;
 }
 
 }  // namespace ChapterXPathIndexerInternal

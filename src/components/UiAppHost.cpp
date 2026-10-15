@@ -7,7 +7,9 @@ UiAppHost::UiAppHost(const GfxRenderer& renderer)
 
 void UiAppHost::resetUi() {
   uiReady = false;
-  applySharedUiTheme(app, uiTarget);
+  themeTokens = uiThemeTokens(uiTarget);
+  themeCell.store(&themeTokens, std::memory_order_release);
+  app.setThemeRef(&themeCell);
 }
 
 void UiAppHost::renderUi() {

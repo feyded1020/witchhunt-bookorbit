@@ -21,16 +21,17 @@ std::string ChapterXPathIndexer::findXPathForProgress(const std::shared_ptr<Epub
   return findXPathForProgressInternal(epub, spineIndex, intraSpineProgress);
 }
 
-std::string ChapterXPathIndexer::findXPathForParagraph(const std::shared_ptr<Epub>& epub, const int spineIndex,
-                                                       const uint16_t paragraphIndex, const uint32_t seekHint,
-                                                       const uint16_t startParagraphCount) {
-  return findXPathForParagraphInternal(epub, spineIndex, paragraphIndex, seekHint, startParagraphCount);
+std::string ChapterXPathIndexer::findXPathForVisibleOffset(const std::shared_ptr<Epub>& epub, const int spineIndex,
+                                                           const uint32_t visibleOffset) {
+  return findXPathForVisibleOffsetInternal(epub, spineIndex, visibleOffset);
 }
 
 bool ChapterXPathIndexer::findProgressForXPath(const std::shared_ptr<Epub>& epub, const int spineIndex,
                                                const std::string& xpath, float& outIntraSpineProgress,
-                                               bool& outExactMatch, uint16_t* outListItemIndex) {
-  return findProgressForXPathInternal(epub, spineIndex, xpath, outIntraSpineProgress, outExactMatch, outListItemIndex);
+                                               bool& outExactMatch, uint16_t* outListItemIndex,
+                                               uint32_t* outVisibleOffset, bool* outIsTextPoint) {
+  return findProgressForXPathInternal(epub, spineIndex, xpath, outIntraSpineProgress, outExactMatch, outListItemIndex,
+                                      outVisibleOffset, outIsTextPoint);
 }
 
 bool ChapterXPathIndexer::tryExtractSpineIndexFromXPath(const std::string& xpath, int& outSpineIndex) {

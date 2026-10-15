@@ -470,7 +470,7 @@ TEST(CssParserCache, OversizedIndexEvictionReleasesIt) {
 #endif  // CSS_TEST_HEAP_HOOKS
 
 // ---------------------------------------------------------------------------
-// Phase-2 arena CSS (docs/compiled-book-pipeline-plan.md): a build running in the
+// Arena CSS: a build running in the
 // BORROWED secondary framebuffer resolves CSS out of a BuildArena — the whole
 // {hash,CssStyle} ruleset resident when it fits (in-RAM, no disk, FreeInkBook-style),
 // else an arena-backed offset index (disk payloads) — with the hot cache disabled.
@@ -747,7 +747,8 @@ TEST(CssParserArena, ResidentPreservesAllStyleFields) {
       "font-size: 120%; vertical-align: super; float: left; font-variant: small-caps; "
       "list-style: none; page-break-before: always; page-break-after: always; }\n"
       ".b { margin-top: 3px; text-align: right; }\n"
-      ".c { display: none; }\n";
+      ".c { display: none; }\n"
+      ".d { display: inline; }\n";
   const std::string cacheDir = makeTempDir();
   ASSERT_FALSE(cacheDir.empty());
   std::string cssPath;
@@ -756,8 +757,8 @@ TEST(CssParserArena, ResidentPreservesAllStyleFields) {
   CssParser parser(cacheDir);
   ASSERT_TRUE(compileCache(parser, cssPath));
 
-  const std::vector<std::pair<std::string, std::string>> probes = {
-      {"p", "a"}, {"p", "b"}, {"div", "c"}, {"span", "a"}, {"p", "none"}};
+  const std::vector<std::pair<std::string, std::string>> probes = {{"p", "a"},    {"p", "b"},    {"div", "c"},
+                                                                   {"span", "a"}, {"p", "none"}, {"span", "d"}};
   auto resolveAll = [&](CssParser& p) {
     std::vector<CssStyle> out;
     for (const auto& pr : probes) out.push_back(p.resolveStyle(pr.first, pr.second));
@@ -767,6 +768,9 @@ TEST(CssParserArena, ResidentPreservesAllStyleFields) {
   parser.clear();
   ASSERT_TRUE(parser.loadFromCache());
   const std::vector<CssStyle> heapStyles = resolveAll(parser);
+  // Both paths agreeing proves nothing if the disk cache already lost the value.
+  EXPECT_EQ(static_cast<int>(heapStyles[5].display), static_cast<int>(CssDisplay::Inline))
+      << "display:inline did not survive the disk cache";
 
   BuildArena arena(64 * 1024);
   ASSERT_TRUE(arena.valid());
@@ -919,4 +923,94 @@ TEST(CssParserCache, RuleCapExceededPersistsACacheMarkedTruncated) {
   removePath(cacheDir);
   std::error_code rmEc;
   std::filesystem::remove(cssPath, rmEc);  // best-effort; see removePath()
+}
+
+// Background pictures (CssParser::backgroundImageFor). They live outside the style records, in a
+// side file written at the end of the compile, so the test that matters is the one that compiles,
+// drops everything and asks again -- the reader asks long after the compile, from a fresh parser.
+TEST(CssParserBackground, ParsesTheUrlAndTheRepeatOfADeclarationList) {
+  const auto bg = CssParser::parseBackground(
+      "width: 600px; BACKGROUND-IMAGE: url( \"img/hole.png\" ); background-repeat: no-repeat");
+  EXPECT_TRUE(bg.declared);
+  EXPECT_EQ("img/hole.png", bg.url);
+  EXPECT_TRUE(bg.noRepeat);
+
+  const auto shorthand = CssParser::parseBackground("background: #fff url('a.png') no-repeat center top");
+  EXPECT_EQ("a.png", shorthand.url);
+  EXPECT_TRUE(shorthand.noRepeat);
+
+  const auto tiled = CssParser::parseBackground("background-image: url(tile.png)");
+  EXPECT_EQ("tile.png", tiled.url);
+  EXPECT_FALSE(tiled.noRepeat);
+
+  // A colour or `none` replaces the picture; data: and remote URLs are not in the book.
+  EXPECT_TRUE(CssParser::parseBackground("background-image: url(a.png); background: white").declared);
+  EXPECT_TRUE(CssParser::parseBackground("background-image: url(a.png); background: white").url.empty());
+  EXPECT_TRUE(CssParser::parseBackground("background-image: url(data:image/png;base64,AAAA)").url.empty());
+  EXPECT_TRUE(CssParser::parseBackground("background-image: url(http://example.com/a.png)").url.empty());
+  EXPECT_FALSE(CssParser::parseBackground("margin: 0; color: red").declared);
+}
+
+TEST(CssParserBackground, CompiledPicturesSurviveAFreshParser) {
+  const std::string css =
+      "table.rabbithole { width: 600px; text-align: center;\n"
+      "  background-image: url(23934376999044308_p0003-rabbithole.png); background-repeat: no-repeat }\n"
+      ".only-picture { background: url(\"../Images/only.png\") no-repeat }\n"  // no style declaration at all
+      ".tiled { background-image: url(paper.png) }\n"                          // repeats: a texture
+      ".cancelled { background-image: url(x.png); background-repeat: no-repeat }\n"
+      ".cancelled { background: none }\n"
+      "div#hero { background: url(hero.png) no-repeat }\n";
+  const std::vector<uint8_t> cssData(css.begin(), css.end());
+  std::string cssPath;
+  ASSERT_TRUE(writeTempCssFile(cssData, cssPath));
+  const std::string cacheDir = makeTempDir();
+
+  {
+    CssParser parser(cacheDir);
+    ASSERT_TRUE(parser.beginCacheCompile());
+    parser.setStylesheetPath("OEBPS/Styles/main.css");
+    FsFile cssFile;
+    ASSERT_TRUE(Storage.openFileForRead("CSS", cssPath.c_str(), cssFile));
+    ASSERT_TRUE(parser.appendCompiledFromStream(cssFile));
+    cssFile.close();
+    ASSERT_TRUE(parser.endCacheCompile());
+  }
+
+  CssParser parser(cacheDir);
+  ASSERT_TRUE(parser.loadFromCache());
+  const std::string* hole = parser.backgroundImageFor("table", "rabbithole");
+  ASSERT_NE(nullptr, hole);
+  EXPECT_EQ("OEBPS/Styles/23934376999044308_p0003-rabbithole.png", *hole);  // the sheet's directory
+  const std::string* only = parser.backgroundImageFor("div", "other only-picture");
+  ASSERT_NE(nullptr, only);
+  EXPECT_EQ("OEBPS/Styles/../Images/only.png", *only);  // the parser normalises it
+  EXPECT_EQ(nullptr, parser.backgroundImageFor("div", "tiled"));
+  EXPECT_EQ(nullptr, parser.backgroundImageFor("p", "cancelled"));
+  EXPECT_EQ(nullptr, parser.backgroundImageFor("table", ""));  // the rule was table.rabbithole
+  const std::string* hero = parser.backgroundImageFor("div", "", "HERO");
+  ASSERT_NE(nullptr, hero);
+  EXPECT_EQ("OEBPS/Styles/hero.png", *hero);
+
+  // clear() ends a build; the next one reads the side file again.
+  parser.clear();
+  EXPECT_NE(nullptr, parser.backgroundImageFor("table", "rabbithole"));
+
+  removePath(cacheDir);
+  std::error_code rmEc;
+  std::filesystem::remove(cssPath, rmEc);
+}
+
+TEST(CssParserBackground, ABookWithoutPicturesLeavesNoSideFile) {
+  const std::string css = "p { margin: 0 }\n.tiled { background-image: url(paper.png) }\n";
+  const std::vector<uint8_t> cssData(css.begin(), css.end());
+  std::string cssPath;
+  ASSERT_TRUE(writeTempCssFile(cssData, cssPath));
+  const std::string cacheDir = makeTempDir();
+  CssParser parser(cacheDir);
+  ASSERT_TRUE(compileCache(parser, cssPath));
+  EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(cacheDir) / "css_bg.bin"));
+  EXPECT_EQ(nullptr, parser.backgroundImageFor("div", "tiled"));
+  removePath(cacheDir);
+  std::error_code rmEc;
+  std::filesystem::remove(cssPath, rmEc);
 }

@@ -27,9 +27,11 @@ class JpegToBmpConverter {
   // Convert with custom target size (for thumbnails)
   static bool jpegFileToBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, int targetMaxWidth, int targetMaxHeight,
                                           BuildArena* scratch = nullptr);
-  // Convert to 1-bit BMP (black and white only, no grays) for fast home screen rendering
+  // Convert to 1-bit BMP (black and white only, no grays) for fast home screen rendering.
+  // crop=true fills the box and centre-crops the overflow, so the BMP is exactly the box; false fits
+  // the whole image inside it, so one dimension is the box's and the other at most.
   static bool jpegFileTo1BitBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, int targetMaxWidth, int targetMaxHeight,
-                                              BuildArena* scratch = nullptr);
+                                              BuildArena* scratch = nullptr, bool crop = true);
 
   // One 1-bit, crop-fitted BMP per target from a SINGLE decode (the Lyra carousel's two cover
   // thumbnails): the DCT pre-scale is the one the largest target needs, and every target gets its

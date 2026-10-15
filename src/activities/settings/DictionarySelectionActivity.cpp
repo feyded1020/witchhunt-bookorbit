@@ -6,7 +6,6 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
-#include "components/UITheme.h"
 
 namespace fui = freeink::ui;
 
@@ -57,22 +56,9 @@ void DictionarySelectionActivity::activateIndex(const int index) {
 }
 
 void DictionarySelectionActivity::buildScreen(UiScreen& screen) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
-  screen.setContentMarginFromScreen(
-      fui::Insets{static_cast<int16_t>(contentRect.y + metrics.topPadding + metrics.headerHeight),
-                  static_cast<int16_t>(renderer.getScreenWidth() - (contentRect.x + contentRect.width)),
-                  static_cast<int16_t>(renderer.getScreenHeight() - (contentRect.y + contentRect.height)),
-                  static_cast<int16_t>(contentRect.x)});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
-
-  fui::ListProps props;
+  layoutListArea(screen);
+  auto props = listProps(screen);
   props.items = rowItems.data();
   props.count = static_cast<uint16_t>(rowItems.size());
-  props.action = ACTION_ROW;
-  props.inputMask = fui::InputTouch;
-  props.labelText = screen.theme().bodyText;
-  props.labelText.maxLines = 2;
-  syncListViewport(screen, props);
-  screen.list(props);
+  addList(screen, props);
 }

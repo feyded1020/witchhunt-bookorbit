@@ -146,9 +146,9 @@ TEST_F(MetadataSidecarFixture, OversizedSidecarIsIgnored) {
   EXPECT_EQ(epub.getTitle(), kEmbeddedTitle);
 }
 
-// Contract with the metadata-editor plugin (plugins/metadata-editor): the exact
-// document its freshDoc() + writeInto() produce must be readable here, for all
-// six fields it edits. The plugin's XML handling runs in a browser and cannot be
+// Contract with the File Manager's Details dialog (src/network/html/js/metadata-editor.js):
+// the exact document its freshDoc() + writeInto() produce must be readable here, for
+// all six fields it edits. Its XML handling runs in a browser and cannot be
 // unit-tested from this suite, so this pins the format they agree on - if the
 // editor's output shape ever drifts, this is what catches it.
 TEST_F(MetadataSidecarFixture, ReadsTheShapeTheMetadataEditorWrites) {
@@ -173,6 +173,44 @@ TEST_F(MetadataSidecarFixture, ReadsTheShapeTheMetadataEditorWrites) {
   EXPECT_EQ(epub.getSeries(), "Edited Series");
   EXPECT_EQ(epub.getSeriesIndex(), "7");
   EXPECT_EQ(epub.getDescription(), "Edited description text.");
+}
+
+// The Library groups books by their primary author and files them by its opf:file-as. Both come
+// from the sidecar when it names an author.
+TEST_F(MetadataSidecarFixture, SidecarSuppliesThePrimaryAuthorAndItsFileAs) {
+  writeSidecar(sidecarXml("Sidecar Title", "Sidecar Author"));
+  Epub epub(bookPath.string(), cacheDir);
+  ASSERT_TRUE(epub.load(true));
+  EXPECT_EQ(epub.getPrimaryAuthor(), "Sidecar Author");
+  EXPECT_EQ(epub.getAuthorSort(), "Sorted, Name");
+}
+
+// book.bin keeps no primary author, so the details lookup loads past it. A book that has been
+// opened (book.bin written) must still come back with its author.
+TEST_F(MetadataSidecarFixture, AMetadataLoadPastBookBinFindsThePrimaryAuthor) {
+  {
+    Epub opened(bookPath.string(), cacheDir);
+    ASSERT_TRUE(opened.load(true));  // writes book.bin, as opening the book does
+  }
+  Epub epub(bookPath.string(), cacheDir);
+  ASSERT_TRUE(epub.loadForMetadata(nullptr, /*useBookBin=*/false));
+  EXPECT_EQ(epub.getAuthor(), "Test Suite");
+  EXPECT_EQ(epub.getPrimaryAuthor(), "Test Suite");
+}
+
+// KOReader sync sends a book's ISBN and ASIN from details.bin, which the details lookup fills from a
+// metadata load past book.bin. A sidecar's identifiers win, as its other fields do.
+TEST_F(MetadataSidecarFixture, AMetadataLoadPastBookBinFindsTheSidecarsIdentifiers) {
+  std::string xml = sidecarXml("Sidecar Title", "Sidecar Author");
+  const std::string identifiers =
+      "    <dc:identifier opf:scheme=\"ISBN\">9780547773742</dc:identifier>\n"
+      "    <dc:identifier opf:scheme=\"MOBI-ASIN\">B008H8SP6Q</dc:identifier>\n";
+  xml.insert(xml.find("  </metadata>"), identifiers);
+  writeSidecar(xml);
+  Epub epub(bookPath.string(), cacheDir);
+  ASSERT_TRUE(epub.loadForMetadata(nullptr, /*useBookBin=*/false));
+  EXPECT_EQ(epub.getIsbn(), "9780547773742");
+  EXPECT_EQ(epub.getAsin(), "B008H8SP6Q");
 }
 
 }  // namespace

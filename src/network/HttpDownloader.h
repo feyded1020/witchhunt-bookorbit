@@ -20,6 +20,10 @@ class HttpDownloader {
   // Called with each response chunk as it arrives; return false to abort.
   using DataCallback = std::function<bool(const uint8_t* data, size_t len)>;
 
+  // Asked with each redirect's target URL before it is followed; false fails the transfer at the
+  // 3xx (HTTP_ERROR). For fetching on behalf of something whose reach is fenced to an allowlist.
+  using RedirectFilter = std::function<bool(const std::string& url)>;
+
   enum DownloadError {
     OK = 0,
     HTTP_ERROR,
@@ -101,7 +105,8 @@ class HttpDownloader {
    * fields are found, to avoid depending on full-body tail reads.
    */
   static bool fetchUrl(const std::string& url, const DataCallback& onData, bool treatAbortAsSuccess,
-                       const std::string& username = "", const std::string& password = "");
+                       const std::string& username = "", const std::string& password = "",
+                       const RedirectFilter& redirectAllowed = {});
 
   /**
    * Streaming fetch that ALWAYS fails closed on TLS verification failure — it
@@ -113,11 +118,28 @@ class HttpDownloader {
                                const std::string& username = "", const std::string& password = "");
 
   /**
+   * fetchUrlVerified() for a long download whose consumer can start over: restart() drops everything
+   * onData has received so far and returns false if it cannot (a server that ignores Range partway
+   * through sends the whole body again from byte 0). That makes the transfer eligible for Range
+   * chunks on a tight heap, as downloadToFile() is, instead of 16 KB TLS records it may not have the
+   * memory for. Strict: the skip-validation setting does not apply. ABORTED when onData stopped it.
+   */
+  static DownloadError fetchVerifiedRestartable(const std::string& url, const DataCallback& onData,
+                                                const std::function<bool()>& restart);
+
+  /**
    * Download a file to the SD card with optional credentials.
+   *
+   * Over https on a tight heap (largest free block under 40 KB: the C3 boards with Wi-Fi up), the
+   * file is fetched in Range chunks of 1-6 KB on one kept-alive connection, so no TLS record can be
+   * larger than a chunk plus its response headers; a server that ignores Range sends the whole file
+   * instead, as before. The progress callback sees whole-file progress either way. See
+   * lib/SecureNet/include/HttpRange.h.
    */
   static DownloadError downloadToFile(const std::string& url, const std::string& destPath,
                                       ProgressCallback progress = nullptr, const std::string& username = "",
-                                      const std::string& password = "", TlsPolicy tls = TlsPolicy::Verified);
+                                      const std::string& password = "", TlsPolicy tls = TlsPolicy::Verified,
+                                      const RedirectFilter& redirectAllowed = {});
 
   /**
    * Session-based variant. The first call on a fresh session opens the

@@ -13,9 +13,11 @@
 
 #include "../Activity.h"
 #include "./FileBrowserActivity.h"
+#include "CoverThumbLoader.h"
 #include "Epub/CoverThumbSession.h"
 #include "HomeMenu.h"
 #include "ReadingStats.h"
+#include "RecentBooksStore.h"
 #include "activities/reader/ReaderActivity.h"
 #include "components/UITheme.h"
 #include "util/ButtonNavigator.h"
@@ -30,7 +32,6 @@ class HomeActivity final : public Activity {
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool firstRenderDone = false;
-  bool hasOpdsServers = false;
   bool coverRendered = false;
   bool coverBufferStored = false;
   // True while the ~52 KB secondary framebuffer is LENT to the cold-cache cover pipeline as
@@ -49,24 +50,13 @@ class HomeActivity final : public Activity {
   bool frameCacheInRegion_ = false;
   std::unique_ptr<BuildArena> coverScratch_;
   size_t nextRecentCoverIndex = 0;
-  size_t nextThumbSizeIndex = 0;  // which thumb size within the current book is next
 
-  // Phase 0: a JPEG cover's missing carousel sizes, from one decode run in slices (memory audit
-  // 2026-09, R9 item 3). A press pauses it where it stands; it resumes on the next pass instead of
-  // starting over. Holds its decoder state in coverScratch_ between slices (declared after it, so
-  // it goes first) and removes its partial thumbnails if it goes unfinished.
-  std::unique_ptr<CoverThumbSession> thumbSession;
-  size_t thumbSessionSizeIndex = 0;  // the first size it writes (nextThumbSizeIndex when it began)
-  int thumbSessionCovered = 0;       // how many sizes it writes
-  bool thumbSessionFailed = false;   // set on error: the retry for that book runs one-shot
-
-  // Phase 1: sliced ZIP extraction of cover.img (only needed for large embedded PNG covers)
-  std::unique_ptr<ReaderActivity::CoverExtractSession> extractSession;
-
-  // Phase 2: sliced PNG decode session (non-null while a PNG cover is being decoded row-by-row)
-  std::unique_ptr<PngDecodeSession> pngSession;
-  ReaderActivity::PngThumbFiles pngSessionFiles;  // open FsFiles borrowed by pngSession
-  bool pngSessionFailed = false;                  // set on error; triggers empty-path store same as sync failure
+  // Makes the covers of the book at nextRecentCoverIndex -- every carousel size from one decode
+  // where the cover allows, sliced so a press pauses it (memory audit 2026-09, R9 items 2 and 3).
+  // Its sessions hold their state in coverScratch_ between slices (declared after it, so it goes
+  // first), and it removes partial thumbnails of work it does not finish.
+  CoverThumbLoader coverLoader;
+  int coverLoaderHeight_ = -1;  // the cover height the loader is configured for
 
   // Session-scoped transient-failure counter, keyed by book path. A cover can fail to load for
   // transient reasons (OOM under heap pressure, an interrupted write, an extraction that could not
@@ -87,6 +77,11 @@ class HomeActivity final : public Activity {
   int coverRectH = 0;
 
   std::vector<RecentBook> recentBooks;
+  // The recent-books store stays loaded while Home is open: it refreshes the list on entry and
+  // writes each cover it makes back into it (updateBook), and reloading the file for each of
+  // those would cost far more than the ~4.5 KB it holds here. Released on exit, so the reader
+  // does not carry it.
+  std::optional<RecentBooksStore::Hold> recentsHold;
   std::vector<HomeMenuEntry> menuEntries;
   bool menuEntriesDirty = true;
 
@@ -116,7 +111,7 @@ class HomeActivity final : public Activity {
   };
   // Give up on a book's cover for this pass. Bumps the session retry counter for a transient
   // failure. When the failure is permanent — structurally absent, or transient but past the
-  // session retry budget — writes a valid placeholder BMP at each slot (like RecentBooksActivity)
+  // session retry budget — writes a valid placeholder BMP at each slot (as CoverThumbLoader does)
   // so the book reads as resolved on disk and is not re-decoded on the next boot; otherwise just
   // records an empty cover so it retries next session. Shared by both cover paths.
   void giveUpCover(RecentBook& book, ThumbResult res, const std::vector<ThumbSlot>& slots);
@@ -142,8 +137,5 @@ class HomeActivity final : public Activity {
   // skipLoopDelay went false in that window, the main loop's inactivity governor could drop
   // the CPU to 10 MHz mid-burst and the next decode tick would crawl (observed: a ~1.5 s
   // cover decode taking ~25 s). Hold full speed until every recent cover is resolved.
-  bool skipLoopDelay() override {
-    return (firstRenderDone && !recentsLoaded) || recentsLoading || extractSession != nullptr ||
-           pngSession != nullptr || thumbSession != nullptr;
-  }
+  bool skipLoopDelay() override { return (firstRenderDone && !recentsLoaded) || recentsLoading || coverLoader.busy(); }
 };

@@ -27,6 +27,11 @@ class Activity {
   ActivityResult result;
   ListRowTap::ActivationState listTapActivation;
 
+ private:
+  // Set by ActivityManager when releaseBuriedState() dropped something: this activity can not be
+  // drawn again, so the manager reboots to Settings rather than resume it.
+  bool buriedStateReleased = false;
+
  public:
   enum class ListPageDirection : uint8_t { Back, Forward };
 
@@ -114,6 +119,13 @@ class Activity {
   // the frame buffer (e.g. the reader's pre-rendered next page) must redraw the visible page
   // here so the capture matches the display. Default is a no-op.
   virtual void prepareFramebufferForCapture() {}
+
+  // Called while this activity is buried on the stack, before a download that needs the heap in
+  // one piece (releaseMemoryForDownload()). Drop what the activity built only to draw itself, such
+  // as row lists and labels; the object must stay valid to destroy. Return true if anything was
+  // dropped: the activity can then not be shown again, so ActivityManager reboots to Settings
+  // rather than resume it. Every caller of the release reboots on exit anyway; that is the net.
+  virtual bool releaseBuriedState() { return false; }
 
   // True when transitions INTO or OUT OF this activity must not paint a busy indicator. Checked
   // on both ends, because the reasons run both directions:

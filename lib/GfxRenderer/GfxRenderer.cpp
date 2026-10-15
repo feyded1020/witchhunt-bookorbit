@@ -3,6 +3,7 @@
 #include <BoardConfig.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
+#include <GlyphProvider.h>
 #include <HalGPIO.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -34,20 +35,13 @@ const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const Ep
     // before asking for another.
     return fd->getBitmap(fontData, glyph, glyph.index);
   }
-  // For SD card fonts, check if the glyph was loaded on demand into the overflow
-  // buffer.  getOverflowBitmap() returns:
-  //   - bitmap pointer for overflow glyphs with bitmap data
-  //   - nullptr for overflow glyphs without bitmap data (e.g. space: width=0, height=0)
-  //   - nullptr for non-overflow glyphs (normal prewarmed path)
-  // We distinguish overflow-with-no-bitmap from non-overflow by checking isOverflowGlyph().
-  // sdRecord is the record this ref resolved from, and is null for built-in fonts. The overflow
-  // checks key on its pointer identity to tell a ring-loaded glyph from an array one, which is
-  // why resolution has to carry it rather than just the values.
-  if (fontData->glyphMissCtx && glyph.sdRecord) {
-    auto* sdFont = SdCardFont::fromMissCtx(fontData->glyphMissCtx);
-    if (sdFont->isOverflowGlyph(glyph.sdRecord)) {
-      return sdFont->getOverflowBitmap(glyph.sdRecord);  // may be nullptr for zero-width glyphs
-    }
+  // A glyph the font's provider loaded itself (SdCardFont's miss ring) keeps its bitmap there.
+  // ownsBitmap() answers by the record's pointer identity, which is why resolution carries
+  // sdRecord; it is null for built-in fonts. An owned glyph with no pixels (a space) yields
+  // nullptr and must not fall through to the flat bitmap below.
+  if (fontData->provider && glyph.sdRecord) {
+    const uint8_t* owned = nullptr;
+    if (fontData->provider->ownsBitmap(glyph.sdRecord, owned)) return owned;
   }
   return &fontData->bitmap[epdGlyphBitmapOffset(fontData, glyph)];
 }
@@ -138,8 +132,9 @@ static inline uint32_t floatBits(const float f) {
 
 // Allocate the scaled-glyph cache. Call this EARLY — at reader entry, not on first scaled glyph.
 //
-// It is ~4.9 KB in two blocks (80 entries + a 3584-byte mask arena) and, once taken, it is never
-// released: a session-lifetime allocation in the strategy note's class A. Allocating it lazily
+// It is ~4.9 KB in two blocks (80 entries + a 3584-byte mask arena), taken here at reader entry and
+// given back at reader exit (releaseGlyphCaches), never released or re-taken in between: a
+// reader-lifetime allocation in the strategy note's class A. Allocating it lazily
 // meant "first use" decided where a permanent block landed, and first use is often a heading
 // inside a mid-build page draw — so it was being carved out of the middle of the largest free
 // region while a section build held the rest of the heap. Device-measured X3 2026-08-11: 5032
@@ -150,12 +145,27 @@ static inline uint32_t floatBits(const float f) {
 // stable point puts it next to the other permanent allocations instead.
 //
 // Idempotent, and failure is non-fatal: scaled text renders uncached, exactly as before.
-bool GfxRenderer::ensureScaledGlyphCache() const {
-  if (scaledGlyphArena_) return true;
-  if (scaledGlyphOom_) return false;  // already failed once; don't thrash the heap
-  // Larger when a synthesised body size exists, because then the arena holds a whole page's
+void GfxRenderer::releaseGlyphCaches() const {
+  if (fontCacheManager_) fontCacheManager_->clearCache();
+  releaseScaledGlyphCache();
+}
+
+bool GfxRenderer::ensureScaledGlyphCache(const int bodyFontId) const {
+  // Larger when the body text is a synthesised size, because then the arena holds a whole page's
   // glyphs at up to 26 pt rather than a few CSS-scaled words. See SCALED_GLYPH_ARENA_BYTES_SYNTH.
-  scaledGlyphArenaBytes_ = fontBaseScales.empty() ? SCALED_GLYPH_ARENA_BYTES : SCALED_GLYPH_ARENA_BYTES_SYNTH;
+  const uint16_t wanted = (bodyFontId != 0 && fontBaseScales.count(bodyFontId) != 0) ? SCALED_GLYPH_ARENA_BYTES_SYNTH
+                                                                                     : SCALED_GLYPH_ARENA_BYTES;
+  if (scaledGlyphArena_) {
+    if (bodyFontId == 0 || scaledGlyphArenaBytes_ == wanted) return true;
+    // The last book was read at the other kind of size. Replaced here, at the same stable point
+    // the first one was taken at; the entries go with it, as the masks they point at do.
+    scaledGlyphArena_.reset();
+    scaledGlyphEntries_.reset();
+    scaledGlyphCount_ = 0;
+    scaledGlyphUsed_ = 0;
+  }
+  if (scaledGlyphOom_) return false;  // already failed once; don't thrash the heap
+  scaledGlyphArenaBytes_ = wanted;
   auto entries = makeUniqueNoThrow<ScaledGlyphEntry[]>(SCALED_GLYPH_MAX_ENTRIES);
   auto arena = makeUniqueNoThrow<uint8_t[]>(scaledGlyphArenaBytes_);
   if (!entries || !arena) {
@@ -1466,8 +1476,8 @@ static inline int applyBase(const int v, const float scale) {
 }
 
 int GfxRenderer::rawTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style) const {
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) {
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
@@ -1478,7 +1488,7 @@ int GfxRenderer::rawTextWidth(const int fontId, const char* text, const EpdFontF
   }
 
   int w = 0, h = 0;
-  fontIt->second.getTextDimensions(text, &w, &h, style);
+  family->getTextDimensions(text, &w, &h, style);
   return w;
 }
 
@@ -1491,14 +1501,14 @@ bool GfxRenderer::getTextInkMetrics(const int fontId, const char* text, const Ep
   *aboveBaseline = 0;
   *belowBaseline = 0;
   if (text == nullptr || *text == '\0') return false;
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) return false;
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) return false;
 
   bool any = false;
   uint32_t cp;
   const char* p = text;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&p)))) {
-    const EpdGlyphRef glyph = fontIt->second.getGlyph(cp, style);
+    const EpdGlyphRef glyph = family->getGlyph(cp, style);
     if (!glyph) continue;
     // glyph.top: baseline to bitmap top edge; ink below baseline = height - top.
     *aboveBaseline = std::max(*aboveBaseline, static_cast<int>(glyph.top));
@@ -1553,12 +1563,12 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     return;
   }
 
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) {
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return;
   }
-  const auto& font = fontIt->second;
+  const auto& font = *family;
   const auto renderModeSnapshot = getRenderMode();
 
   uint32_t cp;
@@ -1669,9 +1679,9 @@ void GfxRenderer::drawTextAtScale(const int fontId, const int x, const int y, co
     return;
   }
 
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) return;
-  const auto& font = fontIt->second;
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) return;
+  const auto& font = *family;
   const auto renderModeSnapshot = getRenderMode();
 
   // RAW: `scale` already carries the font's base, so the public accessor would apply it twice.
@@ -2678,8 +2688,10 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
     }
   }
 
-  // For 1-bit BMP, output is still 2-bit packed (for consistency with readNextRow)
-  const int outputRowSize = (bitmap.getWidth() + 3) / 4;
+  // For 1-bit BMP, output is still 2-bit packed (for consistency with readNextRow). Sized for
+  // Bitmap::expandOneBitRow, which writes whole source bytes: a byte more than readNextRow needs
+  // at some widths.
+  const int outputRowSize = 2 * ((bitmap.getWidth() + 7) / 8);
   auto* outputRow = static_cast<uint8_t*>(malloc(outputRowSize));
   auto* rowBytes = static_cast<uint8_t*>(malloc(bitmap.getRowBytes()));
 
@@ -2696,7 +2708,48 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
   const int widthBytes = getDisplayWidthBytes();
 
   // ── Unscaled fast path (scale == 1.0): draw each source row 1:1. ──────────────
+  //
+  // Rows are read a batch at a time and expanded to the 2-bit packing through a table built once
+  // for the image (Bitmap::oneBitExpansion), instead of readNextRow()'s per-pixel tone, adjust and
+  // quantise -- the same bytes, as a 1-bit image's pixels depend on their palette index alone.
+  // On the device that conversion was ~60% of a cover's draw and the per-row SD read another
+  // 20-40% (X3 and T5S3 logs, 2026-10-01). Without the memory for the batch it falls back to
+  // reading row by row, as before.
   if (!isScaled) {
+    const int srcW = bitmap.getWidth();
+    const int srcH = bitmap.getHeight();
+    const int srcRowBytes = bitmap.getRowBytes();
+    constexpr int kBatchBytes = 2048;
+    const int batchRows = std::max(1, std::min(srcH, kBatchBytes / std::max(1, srcRowBytes)));
+    auto* table = static_cast<uint16_t*>(malloc(256 * sizeof(uint16_t)));
+    auto* batch = static_cast<uint8_t*>(malloc(static_cast<size_t>(batchRows) * srcRowBytes));
+    if (table != nullptr && batch != nullptr) {
+      bitmap.oneBitExpansion(table);
+      for (int bmpY = 0; bmpY < srcH; bmpY += batchRows) {
+        const int rows = std::min(batchRows, srcH - bmpY);
+        if (bitmap.readRawRows(batch, rows) != BmpReaderError::Ok) {
+          LOG_ERR("GFX", "Failed to read rows %d-%d from 1-bit bitmap", bmpY, bmpY + rows - 1);
+          break;
+        }
+        for (int r = 0; r < rows; ++r) {
+          const int bmpYOffset = bitmap.isTopDown() ? bmpY + r : srcH - 1 - (bmpY + r);
+          const int screenY = y + bmpYOffset;
+          if (screenY < 0 || screenY >= getScreenHeight()) continue;
+          Bitmap::expandOneBitRow(table, batch + static_cast<size_t>(r) * srcRowBytes, outputRow, srcW);
+          // BW only (1-bit images are never rendered in grayscale passes)
+          bitmapFastRow<0x07>(frameBuffer, outputRow, 0, srcW, x, screenY, orientation, true, displayWidth,
+                              displayHeight, widthBytes);
+        }
+      }
+      free(table);
+      free(batch);
+      free(outputRow);
+      free(rowBytes);
+      return;
+    }
+    free(table);
+    free(batch);
+
     for (int bmpY = 0; bmpY < bitmap.getHeight(); bmpY++) {
       if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
         LOG_ERR("GFX", "Failed to read row %d from 1-bit bitmap", bmpY);
@@ -2995,8 +3048,8 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
                                        const EpdFontFamily::Style style) const {
   if (!text || maxWidth <= 0) return "";
 
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) {
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return text;
   }
@@ -3012,8 +3065,8 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
 
   // SMALL_CAPS scales every metric, which the single-pass walk does not model; a font with no
   // U+2026 has nothing to truncate with. Neither case occurs today, so both take the old loop.
-  if (!(style & EpdFontFamily::SMALL_CAPS) && textTruncation::canTruncate(fontIt->second, style)) {
-    return textTruncation::truncateToWidth(fontIt->second, text, maxWidth, style);
+  if (!(style & EpdFontFamily::SMALL_CAPS) && textTruncation::canTruncate(*family, style)) {
+    return textTruncation::truncateToWidth(*family, text, maxWidth, style);
   }
 
   std::string item = text;
@@ -3214,13 +3267,13 @@ bool GfxRenderer::copyBufferToRegion(int lx, int ly, int lw, int lh, const uint8
 }
 
 int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style style) const {
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) {
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
-  const EpdGlyphRef spaceGlyph = fontIt->second.getGlyph(' ', style);
+  const EpdGlyphRef spaceGlyph = family->getGlyph(' ', style);
   if (!spaceGlyph) return 0;
   // Scaled with the glyphs: a synthesised size laying words out at its master's inter-word
   // spacing would drift visibly across a line.
@@ -3229,9 +3282,9 @@ int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style styl
 
 int GfxRenderer::getSpaceAdvance(const int fontId, const uint32_t leftCp, const uint32_t rightCp,
                                  const EpdFontFamily::Style style) const {
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) return 0;
-  const auto& font = fontIt->second;
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) return 0;
+  const auto& font = *family;
   const EpdGlyphRef spaceGlyph = font.getGlyph(' ', style);
   const int32_t spaceAdvanceFP = spaceGlyph ? static_cast<int32_t>(spaceGlyph.advanceX) : 0;
   // Combine space advance + flanking kern into one fixed-point sum before snapping.
@@ -3252,9 +3305,9 @@ int GfxRenderer::getSpaceAdvance(const int fontId, const uint32_t leftCp, const 
 
 int GfxRenderer::getKerning(const int fontId, const uint32_t leftCp, const uint32_t rightCp,
                             const EpdFontFamily::Style style) const {
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) return 0;
-  const int kernFP = fontIt->second.getKerning(leftCp, rightCp, style);  // 4.4 fixed-point
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) return 0;
+  const int kernFP = family->getKerning(leftCp, rightCp, style);  // 4.4 fixed-point
   // Scaled before the snap, for the same reason getSpaceAdvance() is: ParsedText adds this to
   // word widths when breaking lines, so a synthesised size kerning at its master's scale would
   // mis-measure every line.
@@ -3295,8 +3348,8 @@ int GfxRenderer::scaledTextAdvanceX(const EpdFontFamily& font, const char* text,
 }
 
 int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFamily::Style style) const {
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) {
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
@@ -3317,14 +3370,14 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
   // them at 24, so the layout believed a line held more than it did.
   const float baseScale = fontBaseScale(fontId);
   if (baseScale != 1.0f) {
-    return scaledTextAdvanceX(fontIt->second, text, style, baseScale);
+    return scaledTextAdvanceX(*family, text, style, baseScale);
   }
 
   uint32_t cp;
   uint32_t prevCp = 0;
   int widthPx = 0;
   int32_t prevAdvanceFP = 0;  // 12.4 fixed-point: prev glyph's advance + next kern for snap
-  const auto& font = fontIt->second;
+  const auto& font = *family;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
     if (utf8IsCombiningMark(cp)) {
       continue;
@@ -3362,13 +3415,13 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
 }
 
 int GfxRenderer::rawFontAscenderSize(const int fontId) const {
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) {
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
-  return fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
+  return family->getData(EpdFontFamily::REGULAR)->ascender;
 }
 
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
@@ -3376,13 +3429,13 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
 }
 
 int GfxRenderer::rawLineHeight(const int fontId) const {
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) {
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
-  return fontIt->second.getData(EpdFontFamily::REGULAR)->advanceY;
+  return family->getData(EpdFontFamily::REGULAR)->advanceY;
 }
 
 int GfxRenderer::getLineHeight(const int fontId) const {
@@ -3390,12 +3443,12 @@ int GfxRenderer::getLineHeight(const int fontId) const {
 }
 
 int GfxRenderer::getTextHeight(const int fontId) const {
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) {
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
-  return applyBase(fontIt->second.getData(EpdFontFamily::REGULAR)->ascender, fontBaseScale(fontId));
+  return applyBase(family->getData(EpdFontFamily::REGULAR)->ascender, fontBaseScale(fontId));
 }
 
 void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y, const char* text, const bool black,
@@ -3405,8 +3458,8 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
     return;
   }
 
-  const auto fontIt = fontMap.find(fontId);
-  if (fontIt == fontMap.end()) {
+  const EpdFontFamily* const family = findFontFamily(fontId);
+  if (!family) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return;
   }
@@ -3416,7 +3469,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
     return;
   }
 
-  const auto& font = fontIt->second;
+  const auto& font = *family;
 
   int lastBaseY = y;
   int lastBaseLeft = 0;

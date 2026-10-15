@@ -2,6 +2,7 @@
 
 #include <BuildArena.h>
 #include <FontDecompressor.h>
+#include <HeapFit.h>
 #include <Logging.h>
 #include <SdCardFont.h>
 
@@ -97,10 +98,29 @@ void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::S
   // to grow by doubling for as long as the page had text (audit §4.4). A page's distinct glyphs
   // fit in far less than this; text past the cap is simply not prewarmed and loads on demand.
   constexpr size_t SCAN_BYTES_PER_STYLE = 4096;
+  // Grown in steps, not reserved whole. A page's text is a few KB in its body style and a few
+  // words in each of the others, and every (font, style) on the page used to reserve the full cap
+  // up front: four styles held 16 KB until the prewarm ended, on top of the prewarm's own buffers.
+  // That was most of a pre-render's cost on the X3 (2026-10-01: a pass costing 26.9 KB, ~17 KB of
+  // it transient). The cap still bounds the body style.
+  constexpr size_t SCAN_GROWTH_STEP = 512;
   std::string& scan = scanByFont_[fontId].textByStyle[static_cast<uint8_t>(style) & 0x03];
   if (scan.size() >= SCAN_BYTES_PER_STYLE) return;
-  if (scan.capacity() < SCAN_BYTES_PER_STYLE) scan.reserve(SCAN_BYTES_PER_STYLE);
-  scan.append(text, std::min(strlen(text), SCAN_BYTES_PER_STYLE - scan.size()));
+  const size_t take = std::min(strlen(text), SCAN_BYTES_PER_STYLE - scan.size());
+  const size_t needed = scan.size() + take;
+  if (needed > scan.capacity()) {
+    const size_t want =
+        std::min(SCAN_BYTES_PER_STYLE, (needed + SCAN_GROWTH_STEP - 1) / SCAN_GROWTH_STEP * SCAN_GROWTH_STEP);
+    // std::string growth cannot fail gracefully (no exceptions): a reserve the heap cannot meet
+    // aborts the device. X3, 2026-10-01: a page draw at 14.7 KB free with a 4.3 KB largest block
+    // ended in abort() here (operator new -> __terminate). The scan only feeds the prewarm, which is
+    // an optimisation, so ask the allocator first; when it cannot spare the block, the rest of this
+    // style goes unscanned and its glyphs load on demand as they are drawn. libstdc++ grows a
+    // reserve to at least twice the old capacity, so that is the block asked about.
+    if (!heapHasBlockFor(std::max(want, 2 * scan.capacity()) + 1)) return;
+    scan.reserve(want);
+  }
+  scan.append(text, take);
 }
 
 // --- PrewarmScope implementation ---

@@ -255,7 +255,7 @@ std::string ReaderActivity::bookCacheDir(const std::string& bookPath) {
 }
 
 std::string ReaderActivity::convertSidecarToBmp(const std::string& cacheDir, const std::string& sidecarPath, int width,
-                                                int height, const std::string& fileName) {
+                                                int height, const std::string& fileName, const bool crop) {
   if (!Storage.exists(cacheDir.c_str())) Storage.mkdir(cacheDir.c_str());
   const std::string bmpPath = cacheDir + "/" + fileName;
   if (Storage.exists(bmpPath.c_str())) {
@@ -279,9 +279,9 @@ std::string ReaderActivity::convertSidecarToBmp(const std::string& cacheDir, con
 
   bool ok = false;
   if (FsHelpers::hasJpgExtension(sidecarPath)) {
-    ok = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(src, dst, width, height);
+    ok = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(src, dst, width, height, nullptr, crop);
   } else if (FsHelpers::hasPngExtension(sidecarPath)) {
-    ok = PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(src, dst, width, height);
+    ok = PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(src, dst, width, height, crop);
   } else if (FsHelpers::hasBmpExtension(sidecarPath)) {
     // Verbatim copy is only usable when the sidecar already fits the slot: the themes
     // draw thumbs 1:1, and an oversized BMP would be rescaled at draw time, aliasing
@@ -487,7 +487,8 @@ void healStaleEpubSentinel(const std::string& bookPath, const std::string& thumb
 }
 }  // namespace
 
-ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int width, int height, BuildArena* scratch) {
+ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int width, int height, BuildArena* scratch,
+                                             const bool crop) {
   const std::string dir = bookCacheDir(bookPath);
   const std::string name = "thumb_" + std::to_string(width) + "x" + std::to_string(height) + ".bmp";
   const std::string file = dir + "/" + name;
@@ -511,7 +512,7 @@ ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int wi
     // A sidecar may have changed since the sentinel was written — clear it so the
     // sidecar conversion runs fresh.
     if (Storage.exists(file.c_str())) Storage.remove(file.c_str());
-    const std::string result = convertSidecarToBmp(dir, sidecar, width, height, name);
+    const std::string result = convertSidecarToBmp(dir, sidecar, width, height, name, crop);
     LOG_DBG("COVER", "convertSidecarToBmp(%dx%d) sidecar=%s result=%s", width, height, sidecar.c_str(),
             result.empty() ? "FAILED" : result.c_str());
     if (!result.empty()) return ThumbResult::Ok;
@@ -535,8 +536,9 @@ ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int wi
     // thumbnail must never trigger a full-book parse (a 1732-spine book's index build is slow and was
     // a crash site). allowExtract=false: decode only an already-cached cover.img; the sliced
     // beginCoverExtractSession owns the (potentially multi-second) ZIP inflate.
-    if (!epub.loadForCover(scratch)) return ThumbResult::TransientFail;
-    return epub.generateThumbBmp(width, height, /*allowExtract=*/false, scratch);
+    if (!epub.loadForCover(scratch))
+      return epub.coverKnownAbsent() ? ThumbResult::StructurallyAbsent : ThumbResult::TransientFail;
+    return epub.generateThumbBmp(width, height, /*allowExtract=*/false, scratch, crop);
   }
   if (FsHelpers::hasXtcExtension(bookPath)) {
     Xtc xtc(bookPath, "/.crosspoint");
@@ -582,7 +584,8 @@ ThumbResult ReaderActivity::ensureCoverThumbs(const std::string& bookPath, const
   Epub epub(bookPath, "/.crosspoint");
   // loadForCover(): the cover reference without building book.bin; allowExtract=false: decode only
   // an already-cached (or stored) cover -- the sliced beginCoverExtractSession owns the inflate.
-  if (!epub.loadForCover(scratch)) return ThumbResult::TransientFail;
+  if (!epub.loadForCover(scratch))
+    return epub.coverKnownAbsent() ? ThumbResult::StructurallyAbsent : ThumbResult::TransientFail;
   if (sliced != nullptr) {
     *sliced = epub.beginThumbSession(sizes, count, scratch);
     if (*sliced) return ThumbResult::TransientFail;  // started, nothing written yet: the caller drives it
@@ -621,7 +624,8 @@ ThumbResult ReaderActivity::ensureCoverThumb(const std::string& bookPath, int he
     // loadForCover(): cover reference only, no full book.bin build (see the width/height overload).
     // allowExtract=false: decode only an already-cached cover.img; the sliced
     // beginCoverExtractSession owns the (potentially multi-second) ZIP inflate.
-    if (!epub.loadForCover(scratch)) return ThumbResult::TransientFail;
+    if (!epub.loadForCover(scratch))
+      return epub.coverKnownAbsent() ? ThumbResult::StructurallyAbsent : ThumbResult::TransientFail;
     return epub.generateThumbBmp(height, /*allowExtract=*/false, scratch);
   }
   if (FsHelpers::hasXtcExtension(bookPath)) {
@@ -641,8 +645,8 @@ namespace {
 // funnel through here to avoid duplicating the sidecar/cover.img source selection and setup.
 std::unique_ptr<PngDecodeSession> beginPngThumbSessionImpl(const std::string& bookPath, int width, int height,
                                                            const std::string& name,
-                                                           ReaderActivity::PngThumbFiles& filesOut,
-                                                           BuildArena* scratch) {
+                                                           ReaderActivity::PngThumbFiles& filesOut, BuildArena* scratch,
+                                                           const bool crop) {
   const std::string dir = ReaderActivity::bookCacheDir(bookPath);
   const std::string bmpPath = dir + "/" + name;
 
@@ -691,7 +695,7 @@ std::unique_ptr<PngDecodeSession> beginPngThumbSessionImpl(const std::string& bo
   }
 
   auto session = std::unique_ptr<PngDecodeSession>(new PngDecodeSession());
-  if (!session->begin(filesOut.src, filesOut.dst, width, height, /*crop=*/true, scratch)) {
+  if (!session->begin(filesOut.src, filesOut.dst, width, height, crop, scratch)) {
     filesOut.src.close();
     filesOut.dst.close();
     // Leave 0-byte sentinel so we don't retry if the failure is permanent (e.g. PNG too large).
@@ -711,16 +715,16 @@ std::unique_ptr<PngDecodeSession> beginPngThumbSessionImpl(const std::string& bo
 
 std::unique_ptr<PngDecodeSession> ReaderActivity::beginPngThumbSession(const std::string& bookPath, int width,
                                                                        int height, PngThumbFiles& filesOut,
-                                                                       BuildArena* scratch) {
+                                                                       BuildArena* scratch, const bool crop) {
   const std::string name = "thumb_" + std::to_string(width) + "x" + std::to_string(height) + ".bmp";
-  return beginPngThumbSessionImpl(bookPath, width, height, name, filesOut, scratch);
+  return beginPngThumbSessionImpl(bookPath, width, height, name, filesOut, scratch, crop);
 }
 
 std::unique_ptr<PngDecodeSession> ReaderActivity::beginPngThumbSession(const std::string& bookPath, int height,
                                                                        PngThumbFiles& filesOut, BuildArena* scratch) {
   // Single-height thumbs scale to height*0.6 wide (mirrors the synchronous single-height decode).
   const std::string name = "thumb_" + std::to_string(height) + ".bmp";
-  return beginPngThumbSessionImpl(bookPath, height * 6 / 10, height, name, filesOut, scratch);
+  return beginPngThumbSessionImpl(bookPath, height * 6 / 10, height, name, filesOut, scratch, /*crop=*/true);
 }
 
 std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path, BuildArena* scratch) {
@@ -731,6 +735,9 @@ std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path, BuildAre
 
   auto epub = std::unique_ptr<Epub>(new Epub(path, "/.crosspoint"));
   epub->setSyntheticTocFallbackEnabled(SETTINGS.syntheticTocFallback != 0);
+  // The open that gets the indexing popup and the lent framebuffer: needsFirstOpenIndexing()
+  // reports a due retry, so a TOC an earlier build lost is retried here and nowhere else.
+  epub->setLostTocRetryEnabled(true);
   if (epub->load(true, SETTINGS.embeddedStyle == 0, scratch)) {
     return epub;
   }
@@ -776,7 +783,7 @@ std::unique_ptr<Txt> ReaderActivity::loadTxt(const std::string& path) {
 void ReaderActivity::goToLibrary(const std::string& fromBookPath) {
   // If coming from a book, start in that book's folder; otherwise start from root
   auto initialPath = fromBookPath.empty() ? "/" : extractFolderPath(fromBookPath);
-  activityManager.goToFileBrowser(std::move(initialPath));
+  activityManager.goToLibrary(LibraryTab::Books, std::move(initialPath));
 }
 
 void ReaderActivity::onGoToEpubReader(std::unique_ptr<Epub> epub) {
@@ -798,15 +805,13 @@ void ReaderActivity::onGoToEpubReader(std::unique_ptr<Epub> epub) {
     sync.totalPagesInSpine = 0;
     sync.paragraphIndex = 0;
     sync.hasParagraphIndex = false;
-    sync.xhtmlSeekHint = 0;
+    sync.paragraphIndexBefore = 0;
+    sync.visibleOffsetAtPage = 0;
+    sync.visibleOffsetAtNextPage = UINT32_MAX;
+    sync.hasVisibleOffset = false;
     sync.intent = KOReaderSyncIntentState::AUTO_PULL;
     sync.outcome = KOReaderSyncOutcomeState::PENDING;
-    sync.resultSpineIndex = 0;
-    sync.resultPage = 0;
-    sync.resultParagraphIndex = 0;
-    sync.resultHasParagraphIndex = false;
-    sync.resultListItemIndex = 0;
-    sync.resultHasListItemIndex = false;
+    sync.clearResult();
     sync.postAction = KOReaderSyncPostAction::Reader;
     APP_STATE.saveToFile();
     // Drop the loaded Epub before TLS — sync activity will reload it for remote-position
@@ -934,7 +939,7 @@ void ReaderActivity::onEnter() {
       // The popup's FAST loaded RED RAM with the pre-popup frame, not the popup, and the first
       // FAST after the return below diffs against RED. Seed it with the displayed frame while the
       // secondary still holds it, as the X4's single-buffer fast diff requires (no-op on X3).
-      if (!renderer.isX3()) renderer.syncRedRamFromFrameBuffer();
+      renderer.syncRedRamFromFrameBuffer();
       lentForIndexing = renderer.borrowSecondaryBuffer(&lentSize);
       if (lentForIndexing) {
         renderer.setSingleBufferFastDiff(true);

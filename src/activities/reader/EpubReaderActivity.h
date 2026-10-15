@@ -19,6 +19,7 @@
 #include "BookmarkStore.h"
 #include "ChapterPageSpan.h"
 #include "CrossPointState.h"
+#include "EpubLinkBackStack.h"
 #include "EpubProgressRecord.h"
 #include "EpubReaderMenuActivity.h"
 // KOReader auto-sync (upstream #269) builds on the KOReader credential store, which this
@@ -86,31 +87,33 @@ class EpubReaderActivity final : public Activity {
   // cachedSpineIndex / cachedChapterTotalPageCount / pendingPercent* / pendingParagraph* fields.
   struct NavigationTarget {
     enum class Kind : uint8_t {
-      Page,       // go to page n (0-based)
-      LastPage,   // go to last page of section (was UINT16_MAX sentinel)
-      Anchor,     // href fragment (e.g. "note1")
-      TocIndex,   // TOC entry index
-      Percent,    // normalised 0.0–1.0 within spine
-      Paragraph,  // KOReader paragraph LUT index
-      ListItem,   // KOReader li-anchored LUT index
+      Page,           // go to page n (0-based)
+      LastPage,       // go to last page of section (was UINT16_MAX sentinel)
+      Anchor,         // href fragment (e.g. "note1")
+      TocIndex,       // TOC entry index
+      Percent,        // normalised 0.0–1.0 within spine
+      Paragraph,      // KOReader paragraph LUT index
+      ListItem,       // KOReader li-anchored LUT index
+      VisibleOffset,  // KOReader content offset (Section::getPageForVisibleTextOffset)
     };
     Kind kind = Kind::Page;
     union {
-      int page;             // Kind::Page
-      int tocIndex;         // Kind::TocIndex
-      float spineProgress;  // Kind::Percent
-      uint16_t lutIndex;    // Kind::Paragraph / Kind::ListItem
+      int page;                // Kind::Page
+      int tocIndex;            // Kind::TocIndex
+      float spineProgress;     // Kind::Percent
+      uint16_t lutIndex;       // Kind::Paragraph / Kind::ListItem
+      uint32_t visibleOffset;  // Kind::VisibleOffset
     };
     std::string anchorStr;  // Kind::Anchor; empty for all others
     // Cross-font rescaling: page count of this spine at save time.
     // Non-zero for Kind::Page when loaded from progress.bin or written during reflow.
-    // Also set for Kind::Paragraph / Kind::ListItem / Kind::Anchor so a LUT miss
-    // still rescales the estimated fallbackPage instead of stranding at 0.
+    // Also set for Kind::Paragraph / Kind::ListItem / Kind::VisibleOffset / Kind::Anchor so
+    // a LUT miss still rescales the estimated fallbackPage instead of stranding at 0.
     int cachedPageCount = 0;
     int cachedSpineIdx = 0;
     // Estimated page used as a baseline before LUT/anchor lookup, and as a fallback
     // when the lookup misses. Only meaningful for Kind::Paragraph / Kind::ListItem /
-    // Kind::Anchor — for Kind::Page the `page` field is the baseline.
+    // Kind::VisibleOffset / Kind::Anchor — for Kind::Page the `page` field is the baseline.
     int fallbackPage = 0;
     // Kind::Page restored from progress.bin: the paragraph LUT index of the saved page (0 = none).
     // Used only once the chapter turns out to have been laid out anew (its page count differs from
@@ -164,6 +167,13 @@ class EpubReaderActivity final : public Activity {
       NavigationTarget t;
       t.kind = Kind::ListItem;
       t.lutIndex = i;
+      t.fallbackPage = fallback;
+      return t;
+    }
+    static NavigationTarget makeVisibleOffset(uint32_t offset, int fallback = 0) {
+      NavigationTarget t;
+      t.kind = Kind::VisibleOffset;
+      t.visibleOffset = offset;
       t.fallbackPage = fallback;
       return t;
     }
@@ -397,6 +407,10 @@ class EpubReaderActivity final : public Activity {
     int pageIndex = -1;
     unsigned long renderDurationMs = 0UL;
     unsigned long completedAtMs = 0UL;
+    // The draw ran short of memory and dropped glyphs. The framebuffer still holds this page
+    // (so `ready` stays true for restoreCurrentPageToBufferIfPreRendered), but the page turn
+    // must not show it: it renders the page afresh, by when the pass's own Page is gone.
+    bool incomplete = false;
   };
   PreRenderedPage preRenderedPage;
   // The pre-render staged this page's grayscale planes, so displaying it can go
@@ -472,11 +486,26 @@ class EpubReaderActivity final : public Activity {
   // writes and battery for a cache it never finishes. After BG_BUILD_MAX_PREEMPTIONS the
   // target is abandoned to Background-C and the cursor moves on. Reset per target.
   uint8_t backgroundPreemptCount_ = 0;
-  // Consecutive completed background builds thrown away because heap forced them to degrade.
-  // Unlike backgroundPreemptCount_ this is NOT reset per target: it is counting evidence that
-  // this book cannot be pre-built at all, so it has to survive the cursor moving on. Cleared by
-  // the first background build that completes cleanly. See BG_BUILD_MAX_DISCARDED_RUNS.
-  uint8_t backgroundDiscardedRuns_ = 0;
+  // The last background build ran short of memory -- degraded, truncated or failed -- and was
+  // skipped (the foreground builds that chapter when the reader gets there). B then waits for the
+  // reader to enter the next chapter before it tries another, so a book that never fits costs
+  // one wasted attempt per chapter entered, not one per target: it used to switch B off for the
+  // book after three in a row (a 154-page PDF conversion had run 132 builds, 8 kept, each ~600 ms
+  // and a 55-62 KB partial file written and deleted). Cleared when the reading position moves.
+  bool backgroundPausedForChapter_ = false;
+  // The free heap when B took the buffer, and whether the allocator is tracking the low point
+  // since (heap_caps_monitor_local_minimum_free_size_start): logged when the buffer goes back.
+  uint32_t backgroundBorrowFreeAtStart_ = 0;
+  bool backgroundHeapLowTracked_ = false;
+  // B is building the next chapter while the reader is on the last few pages of this one, so its
+  // borrow survives page turns instead of being taken back by every render (see
+  // BG_BUILD_THROUGH_PAGES). Those pages draw in BW with no pre-render. Cleared when the buffer
+  // goes back or the build passes to the foreground.
+  bool backgroundBuildThrough_ = false;
+  // The next chapter, abandoned to BG_BUILD_MAX_PREEMPTIONS while the reader was mid-chapter. It
+  // gets one more try once the reader is on its last pages, in build-through mode, instead of
+  // being left to the foreground "Indexing". -1 when none; cleared when the reader moves on.
+  int backgroundAbandonedSpine_ = -1;
   // One-shot Background-A re-arm latch (see serviceBackgroundWork): the (spine, page)
   // whose pre-render was already retried after the deferred AA released its memory.
   // Bounds retries to one per displayed page so an image-only next page (which can
@@ -506,6 +535,12 @@ class EpubReaderActivity final : public Activity {
   // Set between suspendBackgroundWork() and resumeBackgroundWork(): no look-ahead
   // build is probed, armed or stepped, and no page is pre-rendered.
   bool backgroundWorkSuspended_ = false;
+  // The build state behind skipLoopDelay() / preventAutoSleep(), as last read under the render
+  // lock. Loop task only: main.cpp polls both hooks from there, and refreshLoopHints() is their
+  // only writer.
+  bool loopHintCurrentBuild_ = false;     // section && section->hasActiveBuild()
+  bool loopHintBackgroundBuild_ = false;  // backgroundBuildState_ == Building
+  void refreshLoopHints();
   // --- Background C (incremental build of the CURRENT section while the reader watches) ---
   // When the spine the user just entered has no cache, buildSection() starts an in-place
   // incremental build owned by `section` and hands the slicing to stepCurrentSectionBuild()
@@ -644,7 +679,7 @@ class EpubReaderActivity final : public Activity {
   bool autoSyncReaderIsQuiet() const;
   void maybeAutoPullOnWake();
   bool pollAutoSyncPull();
-  void evaluateAutoSyncPull();
+  bool evaluateAutoSyncPull();
   bool handOffToInteractiveSync();
   void silentUploadCurrentPosition();
   void silentApplyRemote(const KOReaderProgress& remote);
@@ -692,20 +727,29 @@ class EpubReaderActivity final : public Activity {
   // and for the far more common case of a book whose <p>s are not direct children of <body>
   // (`<body><div><p>`, what Calibre emits), where no page has an anchorable paragraph at all and
   // getParagraphIndexForPage answers nullopt for every one of them.
-  struct SavedPosition {
-    int spineIndex = 0;
-    int pageNumber = 0;
-    int pageCount = 0;
-    uint16_t paragraphIndex = 0;
-    bool hasParagraph = false;
-  };
-  static constexpr int MAX_FOOTNOTE_DEPTH = 3;
+  using SavedPosition = EpubLinkBackStack::Entry;
+  static constexpr int MAX_FOOTNOTE_DEPTH = EpubLinkBackStack::kMaxDepth;
   SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
   int footnoteDepth = 0;
+  // How many of those entries were pushed in this reader session (EpubLinkBackStack::push). A stack
+  // loaded from linkstack.bin leaves it at 0: Back uses footnoteDepth, but the KOSync push on sleep
+  // is skipped only for a link followed this session, as it was before the stack was persisted.
+  int sessionLinkDepth_ = 0;
+  // True while linkstack.bin exists and holds exactly the stack above. The first push or pop after
+  // that deletes the file, and the reader's exit writes the stack only while this is false -- so the
+  // file is written when the stack changed, never per page turn, and never disagrees with memory.
+  // An unclean shutdown (crash, flat battery) can therefore lose a stack but never bring back one
+  // the reader had already returned from, which would be worse than none: Back would jump from
+  // wherever they had read on to an origin they had already left behind.
+  bool linkStackOnDisk_ = false;
 
   // --- render() pass dispatch (see RenderPass) ---
   // Opportunistically restore the secondary display buffer if a prior OOM degraded it.
   void recoverSecondaryBufferIfNeeded();
+  // The reader is within BG_BUILD_THROUGH_PAGES of the end of the chapter on screen, on a panel
+  // that can show pages while Background-B holds the secondary buffer: one whose FAST refresh
+  // needs no host-side previous frame (GfxRenderer::fastRefreshNeedsHostFrame() false, the X3).
+  bool nearChapterEndForBuildThrough() const;
   // Realloc the secondary buffer, evicting rebuildable caches (FDC page slots, CSS
   // resolve caches) that a released build may have planted inside the freed hole and
   // retrying once before reporting failure. Shared by the post-build and opportunistic
@@ -849,9 +893,10 @@ class EpubReaderActivity final : public Activity {
                       int orientedMarginBottom, int orientedMarginLeft);
   // Renders page content into the frame buffer (prewarm + BW pass) without drawing the status bar
   // or flushing to the display. Used by the pre-render pass so the status bar can be superimposed
-  // at display time with live values (clock, battery).
-  void renderPageContentOnly(const Page& page, int orientedMarginTop, int orientedMarginRight, int orientedMarginBottom,
-                             int orientedMarginLeft);
+  // at display time with live values (clock, battery). Returns the number of glyphs the font
+  // decompressor could not find memory for -- they drew nothing, so the page is incomplete.
+  uint16_t renderPageContentOnly(const Page& page, int orientedMarginTop, int orientedMarginRight,
+                                 int orientedMarginBottom, int orientedMarginLeft);
   // Draws a single text-only page from an in-progress Background-C build (no AA, no pre-render
   // arming). Releases the lock before the waveform wait (like renderContents) so a C build
   // slice can run on the loop task during the refresh.
@@ -892,6 +937,12 @@ class EpubReaderActivity final : public Activity {
   // The status bar's chapter page counter: the current file's page and total, widened to the
   // whole TOC chapter when that spans several spine items (#325; see ChapterPageSpan).
   ChapterPageSpan::Display chapterPageDisplay() const;
+  // The status bar's printed-page label for `page`: the label landing on it, else the last one
+  // passed in this section, both parenthesised. Empty when the section has none so far.
+  std::string printedPageLabelFor(uint16_t page) const;
+  // What the status bar shows for the current page, recorded in progress.bin for readers of the
+  // file that cannot lay the book out (EpubProgressRecord::Shown).
+  EpubProgressRecord::Shown shownProgress() const;
   // Re-reads the recorded page counts of the current chapter's other spine items from the book's
   // SpinePageIndex on SD. Runs when chapterSpanSpine_ is not the current spine: -1 after a section
   // is created (spine change, settings change, cache clear) or a Background-B build completes,
@@ -925,14 +976,17 @@ class EpubReaderActivity final : public Activity {
   mutable int lastStatusBarClockMinute = -1;
   bool maybeRestartForFragmentedHeap(uint32_t freeHeap, uint32_t contigHeap);
   void saveProgress(int spineIndex, int currentPage, int pageCount,
-                    std::optional<uint16_t> paragraphIndex = std::nullopt);
+                    std::optional<uint16_t> paragraphIndex = std::nullopt,
+                    const std::optional<EpubProgressRecord::Shown>& shown = std::nullopt);
   // Writes the canonical EPUB progress.bin record (EpubProgressRecord): spine(2) + page(2) +
-  // pageCount(2) + percent(1), plus paragraph(2) when one is given. Used by the per-page
-  // saveProgress() and by transient writers (sync restore, bookmark jump) so the on-disk format
-  // stays consistent regardless of caller. Static (and shared across the split
-  // EpubReaderActivity/EpubReaderSync translation units) since it needs no instance state.
+  // pageCount(2) + percent(1), plus paragraph(2) when one is given, plus what the status bar
+  // showed when that is given. Used by the per-page saveProgress() and by transient writers (sync
+  // restore, bookmark jump) so the on-disk format stays consistent regardless of caller. Static
+  // (and shared across the split EpubReaderActivity/EpubReaderSync translation units) since it
+  // needs no instance state.
   static bool writeReaderProgressCache(const std::string& cachePath, int spineIndex, int currentPage, int pageCount,
-                                       uint8_t percent, std::optional<uint16_t> paragraphIndex = std::nullopt);
+                                       uint8_t percent, std::optional<uint16_t> paragraphIndex = std::nullopt,
+                                       const std::optional<EpubProgressRecord::Shown>& shown = std::nullopt);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
@@ -1051,6 +1105,12 @@ class EpubReaderActivity final : public Activity {
   // way back.
   void navigateToHref(const std::string& href, bool savePosition = false);
   void restoreSavedPosition();
+  // Persistence of savedPositions, in linkstack.bin beside progress.bin (EpubLinkBackStack).
+  // Loaded on open; written on exit (and before a heap-recovery reboot, which skips onExit) when
+  // it changed; deleted at the first change after it was loaded. See linkStackOnDisk_.
+  void loadLinkBackStack();
+  void saveLinkBackStack();
+  void noteLinkBackStackChanged();
 
   // Find the internal links of `page` among the words it draws and publish a tap target for each.
   // Values are indices into currentPageFootnotes, which must already hold this page's links.
@@ -1105,7 +1165,8 @@ class EpubReaderActivity final : public Activity {
   // DISP log now says so out loud.
   void startActivityForResult(std::unique_ptr<Activity>&& activity, ActivityResultHandler resultHandler) override;
   bool isReaderActivity() const override { return true; }
-  bool preventAutoSleep() override { return section && section->hasActiveBuild(); }
+  // Polled by main.cpp's loop without the render lock; see refreshLoopHints().
+  bool preventAutoSleep() override;
   // Auto page turn is reading with no hands on the device: no input arrives, so without this the
   // sleep timeout fires mid-book (issue #293). keepAwake(), not preventAutoSleep(): the pages turn
   // every 5-60 s and the loop should still light-sleep between them.
@@ -1118,10 +1179,9 @@ class EpubReaderActivity final : public Activity {
   // 40 ms slice was followed by a 50 ms idle delay at 10 MHz. Declaring the work makes the loop
   // stop calling this state idle at all: slices run back to back, the build finishes sooner, and
   // Background-B hands the borrowed framebuffer back that much earlier. Same failure and same
-  // remedy as HomeActivity's cover decoding (see its skipLoopDelay).
-  bool skipLoopDelay() override {
-    return (section && section->hasActiveBuild()) || backgroundBuildState_ == BackgroundBuildState::Building;
-  }
+  // remedy as HomeActivity's cover decoding (see its skipLoopDelay). Polled by main.cpp's loop
+  // without the render lock; see refreshLoopHints().
+  bool skipLoopDelay() override;
   // A pending pre-render leaves the *next* page in the frame buffer; redraw the current page
   // so a screenshot (or any raw frame-buffer capture) matches what the user sees.
   void prepareFramebufferForCapture() override { restoreCurrentPageToBufferIfPreRendered(); }

@@ -10,6 +10,7 @@ add_executable(SdFontIntervalsTest
 target_include_directories(SdFontIntervalsTest PRIVATE
   ${REPO_ROOT}/test/zip_entry_reader  # stdio-backed HalStorage.h; shadows test/shims stub
   ${REPO_ROOT}/lib/EpdFont
+  ${REPO_ROOT}/lib/Memory
   ${REPO_ROOT}/lib/Utf8
   ${REPO_ROOT}/lib/Logging
   ${REPO_ROOT}/test/shims

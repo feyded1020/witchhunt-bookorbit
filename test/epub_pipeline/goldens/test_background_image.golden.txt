@@ -1,0 +1,100 @@
+BOOK title=Background Image Test lang=en spine=1 toc=1 reliableToc=1
+SPINE 0 href=OEBPS/text/chapter1.xhtml pages=2 truncated=0 cssFallback=0
+ PAGE 0 elements=9 footnotes=0
+  LINE y=0 x=0 align=0 mult=1.000 hfid=0 words=8
+   W x=18 s=0 z=100 t=CASE1
+   W x=72 s=0 z=100 t=A
+   W x=86 s=0 z=100 t=table
+   W x=138 s=0 z=100 t=whose
+   W x=192 s=0 z=100 t=picture
+   W x=255 s=0 z=100 t=is
+   W x=276 s=0 z=100 t=its
+   W x=307 s=0 z=100 t=background.
+  TABLE y=24 x=0 w=460 h=60 cols=1 border=1 rows=1
+   ROW h=58 hdr=0 cells=1
+    CELL 0 hdr=0 span=1 lines=2
+     LN words=10
+      W x=18 s=0 z=100 t=CELL
+      W x=72 s=0 z=100 t=Either
+      W x=137 s=0 z=100 t=the
+      W x=176 s=0 z=100 t=well
+      W x=217 s=0 z=100 t=was
+      W x=252 s=0 z=100 t=very
+      W x=297 s=0 z=100 t=deep,
+      W x=345 s=0 z=100 t=or
+      W x=373 s=0 z=100 t=she
+      W x=411 s=0 z=100 t=fell
+     LN words=2
+      W x=0 s=0 z=100 t=very
+      W x=43 s=0 z=100 t=slowly.
+  IMG y=84 x=130 w=200 h=260 src=<cache>/epub_<hash>/img_52dca76e320da237.png
+  LINE y=368 x=0 align=0 mult=1.000 hfid=0 words=9
+   W x=18 s=0 z=100 t=CASE2
+   W x=80 s=0 z=100 t=A
+   W x=101 s=0 z=100 t=boxed
+   W x=156 s=0 z=100 t=passage
+   W x=237 s=0 z=100 t=with
+   W x=284 s=0 z=100 t=room
+   W x=339 s=0 z=100 t=left
+   W x=390 s=0 z=100 t=for
+   W x=433 s=0 z=100 t=its
+  LINE y=392 x=0 align=0 mult=1.000 hfid=0 words=1
+   W x=0 s=0 z=100 t=picture.
+  LINE y=416 x=0 align=0 mult=1.000 hfid=0 words=6
+   W x=18 s=0 z=100 t=BOXED
+   W x=74 s=0 z=100 t=The
+   W x=107 s=0 z=100 t=text
+   W x=149 s=0 z=100 t=of
+   W x=177 s=0 z=100 t=the
+   W x=214 s=0 z=100 t=box.
+  IMG y=440 x=150 w=160 h=240 src=<cache>/epub_<hash>/img_077f2dab89ad506a.png
+  LINE y=704 x=0 align=0 mult=1.000 hfid=0 words=2
+   W x=18 s=0 z=100 t=CASE3
+   W x=74 s=0 z=100 t=BEFORE
+  LINE y=728 x=0 align=0 mult=1.000 hfid=0 words=7
+   W x=18 s=0 z=100 t=INLINE
+   W x=80 s=0 z=100 t=A
+   W x=94 s=0 z=100 t=paragraph
+   W x=187 s=0 z=100 t=with
+   W x=227 s=0 z=100 t=an
+   W x=256 s=0 z=100 t=inline
+   W x=314 s=0 z=100 t=background.
+ PAGE 1 elements=5 footnotes=0
+  IMG y=0 x=130 w=200 h=260 src=<cache>/epub_<hash>/img_52dca76e320da237.png
+  LINE y=260 x=0 align=0 mult=1.000 hfid=0 words=8
+   W x=18 s=0 z=100 t=CASE4
+   W x=75 s=0 z=100 t=ORNAMENT
+   W x=146 s=0 z=100 t=A
+   W x=160 s=0 z=100 t=small
+   W x=215 s=0 z=100 t=flourish
+   W x=298 s=0 z=100 t=behind
+   W x=356 s=0 z=100 t=this
+   W x=399 s=0 z=100 t=line.
+  LINE y=284 x=0 align=0 mult=1.000 hfid=0 words=7
+   W x=18 s=0 z=100 t=CASE5
+   W x=76 s=0 z=100 t=TILED
+   W x=132 s=0 z=100 t=Paper
+   W x=182 s=0 z=100 t=texture
+   W x=252 s=0 z=100 t=behind
+   W x=310 s=0 z=100 t=this
+   W x=353 s=0 z=100 t=line.
+  LINE y=308 x=27 align=0 mult=1.000 hfid=0 words=9
+   W x=18 s=0 z=100 t=•
+   W x=31 s=0 z=100 t=CASE6
+   W x=90 s=0 z=100 t=BULLET
+   W x=154 s=0 z=100 t=An
+   W x=179 s=0 z=100 t=item
+   W x=220 s=0 z=100 t=with
+   W x=260 s=0 z=100 t=an
+   W x=289 s=0 z=100 t=image
+   W x=343 s=0 z=100 t=bullet.
+  LINE y=332 x=0 align=0 mult=1.000 hfid=0 words=9
+   W x=18 s=0 z=100 t=CASE7
+   W x=78 s=0 z=100 t=END
+   W x=114 s=0 z=100 t=The
+   W x=147 s=0 z=100 t=body
+   W x=187 s=0 z=100 t=background
+   W x=287 s=0 z=100 t=is
+   W x=308 s=0 z=100 t=never
+   W x=363 s=0 z=100 t=a
+   W x=381 s=0 z=100 t=picture.

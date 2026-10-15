@@ -137,9 +137,6 @@ bool apply(const SettingAction action, const uint8_t value) {
   //
   // Now a row that forgets to declare its field does not save AND does not apply, which is a
   // report on the first use rather than one after a power cycle.
-  // Bound to a named local, NOT iterated straight out of the call: getSettingsList() returns the
-  // vector BY VALUE, so a range-for over the call alone destroys it at the end of the loop and
-  // anything still pointing into it dangles. Same form JsonSettingsIO uses.
   switch (action) {
     case SettingAction::KOSyncOnClosePicker:
       SETTINGS.koSyncOnBookClose = value >= KO_CLOSE_NEVER ? 0 : 1;
@@ -157,15 +154,16 @@ bool apply(const SettingAction action, const uint8_t value) {
       break;
   }
 
-  const auto settings = getSettingsList();
-  const auto row = std::find_if(settings.begin(), settings.end(), [action](const SettingInfo& info) {
-    return info.type == SettingType::ACTION && info.action == action && info.persistPtr;
+  // The row is gone once the walk moves on, so only its field pointer is kept.
+  uint8_t CrossPointSettings::* field = nullptr;
+  forEachSetting([action, &field](const SettingInfo& info) {
+    if (!field && info.type == SettingType::ACTION && info.action == action) field = info.persistPtr;
   });
-  if (row == settings.end()) {
+  if (!field) {
     LOG_ERR("SET", "Slider action %d edits no declared field; see SettingInfo::persisting", static_cast<int>(action));
     return false;
   }
-  SETTINGS.*(row->persistPtr) = value;
+  SETTINGS.*field = value;
 
   // Side effects only. Both light sliders drive the hardware as well as the setting: the picker
   // is the only place the level is chosen, so waiting for a reboot to see it would make the

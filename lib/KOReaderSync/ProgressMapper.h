@@ -4,19 +4,7 @@
 #include <memory>
 #include <string>
 
-/**
- * CrossPoint position representation.
- */
-struct CrossPointPosition {
-  int spineIndex;                  // Current spine item (chapter) index
-  int pageNumber;                  // Current page within the spine item (estimated if no paragraph LUT)
-  int totalPages;                  // Total pages in the current spine item
-  uint16_t paragraphIndex = 0;     // 1-based <p> index (0 if unavailable)
-  bool hasParagraphIndex = false;  // True when paragraphIndex is valid
-  uint16_t listItemIndex = 0;      // 1-based running <li> count when target XPath ends in /li[N]
-  bool hasListItemIndex = false;   // True when listItemIndex is valid
-  uint32_t xhtmlSeekHint = 0;      // Byte offset hint for findXPathForParagraph (0 = no hint)
-};
+#include "CrossPointPosition.h"
 
 /**
  * KOReader position representation.
@@ -69,6 +57,20 @@ class ProgressMapper {
    */
   static CrossPointPosition toCrossPoint(const std::shared_ptr<Epub>& epub, const KOReaderPosition& koPos,
                                          int currentSpineIndex = -1, int totalPagesInCurrentSpine = 0);
+
+  /**
+   * What a record says about its position without opening the book: the spine its DocFragment
+   * names and the body-child paragraph its p[N] names, both read from the XPath string. No page;
+   * that needs the chapter. Enough for ProgressComparison to decide which side is further before
+   * anything is inflated. spineCount <= 0 skips the range check on the spine.
+   */
+  static CrossPointPosition peekRemote(const KOReaderPosition& koPos, int spineCount);
+
+  /**
+   * The book percentage of a page, in the units an upload carries (XHTML bytes). What toKOReader
+   * reports, without the XPath and the chapter scan behind it.
+   */
+  static float percentageFor(const std::shared_ptr<Epub>& epub, int spineIndex, int pageNumber, int totalPages);
 
  private:
   /**

@@ -4,6 +4,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <SdCardFontRegistry.h>
 #include <esp_heap_caps.h>
 
@@ -42,14 +43,65 @@ void FontSelectionActivity::onEnter() {
   }
 
   RenderLock lock(*this);
+  lendPreviewArena();
   UiListActivity::onEnter();
   nav.selected = selectedIndex;
   updatePreviewFontLocked(selectedIndex);
 }
 
 void FontSelectionActivity::onExit() {
-  sdFontSystem.unload(renderer);
+  // Nothing may be drawn before the return: the exit's busy indicator may still be finishing, and
+  // with the buffer lent its finish reads the write buffer (see returnPreviewArena).
+  dropPreviewFont();
+  returnPreviewArena();
   UiListActivity::onExit();
+}
+
+void FontSelectionActivity::lendPreviewArena() {
+  if (previewArena_ || !renderer.hasSecondaryBuffer()) return;
+  // HomeActivity's lend sequence. Safe with the transition's busy-indicator waveform still running:
+  // the copy only reads the displayed frame, and the RED seed and the borrow both drain it first.
+  renderer.syncWriteBufferFromDisplayed();
+  renderer.syncRedRamFromFrameBuffer();
+  size_t lentSize = 0;
+  uint8_t* lent = renderer.borrowSecondaryBuffer(&lentSize);
+  if (!lent) return;
+  previewArena_ = makeUniqueNoThrow<BuildArena>(lent, lentSize);
+  if (!previewArena_ || !previewArena_->valid()) {
+    previewArena_.reset();
+    renderer.returnSecondaryBuffer();  // cannot fail: the region never entered the heap
+    return;
+  }
+  // The selector draws only plain black-and-white frames, so FAST keeps diffing against the seeded
+  // RED baseline instead of degrading to HALF on the X4. No-op on X3.
+  renderer.setSingleBufferFastDiff(true);
+  LOG_DBG("FPRV", "Lent secondary framebuffer for previews (%u bytes)", static_cast<unsigned>(lentSize));
+}
+
+void FontSelectionActivity::returnPreviewArena() {
+  if (!previewArena_) return;
+  previewArena_.reset();
+  renderer.returnSecondaryBuffer();  // cannot fail: the region never entered the heap
+  renderer.setSingleBufferFastDiff(false);
+}
+
+void FontSelectionActivity::loadPreviewFont(const SdCardFontFamilyInfo& family) {
+  dropPreviewFont();
+  if (previewArena_) {
+    previewBlock_ = previewArena_->reserveBlock();
+    sdFontSystem.ensureLoadedForPreview(renderer, family.name.c_str(), selectedFontSize(), previewArena_.get());
+    if (sdFontSystem.resolveFontId(family.name.c_str(), selectedFontSize()) != 0) return;
+    LOG_ERR("FPRV", "%s did not load into the lent buffer (%u of %u bytes used); trying the heap", family.name.c_str(),
+            static_cast<unsigned>(previewArena_->used()), static_cast<unsigned>(previewArena_->capacity()));
+    dropPreviewFont();
+  }
+  sdFontSystem.ensureLoadedForPreview(renderer, family.name.c_str(), selectedFontSize());
+}
+
+void FontSelectionActivity::dropPreviewFont() {
+  sdFontSystem.unload(renderer);
+  // Only after the unload: the font's arrays live in this block (SdCardFont::useArena).
+  if (previewArena_ && previewBlock_.valid()) previewArena_->release(previewBlock_);
 }
 
 const char* FontSelectionActivity::headerTitle() const {
@@ -58,7 +110,7 @@ const char* FontSelectionActivity::headerTitle() const {
 }
 
 uint8_t FontSelectionActivity::selectedFontSize() const {
-  return target == Target::TXT ? SETTINGS.txtFontSize : SETTINGS.fontSize;
+  return target == Target::TXT ? SETTINGS.txtFontPointSize : SETTINGS.fontPointSize;
 }
 
 int FontSelectionActivity::previewOptionIndex(const int index) const {
@@ -86,7 +138,7 @@ bool FontSelectionActivity::previewKey(FontPreviewCache::Key& key) const {
 }
 
 int FontSelectionActivity::prepareSdPreview(const SdCardFontFamilyInfo& family) {
-  const uint8_t targetPt = SdCardFontSystem::targetPointSize(selectedFontSize());
+  const uint8_t targetPt = sdFontSystem.sizeListFor(family.name.c_str()).snap(selectedFontSize());
   const SdCardFontFileInfo* file = family.pickClosestSize(targetPt);
   if (!file) {
     previewFamily.clear();
@@ -104,7 +156,7 @@ int FontSelectionActivity::prepareSdPreview(const SdCardFontFamilyInfo& family) 
   if (previewKey(key) && FontPreviewCache::available(key)) {
     // The pixels are on the card, so nothing has to be resident to draw them.
     // Dropping the font here is what keeps browsing flat on the heap.
-    sdFontSystem.unload(renderer);
+    dropPreviewFont();
     previewFromCache = true;
     return 0;
   }
@@ -112,7 +164,7 @@ int FontSelectionActivity::prepareSdPreview(const SdCardFontFamilyInfo& family) 
   // Preview-only: never let browsing the list rewrite the flash font partition.
   // The reader's own ensureLoaded() caches whatever the user actually picks
   // when the book opens.
-  sdFontSystem.ensureLoadedForPreview(renderer, family.name.c_str(), selectedFontSize());
+  loadPreviewFont(family);
   const int fontId = sdFontSystem.resolveFontId(family.name.c_str(), selectedFontSize());
   if (fontId != 0) prewarmPreviewGlyphs(fontId);
   previewNeedsStore = fontId != 0;
@@ -148,8 +200,9 @@ void FontSelectionActivity::updatePreviewFontLocked(const int index) {
   int previewFontId = 0;
   if (optionIndex < CrossPointSettings::BUILTIN_FONT_COUNT) {
     previewFamily.clear();
-    sdFontSystem.unload(renderer);
-    previewFontId = CrossPointSettings::getBuiltinReaderFontId(static_cast<uint8_t>(optionIndex), selectedFontSize());
+    dropPreviewFont();
+    previewFontId =
+        CrossPointSettings::getBuiltinReaderFontIdForPoints(static_cast<uint8_t>(optionIndex), selectedFontSize());
   } else {
     const auto& families = sdFontSystem.registry().getFamilies();
     const size_t familyIndex = static_cast<size_t>(optionIndex - CrossPointSettings::BUILTIN_FONT_COUNT);
@@ -162,7 +215,8 @@ void FontSelectionActivity::updatePreviewFontLocked(const int index) {
   // Also the fallback when the strip is blitted: FONT_TITLE must never name a
   // font that is not loaded, even though nothing draws with it in that case.
   if (previewFontId == 0) {
-    previewFontId = CrossPointSettings::getBuiltinReaderFontId(CrossPointSettings::NOTOSANS, selectedFontSize());
+    previewFontId =
+        CrossPointSettings::getBuiltinReaderFontIdForPoints(CrossPointSettings::NOTOSANS, selectedFontSize());
   }
   uiTarget.setFont(fui::GfxRendererTarget::FONT_TITLE, previewFontId);
 
@@ -232,7 +286,6 @@ void FontSelectionActivity::scanForMissingPreviews() {
   const auto& families = sdFontSystem.registry().getFamilies();
   if (families.empty() || previewW <= 0 || previewH <= 0) return;
 
-  const uint8_t targetPt = SdCardFontSystem::targetPointSize(selectedFontSize());
   const auto language = static_cast<uint8_t>(I18N.getLanguage());
 
   // The override variant lists the inherited font as row 0 as well as in its own
@@ -251,6 +304,9 @@ void FontSelectionActivity::scanForMissingPreviews() {
     seen.push_back(optionIndex);
 
     const auto& family = families[familyIndex];
+    // Per family: each draws the selected size snapped to its own list, and that is the size
+    // prepareSdPreview() keys the preview on.
+    const uint8_t targetPt = sdFontSystem.sizeListFor(family.name.c_str()).snap(selectedFontSize());
     const SdCardFontFileInfo* file = family.pickClosestSize(targetPt);
     if (!file) continue;
 
@@ -259,7 +315,9 @@ void FontSelectionActivity::scanForMissingPreviews() {
     key.sourceSize = file->fileBytes;
     key.width = static_cast<uint16_t>(previewW);
     key.height = static_cast<uint16_t>(previewH);
-    key.pointSize = file->pointSize;
+    // The size DRAWN, as prepareSdPreview() stores it. Keyed on the file's size, a family drawn
+    // scaled (22 pt from an 18 pt file) was never found, and every visit ran the warm-up again.
+    key.pointSize = targetPt;
     key.language = language;
     if (!FontPreviewCache::available(key)) warmupQueue.push_back(row);
   }
@@ -302,9 +360,10 @@ void FontSelectionActivity::advanceWarmup() {
   // With nothing resident this reads ~22.5 KB on an X3 against the ~15 KB a
   // kern-heavy family needs, so the brake only bites when something else has
   // genuinely taken the big block.
-  sdFontSystem.unload(renderer);
+  dropPreviewFont();
   const uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT);
-  if (largest < WARMUP_MIN_CONTIGUOUS) {
+  // The brake only matters on the heap path: with the buffer lent, previews never touch the heap.
+  if (!previewArena_ && largest < WARMUP_MIN_CONTIGUOUS) {
     LOG_ERR("FPRV", "Stopping warm-up at %u/%u: largest free block %lu below floor", static_cast<unsigned>(warmupDone),
             static_cast<unsigned>(warmupQueue.size()), static_cast<unsigned long>(largest));
     finishWarmup();
@@ -330,13 +389,18 @@ bool FontSelectionActivity::handleCustomInput() {
   }
 
   if (!warmupActive) return false;
-  // Back abandons the warm-up; the remaining families then build lazily, one
-  // per cursor move, exactly as they would without it.
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    LOG_DBG("FPRV", "Warm-up cancelled after %u of %u", static_cast<unsigned>(warmupDone),
-            static_cast<unsigned>(warmupQueue.size()));
-    finishWarmup();
-    return true;
+  // Back abandons the warm-up; the remaining families then build lazily, one per cursor move,
+  // exactly as they would without it. Read as an event like every other press on this list: a
+  // Back read here by level would reach the list afterwards as an event and close the screen.
+  // Other presses are dropped while the warm-up owns the screen.
+  ButtonEventManager::ButtonEvent event;
+  while (buttonEvents.consumeEvent(event)) {
+    if (event.button == MappedInputManager::Button::Back) {
+      LOG_DBG("FPRV", "Warm-up cancelled after %u of %u", static_cast<unsigned>(warmupDone),
+              static_cast<unsigned>(warmupQueue.size()));
+      finishWarmup();
+      return true;
+    }
   }
   advanceWarmup();
   return true;  // the warm-up owns the screen until it finishes
@@ -356,14 +420,7 @@ void FontSelectionActivity::activateIndex(const int index) {
 }
 
 void FontSelectionActivity::buildScreen(UiScreen& screen) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
-  screen.setContentMarginFromScreen(
-      fui::Insets{static_cast<int16_t>(contentRect.y + metrics.topPadding + metrics.headerHeight),
-                  static_cast<int16_t>(renderer.getScreenWidth() - (contentRect.x + contentRect.width)),
-                  static_cast<int16_t>(renderer.getScreenHeight() - (contentRect.y + contentRect.height)),
-                  static_cast<int16_t>(contentRect.x)});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  layoutListArea(screen);
 
   // The preview rectangle is only knowable here, and afterUiRender() needs it
   // to blit or capture the strip.
@@ -392,15 +449,10 @@ void FontSelectionActivity::buildScreen(UiScreen& screen) {
     preview.showCaret = false;
     screen.textArea(preview, previewHeight);
   }
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  screen.spacer(static_cast<int16_t>(UITheme::getInstance().getMetrics().verticalSpacing));
 
-  fui::ListProps props;
+  auto props = listProps(screen);
   props.items = rowItems.data();
   props.count = static_cast<uint16_t>(rowItems.size());
-  props.action = ACTION_ROW;
-  props.inputMask = fui::InputTouch;
-  props.labelText = screen.theme().bodyText;
-  props.labelText.maxLines = 2;
-  syncListViewport(screen, props);
-  screen.list(props);
+  addList(screen, props);
 }

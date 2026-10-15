@@ -47,9 +47,10 @@ class SettingsActivity final : public TabbedUiListActivity {
   [[nodiscard]] int16_t tabBarHeight() const override;
   void onTabSelected(int slot) override { enterCategory(slot); }
   void onBackFromTabs() override;
+  void homeFromList() override { onBackFromTabs(); }
   [[nodiscard]] bool isRowSelectable(int index) const override;
   void drawChrome() override;
-  void drawFooter() override;
+  [[nodiscard]] const char* footerConfirmLabel() const override;
   // Overridden only to ship the frame with this screen's refresh mode; see the definition.
   void render(RenderLock&&) override;
 
@@ -58,4 +59,5 @@ class SettingsActivity final : public TabbedUiListActivity {
       : TabbedUiListActivity("Settings", renderer, mappedInput) {}
   void onEnter() override;
   void onExit() override;
+  bool releaseBuriedState() override;
 };

@@ -3,21 +3,29 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "I18nKeys.h"
 #include "MappedInputManager.h"
+#include "activities/ActivityManager.h"
 #include "activities/SliderPickerActivity.h"
 #include "components/UITheme.h"
 #include "settings/SliderSettingPicker.h"
 
 namespace fui = freeink::ui;
 
-UiListActivity::UiListActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput)
-    : Activity(name, renderer, mappedInput), UiAppHost(renderer) {}
+UiListActivity::UiListActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
+                               const ListDeclaration& declaration)
+    : Activity(name, renderer, mappedInput),
+      UiAppHost(renderer),
+      listController(mappedInput, buttonEvents, controllerHost, declaration) {}
 
 void UiListActivity::onEnter() {
   Activity::onEnter();
   activeNav().reset();
+  listController.reset();
+  resetPublishedWindow();
   resetUi();
   app.on(ACTION_ROW, &UiListActivity::rowActionTrampoline, this);
   app.setScreen(&UiListActivity::screenTrampoline, this);
@@ -55,31 +63,16 @@ void UiListActivity::onRowAction(const int index) {
   activateIndex(index);
 }
 
-bool UiListActivity::handleButtons() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    onBackButton();
-    return true;
-  }
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    const int selected = activeNav().selected;
-    if (selected >= 0 && selected < listCount()) activateIndex(selected);
-    return true;
-  }
-  return false;
-}
-
 bool UiListActivity::routeListTouch() {
   const auto route = UiAppHost::routeTouch(mappedInput);
   if (route.routed && app.invalidated()) requestUpdate();
   return static_cast<bool>(route);
 }
 
-// No RenderLock. `selected` is atomic, and requestSelection() defers the viewport
-// pull to the next build, where ListNav::syncToProps consumes followOnBuild -- so
-// nothing here touches the render task's `top`. The lock used to park the loop task
-// for the whole screen build, and buttons are sampled once per loop pass from level
-// state with no queue: a press that both started and ended inside that window was
-// never seen at all. Long lists, where the build is slowest, dropped the most.
+// No RenderLock for a plain selection: `selected` is atomic, and requestSelection() defers the
+// viewport pull to the next build, where ListNav::syncToProps consumes followOnBuild -- so nothing
+// here touches the render task's `top`, and a step never parks the loop task behind a screen build
+// in flight. A page turn does set `top`; showRowPage() below takes the lock for that.
 void UiListActivity::moveSelectionTo(const int index) {
   activeNav().requestSelection(index);
   onSelectionChanged(index);
@@ -88,43 +81,19 @@ void UiListActivity::moveSelectionTo(const int index) {
 
 void UiListActivity::loop() {
   if (handleCustomInput()) return;
-  if (handleButtons()) return;
   if (routeListTouch()) return;
 
+  // A swipe is a page, the same page as a long Left/Right (spec R3).
   const auto swipe = mappedInput.wasSwipe();
   if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
-    bool moved = false;
-    {
-      RenderLock lock(*this);
-      auto& currentNav = activeNav();
-      const int delta = swipe == MappedInputManager::SwipeDir::Up ? currentNav.pageRows() : -currentNav.pageRows();
-      moved = currentNav.scrollBy(delta, listCount());
-    }
-    if (moved) requestUpdate();
+    listController.page(swipe == MappedInputManager::SwipeDir::Up ? 1 : -1);
     return;
   }
 
   navigateButtons();
 }
 
-void UiListActivity::navigateButtons() {
-  const int count = listCount();
-  auto& currentNav = activeNav();
-  // Page by inputPageRows(), not pageRows(): the latter reads the render task's
-  // drawnRows directly, which a build in flight is writing. inputPageRows() is the
-  // atomic that onListRendered() publishes for exactly this caller. It can be one
-  // build old while a refresh runs; the next layout's feedback corrects the viewport.
-  buttonNavigator.onNextRelease(
-      [this, count, &currentNav] { moveSelectionTo(ButtonNavigator::nextIndex(currentNav.selected, count)); });
-  buttonNavigator.onPreviousRelease(
-      [this, count, &currentNav] { moveSelectionTo(ButtonNavigator::previousIndex(currentNav.selected, count)); });
-  buttonNavigator.onNextContinuous([this, count, &currentNav] {
-    moveSelectionTo(ButtonNavigator::nextPageIndex(currentNav.selected, count, currentNav.inputPageRows()));
-  });
-  buttonNavigator.onPreviousContinuous([this, count, &currentNav] {
-    moveSelectionTo(ButtonNavigator::previousPageIndex(currentNav.selected, count, currentNav.inputPageRows()));
-  });
-}
+void UiListActivity::navigateButtons() { listController.update(); }
 
 void UiListActivity::syncListViewport(UiScreen& screen, fui::ListProps& props, const bool hasSubtitle) {
   if (!mappedInput.hasTouch()) {
@@ -164,16 +133,109 @@ void UiListActivity::syncListViewport(UiScreen& screen, fui::ListProps& props, c
   }
 }
 
+// Out of line on purpose: every list screen's buildScreen() calls these, and inlined they cost
+// about 800 B of FreeInkUI code per screen.
+void UiListActivity::layoutListArea(UiScreen& screen, const int16_t extraTop, const int16_t extraBottom,
+                                    const bool spacer) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect contentRect = listContentRect();
+  screen.setContentMarginFromScreen(
+      fui::Insets{static_cast<int16_t>(contentRect.y + metrics.topPadding + metrics.headerHeight + extraTop),
+                  static_cast<int16_t>(renderer.getScreenWidth() - (contentRect.x + contentRect.width)),
+                  static_cast<int16_t>(renderer.getScreenHeight() - (contentRect.y + contentRect.height) + extraBottom),
+                  static_cast<int16_t>(contentRect.x)});
+  if (spacer) screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+}
+
+fui::ListProps UiListActivity::listProps(UiScreen& screen) const {
+  fui::ListProps props;
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;
+  props.labelText = screen.theme().bodyText;
+  props.labelText.maxLines = 2;
+  return props;
+}
+
+void UiListActivity::addList(UiScreen& screen, fui::ListProps& props, const bool hasSubtitle) {
+  syncListViewport(screen, props, hasSubtitle);
+  screen.list(props);
+}
+
 void UiListActivity::drawChrome() {
   const char* title = headerTitle();
   if (!title) return;
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight}, title);
+  GUI.drawHeader(renderer, listHeaderRect(), title);
 }
 
-void UiListActivity::drawFooter() {
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+void UiListActivity::drawFooter() { drawListHints(); }
+
+const char* UiListActivity::footerBackLabel() const { return tr(STR_BACK); }
+
+const char* UiListActivity::footerConfirmLabel() const { return tr(STR_SELECT); }
+
+void UiListActivity::drawListHints() { listController.drawHints(renderer, footerBackLabel(), footerConfirmLabel()); }
+
+Rect UiListActivity::listContentRect() const { return UITheme::getContentRect(renderer, true, true); }
+
+Rect UiListActivity::listHeaderRect() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect content = listContentRect();
+  return Rect{content.x, content.y + metrics.topPadding, content.width, metrics.headerHeight};
+}
+
+int UiListActivity::selectedPosition() const {
+  // activeNav() hands out a mutable reference; reading through it changes nothing.
+  return const_cast<UiListActivity*>(this)->activeNav().selected;
+}
+
+void UiListActivity::activatePosition(const int position, bool /*longPress*/) {
+  if (position >= 0 && position < listCount()) activateIndex(position);
+}
+
+void UiListActivity::homeFromList() {
+  if (activityManager.isReaderActivity()) {
+    onBackButton();
+    return;
+  }
+  onGoHome();
+}
+
+void UiListActivity::showRowPage(const int row, const int top) {
+  {
+    // `top` belongs to the render task: take the lock rather than write it under a build in flight.
+    // The follow request stays on: the build scrolls the least it must from this top to keep the
+    // selection on screen, which matters when rows differ in height.
+    RenderLock lock(*this);
+    auto& current = activeNav();
+    current.requestSelection(row);
+    current.followPending = false;
+    current.top = top;
+  }
+  onSelectionChanged(row);
+  requestUpdate();
+}
+
+void UiListActivity::publishListWindow() {
+  auto& current = activeNav();
+  const int count = listCount();
+  const int top = current.top;
+  const int drawn = current.drawnRows > 0 ? current.drawnRows : 1;
+  windowTop.store(top);
+  // A short last screen keeps the last full screen's row count, so paging back from it moves a
+  // whole screen rather than only as many rows as the tail had.
+  windowDrawn.store(top + drawn >= count ? std::max(drawn, windowDrawn.load()) : drawn);
+}
+
+void UiListActivity::resetPublishedWindow() {
+  windowTop.store(0);
+  windowDrawn.store(1);
+}
+
+ListWindow UiListActivity::publishedWindow() const {
+  ListWindow window;
+  window.top = windowTop.load();
+  window.drawn = windowDrawn.load();
+  return window;
 }
 
 void UiListActivity::render(RenderLock&&) {
@@ -185,6 +247,7 @@ void UiListActivity::render(RenderLock&&) {
     drawChrome();
     renderUi();
   }
+  publishListWindow();
   afterUiRender();
   drawFooter();
   renderer.displayBuffer();

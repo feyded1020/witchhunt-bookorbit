@@ -35,4 +35,8 @@ class SettingsSubmenuActivity final : public MenuListActivity {
   }
 
   void render(RenderLock&&) override;
+  bool releaseBuriedState() override {
+    std::vector<SettingInfo>().swap(menuItems);  // a copy of the submenu's rows
+    return true;
+  }
 };

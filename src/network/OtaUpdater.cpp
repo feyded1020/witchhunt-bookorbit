@@ -8,8 +8,6 @@
 #include <cstdio>
 #include <cstring>
 
-#include "network/ReleaseNotesScanner.h"
-
 // clang-format off
 // HttpDownloader.h pulls Arduino/SdFat, whose macros collide with lwip's
 // ip4_addr.h unless seen before the ESP-IDF headers below (esp_wifi.h and
@@ -25,6 +23,7 @@
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <esp_wifi.h>
+#include <wolfssl/wolfcrypt/sha256.h>
 // clang-format on
 
 namespace {
@@ -52,8 +51,11 @@ struct WifiPowerSaveGuard {
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   updateAvailable = false;
   latestVersion.clear();
+  releaseName.clear();
+  releaseNotes.clear();
   otaUrl.clear();
   otaSize = 0;
+  otaHasSha256 = false;
   processedSize = 0;
   totalSize = 0;
   render = false;
@@ -81,7 +83,6 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   }
 
   for (int attempt = 1; attempt <= otaHttpMaxAttempts; ++attempt) {
-    ReleaseNotesScanner notesScanner;
     ReleaseJsonParser releaseParser;
     releaseParser.setFirmwareAssetName(assetName);
     size_t bytesSeen = 0;
@@ -89,24 +90,29 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
     // installUpdate() then fetches, so an unverified answer chooses the binary.
     const bool ok = HttpDownloader::fetchUrlVerified(
         releaseApiUrl,
-        [&releaseParser, &notesScanner, &bytesSeen](const uint8_t* data, size_t len) {
+        [&releaseParser, &bytesSeen](const uint8_t* data, size_t len) {
           bytesSeen += len;
           if (bytesSeen > releaseMetadataMaxBytes) {
             return false;
           }
           releaseParser.feed(reinterpret_cast<const char*>(data), len);
-          notesScanner.feed(reinterpret_cast<const char*>(data), len);
-          // Stop early once everything the dialog needs is in hand. "body" sits after the assets
-          // in GitHub's response, so waiting for it costs the tail of a small JSON document; a
-          // release with no notes simply runs to the end of the stream.
-          if (releaseParser.foundTag() && releaseParser.foundFirmware() && notesScanner.done()) {
+          // We need tag_name, the asset fields and the start of the notes, which
+          // follow the assets. Stop once all are found to avoid fragile tail reads.
+          if (releaseParser.foundTag() && releaseParser.foundFirmware() && releaseParser.foundNotes()) {
             return false;
           }
           return true;
         },
         true);
 
-    if (!ok) {
+    // The notes are only shown, so a stream that fails between the asset and the
+    // notes still delivered the update; it is not retried for them.
+    const bool haveUpdate = releaseParser.foundTag() && releaseParser.foundFirmware();
+    if (!ok && haveUpdate) {
+      LOG_INF("OTA", "Release metadata stream ended before the notes; going on without them");
+    }
+
+    if (!ok && !haveUpdate) {
       if (bytesSeen > releaseMetadataMaxBytes) {
         LOG_ERR("OTA", "Release metadata too large after %zu bytes", bytesSeen);
         return METADATA_TOO_LARGE_ERROR;
@@ -131,10 +137,13 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
     }
 
     latestVersion = releaseParser.getTagName();
-    releaseNotes = notesScanner.text();
+    releaseName = releaseParser.getReleaseName();
+    releaseNotes = releaseParser.getReleaseNotes();
     otaUrl = releaseParser.getFirmwareUrl();
     otaSize = releaseParser.getFirmwareSize();
     totalSize = otaSize;
+    otaHasSha256 = releaseParser.hasFirmwareSha256();
+    memcpy(otaSha256, releaseParser.getFirmwareSha256(), sizeof(otaSha256));
     updateAvailable = true;
 
     LOG_DBG("OTA", "Found %s update: %s", SETTINGS.includeBetaUpdates ? "beta" : "stable", latestVersion.c_str());
@@ -366,9 +375,10 @@ OtaUpdater::OtaUpdaterError OtaUpdater::performInstallUpdateStep() {
     return installResult;
   }
 
-  const esp_ota_handle_t handle = reinterpret_cast<esp_ota_handle_t>(otaWriteHandle);
+  esp_ota_handle_t handle = reinterpret_cast<esp_ota_handle_t>(otaWriteHandle);
   bool writeOk = true;
   bool userCancelled = false;
+  bool restartFailed = false;
   // The image streams in chunks; only the first bytes carry the header. Buffer
   // the first 14 bytes so chip_id (esp_image_header_t offset 12) can be read
   // and a wrong-MCU image rejected before it overwrites the OTA partition.
@@ -381,10 +391,39 @@ OtaUpdater::OtaUpdaterError OtaUpdater::performInstallUpdateStep() {
   // the inactive OTA slot, but cleanupUpdate() below means it never becomes the
   // boot target.
   board_tag::Scanner tagScanner;
+  // What was written, hashed for the release's digest: the image must match it before it may boot.
+  // That matters here more than for most downloads: the install force-boots an image that fails
+  // ESP-IDF's validation (see below), and a chunked download is stitched from many responses.
+  wc_Sha256 sha;
+  wc_InitSha256(&sha);
+
+  // A server that ignores Range partway through sends the image again from byte 0 (RangeDownload.h),
+  // so the partition starts over. esp_ota_begin() erases it again, which takes a while, but only a
+  // misbehaving server gets here: GitHub's CDN honours Range.
+  auto restart = [&]() -> bool {
+    LOG_INF("OTA", "restarting the image from byte 0 (%zu B written)", processedSize);
+    esp_ota_abort(handle);
+    otaWriteHandle = nullptr;
+    const esp_partition_t* partition = esp_ota_get_next_update_partition(nullptr);
+    if (partition == nullptr || esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &handle) != ESP_OK) {
+      restartFailed = true;
+      return false;
+    }
+    otaWriteHandle = reinterpret_cast<void*>(handle);
+    hdrLen = 0;
+    wrongChip = false;
+    tagScanner = board_tag::Scanner{};
+    wc_Sha256Free(&sha);
+    wc_InitSha256(&sha);
+    processedSize = 0;
+    return true;
+  };
 
   // Verify-only (fail closed): a MITM must not be able to downgrade the firmware
-  // download to an unverified connection by presenting a bad cert.
-  const bool fetchOk = HttpDownloader::fetchUrlVerified(
+  // download to an unverified connection by presenting a bad cert. Restartable, so on a
+  // tight heap (the C3 boards) the image comes in Range chunks: GitHub sends 16 KB TLS
+  // records, and the X3 has no contiguous block that large left with Wi-Fi up.
+  const HttpDownloader::DownloadError fetchResult = HttpDownloader::fetchVerifiedRestartable(
       otaUrl,
       [&](const uint8_t* data, size_t len) -> bool {
         if (cancelRequested) {
@@ -416,6 +455,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::performInstallUpdateStep() {
           writeOk = false;
           return false;  // abort
         }
+        wc_Sha256Update(&sha, data, static_cast<word32>(len));
         processedSize += len;
         render = true;
         // Let the host redraw progress and poll for Back; abort if it returns false.
@@ -425,10 +465,14 @@ OtaUpdater::OtaUpdaterError OtaUpdater::performInstallUpdateStep() {
         }
         return true;
       },
-      /*treatAbortAsSuccess=*/false);
+      restart);
+  const bool fetchOk = fetchResult == HttpDownloader::OK;
 
   esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
   installDone = true;
+  uint8_t digest[32];
+  wc_Sha256Final(&sha, digest);
+  wc_Sha256Free(&sha);
 
   if (userCancelled || cancelRequested) {
     LOG_INF("OTA", "Install cancelled by user");
@@ -442,8 +486,8 @@ OtaUpdater::OtaUpdaterError OtaUpdater::performInstallUpdateStep() {
     installResult = WRONG_DEVICE_ERROR;
     return installResult;
   }
-  if (!writeOk) {
-    LOG_ERR("OTA", "esp_ota_write failed");
+  if (!writeOk || restartFailed) {
+    LOG_ERR("OTA", "%s", restartFailed ? "could not start the OTA partition over" : "esp_ota_write failed");
     cleanupUpdate();
     installResult = INTERNAL_UPDATE_ERROR;
     return installResult;
@@ -453,6 +497,24 @@ OtaUpdater::OtaUpdaterError OtaUpdater::performInstallUpdateStep() {
     cleanupUpdate();
     installResult = HTTP_ERROR;
     return installResult;
+  }
+  // The image must be the release's, byte for byte, before it may boot.
+  if (otaSize > 0 && processedSize != otaSize) {
+    LOG_ERR("OTA", "image is %zu B, the release lists %zu B", processedSize, otaSize);
+    cleanupUpdate();
+    installResult = CHECKSUM_ERROR;
+    return installResult;
+  }
+  if (otaHasSha256) {
+    if (memcmp(digest, otaSha256, sizeof(digest)) != 0) {
+      LOG_ERR("OTA", "image SHA-256 differs from the release's digest");
+      cleanupUpdate();
+      installResult = CHECKSUM_ERROR;
+      return installResult;
+    }
+    LOG_INF("OTA", "image SHA-256 matches the release's digest");
+  } else {
+    LOG_INF("OTA", "the release lists no SHA-256 for this asset; size checked only");
   }
 
   esp_err_t finish_err = esp_ota_end(handle);

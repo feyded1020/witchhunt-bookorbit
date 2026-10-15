@@ -6,9 +6,6 @@
 #include "CrossPointSettings.h"
 #include "I18nKeys.h"
 #include "MappedInputManager.h"
-#include "components/UITheme.h"
-
-namespace fui = freeink::ui;
 
 void KeyboardLayoutsActivity::onEnter() {
   UiListActivity::onEnter();
@@ -56,14 +53,7 @@ void KeyboardLayoutsActivity::activateIndex(const int index) {
 }
 
 void KeyboardLayoutsActivity::buildScreen(UiScreen& screen) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect contentRect = UITheme::getContentRect(renderer, true, false);
-  screen.setContentMarginFromScreen(
-      fui::Insets{static_cast<int16_t>(contentRect.y + metrics.topPadding + metrics.headerHeight),
-                  static_cast<int16_t>(renderer.getScreenWidth() - (contentRect.x + contentRect.width)),
-                  static_cast<int16_t>(renderer.getScreenHeight() - (contentRect.y + contentRect.height)),
-                  static_cast<int16_t>(contentRect.x)});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  layoutListArea(screen);
 
   for (int i = 0; i < keyboard_layouts::COUNT; ++i) {
     const auto row = static_cast<uint8_t>(i);
@@ -74,11 +64,11 @@ void KeyboardLayoutsActivity::buildScreen(UiScreen& screen) {
     }
   }
 
-  fui::ListProps props;
+  auto props = listProps(screen);
   props.items = rowItems;
   props.count = keyboard_layouts::COUNT;
-  props.action = ACTION_ROW;
-  props.inputMask = fui::InputTouch;  // physical buttons are handled by UiListActivity::loop()
-  syncListViewport(screen, props);
-  screen.list(props);
+  // Unlike the other lists, this one leaves the label style unset: the screen then takes the theme's
+  // body text with the theme's own line limit rather than two lines.
+  props.labelText = {};
+  addList(screen, props);
 }

@@ -248,10 +248,13 @@ constexpr uint32_t SILENT_REBOOT_TARGET_KOREADER_SETTINGS = 6;
 // (the WiFi Networks picker, Weather's city search), so the user lands back where
 // they started instead of on Home.
 constexpr uint32_t SILENT_REBOOT_TARGET_SETTINGS = 7;
+// Boot into File Transfer, on its OPDS Browser row, after Back left an OPDS catalog
+// session, so the user lands where they opened the browser instead of on Home.
+constexpr uint32_t SILENT_REBOOT_TARGET_FILE_TRANSFER_OPDS = 8;
 // Upper bound for the cold-boot sanity check on silentRebootTarget (RTC_NOINIT is
 // uninitialized on power-up). Must equal the highest target above — keep it in
 // sync when adding one, or the new target silently reads as HOME.
-constexpr uint32_t SILENT_REBOOT_TARGET_MAX = SILENT_REBOOT_TARGET_SETTINGS;
+constexpr uint32_t SILENT_REBOOT_TARGET_MAX = SILENT_REBOOT_TARGET_FILE_TRANSFER_OPDS;
 constexpr uint32_t HEAP_RECOVERY_RESTART_LATCH_MAGIC = 0x48EA9C01;
 
 // How the device is coming back to life, resolved once at boot. Both resume
@@ -327,6 +330,15 @@ void silentRestartToSettings() {
   globalReadingSessionTracker().end();
   armSilentReboot(SILENT_REBOOT_TARGET_SETTINGS);
   LOG_DBG("MAIN", "Silent restart (target=settings)");
+  delay(50);
+  ESP.restart();
+}
+
+void silentRestartToFileTransferOpds() {
+  if (deepSleepInProgress) return;
+  globalReadingSessionTracker().end();
+  armSilentReboot(SILENT_REBOOT_TARGET_FILE_TRANSFER_OPDS);
+  LOG_DBG("MAIN", "Silent restart (target=file-transfer-opds)");
   delay(50);
   ESP.restart();
 }
@@ -796,7 +808,7 @@ void ensureSdFontLoadedForPath(const char* path) {
                        static_cast<bool (*)(std::string_view)>(FsHelpers::hasMarkdownExtension)(filePath);
   if (isTxtMd) {
     // TXT/MD has no per-book SD font override — use global settings directly.
-    sdFontSystem.ensureLoaded(renderer, SETTINGS.txtSdFontFamilyName, SETTINGS.txtFontSize, onColdFontLoad);
+    sdFontSystem.ensureLoaded(renderer, SETTINGS.txtSdFontFamilyName, SETTINGS.txtFontPointSize, onColdFontLoad);
     return;
   }
 
@@ -805,7 +817,7 @@ void ensureSdFontLoadedForPath(const char* path) {
   // RecentBooksStore already has the persisted overrides for this path.
   const RecentBook book = RECENT_BOOKS.getBookByPath(path);
   const uint8_t effectiveSize =
-      (book.fontSizeOverride >= 0) ? static_cast<uint8_t>(book.fontSizeOverride) : SETTINGS.fontSize;
+      (book.fontSizeOverride >= 0) ? static_cast<uint8_t>(book.fontSizeOverride) : SETTINGS.fontPointSize;
 
   if (!book.sdFontFamilyOverride.empty()) {
     // Per-book SD font override: load that family at the effective size.
@@ -1297,6 +1309,7 @@ void setup() {
   WEATHER_SETTINGS.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
+  buttonEventManager.setReaderOnTopQuery([] { return activityManager.currentIsReaderActivity(); });
 
   // Brightness and warmth are always restored. A normal wake starts with the
   // light off unless Restore Light on Wake is enabled; silent maintenance
@@ -1437,7 +1450,9 @@ void setup() {
   // what decides whether a big chapter's section build finishes or aborts, so it needs to be
   // attributable to one of these three stores rather than inferred across boots.
   logStartupMemory("before_stores");
-  RECENT_BOOKS.loadFromFile();
+  // The recent-books list is no longer loaded here: it is held only while a screen or a call
+  // needs it (RecentBooksStore::Hold). Loaded at boot it split the largest free block for the
+  // session -- the reader opened every book with 45 KB of it instead of 61 KB (X3).
   logStartupMemory("after_recent_books");
   GLOBAL_BOOKMARKS.load();
   logStartupMemory("after_bookmarks");
@@ -1472,6 +1487,8 @@ void setup() {
     activityManager.goToKOReaderSettings();
   } else if (resume == BootResume::Silent && silentRebootTargetSnapshot == SILENT_REBOOT_TARGET_SETTINGS) {
     activityManager.goToSettings();
+  } else if (resume == BootResume::Silent && silentRebootTargetSnapshot == SILENT_REBOOT_TARGET_FILE_TRANSFER_OPDS) {
+    activityManager.goToFileTransfer(NetworkMode::OPDS_BROWSER);
   } else if (resume == BootResume::Silent) {
     // target == home (or reader with no open book): land on home — don't fall
     // through to the sleep-wake "resume reader" logic, which fires on stale
@@ -1564,6 +1581,7 @@ void loop() {
   halTiltSensor.update(static_cast<CrossPointTiltPageTurn::Value>(SETTINGS.tiltPageTurn),
                        static_cast<CrossPointOrientation::Value>(SETTINGS.orientation),
                        activityManager.isReaderActivity());
+  powerManager.serviceGaugeCapacityLoad();
 
   renderer.setFadingFix(SETTINGS.fadingFix);
   renderer.setTextDarkness(SETTINGS.textDarkness);
@@ -2049,7 +2067,7 @@ void loop() {
     }
 
     for (auto it = defaultEvents.rbegin(); it != defaultEvents.rend(); ++it) {
-      buttonEventManager.pushEventFront(it->button, it->type);
+      buttonEventManager.pushEventFront(*it);
     }
 
     // Gestures. In the reader every gesture is live; elsewhere only swipes and

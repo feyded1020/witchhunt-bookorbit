@@ -9,7 +9,21 @@
 #define MALLOC_CAP_DEFAULT (1 << 1)
 #define MALLOC_CAP_INTERNAL (1 << 2)
 
-inline size_t heap_caps_get_largest_free_block(uint32_t /*caps*/) { return 200 * 1024; }
+// Settable so a test can put the code under a fragmented heap (see HeapFit.h). Constant otherwise:
+// a test that changes it restores it (HostLargestFreeBlock below).
+inline size_t g_hostLargestFreeBlock = 200 * 1024;
+inline size_t heap_caps_get_largest_free_block(uint32_t /*caps*/) { return g_hostLargestFreeBlock; }
+
+// Scoped override of the largest free block the stub reports.
+struct HostLargestFreeBlock {
+  explicit HostLargestFreeBlock(size_t bytes) : saved_(g_hostLargestFreeBlock) { g_hostLargestFreeBlock = bytes; }
+  ~HostLargestFreeBlock() { g_hostLargestFreeBlock = saved_; }
+  HostLargestFreeBlock(const HostLargestFreeBlock&) = delete;
+  HostLargestFreeBlock& operator=(const HostLargestFreeBlock&) = delete;
+
+ private:
+  size_t saved_;
+};
 inline size_t heap_caps_get_free_size(uint32_t /*caps*/) { return 300 * 1024; }
 
 // Block-count probe. Constant like the rest of this stub: it feeds diagnostic logging only,

@@ -1,5 +1,6 @@
 add_executable(BookMetadataCacheTest
   BookMetadataCacheTest.cpp
+  AllocationRefusal.cpp
   ${REPO_ROOT}/test/zip_entry_reader/LoggingStub.cpp
   ${REPO_ROOT}/lib/Epub/Epub/BookMetadataCache.cpp
   ${REPO_ROOT}/lib/FsHelpers/FsHelpers.cpp

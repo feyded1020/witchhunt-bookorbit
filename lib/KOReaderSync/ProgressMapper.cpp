@@ -97,32 +97,57 @@ bool isChapterStartXPath(const std::string& xpath) {
   }
   return true;
 }
+
+// Page progress within a spine item. Page numbers are 0-based and totalPages is 1-based, so the
+// last page is (totalPages - 1). Dividing by (totalPages - 1) maps page 0 to intra=0 and the last
+// page to intra=1, which is what KOReader expects when round-tripping. Dividing by totalPages
+// would peg the last page short of 100%, so a user who finished the chapter would only show ~94%
+// on KOReader.
+float intraSpineProgressOf(const int pageNumber, const int totalPages) {
+  if (totalPages > 1) {
+    return static_cast<float>(pageNumber) / static_cast<float>(totalPages - 1);
+  }
+  return 0.0f;
+}
 }  // namespace
+
+float ProgressMapper::percentageFor(const std::shared_ptr<Epub>& epub, const int spineIndex, const int pageNumber,
+                                    const int totalPages) {
+  return epub->calculateProgress(spineIndex, intraSpineProgressOf(pageNumber, totalPages));
+}
+
+CrossPointPosition ProgressMapper::peekRemote(const KOReaderPosition& koPos, const int spineCount) {
+  CrossPointPosition result{};
+  int spine = -1;
+  if (ChapterXPathIndexer::tryExtractSpineIndexFromXPath(koPos.xpath, spine) && spine >= 0 &&
+      (spineCount <= 0 || spine < spineCount)) {
+    result.spineIndex = spine;
+    result.hasResolvedSpineIndex = true;
+    uint16_t pIndex = 0;
+    if (ChapterXPathIndexer::tryExtractParagraphIndexFromXPath(koPos.xpath, pIndex)) {
+      result.paragraphIndex = pIndex;
+      result.hasParagraphIndex = true;
+    }
+  }
+  return result;
+}
 
 KOReaderPosition ProgressMapper::toKOReader(const std::shared_ptr<Epub>& epub, const CrossPointPosition& pos) {
   KOReaderPosition result;
 
-  // Calculate page progress within current spine item.
-  // Page numbers are 0-based and totalPages is 1-based, so the last page is
-  // (totalPages - 1). Dividing by (totalPages - 1) maps page 0 to intra=0 and the
-  // last page to intra=1, which is what KOReader expects when round-tripping.
-  // Dividing by totalPages would peg the last page short of 100%, so a user who
-  // finished the chapter would only show ~94% on KOReader.
-  float intraSpineProgress = 0.0f;
-  if (pos.totalPages > 1) {
-    intraSpineProgress = static_cast<float>(pos.pageNumber) / static_cast<float>(pos.totalPages - 1);
-  } else if (pos.totalPages == 1) {
-    intraSpineProgress = 0.0f;
-  }
+  const float intraSpineProgress = intraSpineProgressOf(pos.pageNumber, pos.totalPages);
 
   // Calculate overall book progress (0.0-1.0)
   result.percentage = epub->calculateProgress(pos.spineIndex, intraSpineProgress);
 
-  // Generate XPath for the current position via byte-offset scan. Targeting the
-  // paragraph LUT entry instead would snap to the start of the paragraph the user
-  // is inside, which causes pulled positions to land at the start of the chapter
-  // when an opening paragraph spans many pages.
-  result.xpath = ChapterXPathIndexer::findXPathForProgress(epub, pos.spineIndex, intraSpineProgress);
+  // The page's content offset names the text to the character; the byte fraction is the fallback
+  // for a position without one (the finished-book sentinel, a chapter not laid out yet).
+  if (pos.hasVisibleTextOffset) {
+    result.xpath = ChapterXPathIndexer::findXPathForVisibleOffset(epub, pos.spineIndex, pos.visibleTextOffset);
+  }
+  if (result.xpath.empty()) {
+    result.xpath = ChapterXPathIndexer::findXPathForProgress(epub, pos.spineIndex, intraSpineProgress);
+  }
   if (result.xpath.empty()) {
     result.xpath = generateXPath(pos.spineIndex);
   }
@@ -131,8 +156,9 @@ KOReaderPosition ProgressMapper::toKOReader(const std::shared_ptr<Epub>& epub, c
   const int tocIndex = epub->getTocIndexForSpineIndex(pos.spineIndex);
   const std::string chapterName = (tocIndex >= 0) ? epub->getTocItem(tocIndex).title : "unknown";
 
-  LOG_DBG("ProgressMapper", "CrossPoint -> KOReader: chapter='%s', page=%d/%d -> %.2f%% at %s", chapterName.c_str(),
-          pos.pageNumber, pos.totalPages, result.percentage * 100, result.xpath.c_str());
+  LOG_DBG("ProgressMapper", "CrossPoint -> KOReader: chapter='%s', page=%d/%d off=%u/%d -> %.2f%% at %s",
+          chapterName.c_str(), pos.pageNumber, pos.totalPages, pos.visibleTextOffset, pos.hasVisibleTextOffset,
+          result.percentage * 100, result.xpath.c_str());
 
   return result;
 }
@@ -165,21 +191,36 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
   if (haveXPathSpine) {
     float intraFromXPath = 0.0f;
     uint16_t liIndexFromXPath = 0;
+    uint32_t offsetFromXPath = 0;
+    bool textPointFromXPath = false;
     if (ChapterXPathIndexer::findProgressForXPath(epub, xpathSpineIndex, koPos.xpath, intraFromXPath, xpathExactMatch,
-                                                  &liIndexFromXPath)) {
+                                                  &liIndexFromXPath, &offsetFromXPath, &textPointFromXPath)) {
       result.spineIndex = xpathSpineIndex;
+      result.hasResolvedSpineIndex = true;
       resolvedIntraSpineProgress = intraFromXPath;
       usedXPathMapping = true;
       if (liIndexFromXPath > 0) {
         result.listItemIndex = liIndexFromXPath;
         result.hasListItemIndex = true;
       }
+      // Only a text point matched to the codepoint is a position. An ancestor or index-insensitive
+      // match is a stand-in whose offset (a wrapper's end, a sibling's start) must not be mistaken
+      // for one, and so is an exact ELEMENT match: it sits at the element's first direct text, or
+      // at its END tag when it has none (<p><span>text</span></p>), so the offset would land the
+      // reader where the paragraph ends. Those keep the paragraph/li LUT, then the percentage.
+      if (textPointFromXPath) {
+        result.visibleTextOffset = offsetFromXPath;
+        result.hasVisibleTextOffset = true;
+      }
 
-      // KOReader's text-node indexing can differ across renderers/parsers in some
-      // XHTML shapes. When an XPath-resolved position disagrees materially with
-      // KOReader's percentage but points to the same spine, use percentage-derived
-      // intra-spine progress as a safer tie-breaker.
-      if (std::isfinite(koPos.percentage) && resolvedIntraSpineProgress >= 0.0f) {
+      // An inexact match (an ancestor, or a sibling with another index) is only a stand-in for
+      // the element KOReader named, and a text-less ancestor is matched at its END tag. When
+      // such a position disagrees materially with KOReader's percentage but points to the same
+      // spine, use percentage-derived intra-spine progress as a safer tie-breaker.
+      // An exact match is never overridden: KOReader's percentage is rendered pages, ours is
+      // XHTML bytes, and a gap over 1% between them is normal. Overriding an exact chapter-start
+      // match pushed the reader a dozen pages into the chapter (#268).
+      if (!xpathExactMatch && std::isfinite(koPos.percentage) && resolvedIntraSpineProgress >= 0.0f) {
         const float sanitizedPercentage = std::clamp(koPos.percentage, 0.0f, 1.0f);
         const float mappedPercentage = epub->calculateProgress(result.spineIndex, resolvedIntraSpineProgress);
         const float delta = std::fabs(mappedPercentage - sanitizedPercentage);
@@ -225,6 +266,7 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
     //      only when no XPath spine is available.
     if (haveXPathSpine) {
       result.spineIndex = xpathSpineIndex;
+      result.hasResolvedSpineIndex = true;
       if (isChapterStartXPath(koPos.xpath)) {
         resolvedIntraSpineProgress = 0.0f;
         mappingSource = "xpath-spine+chapter-start";
@@ -295,9 +337,11 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
           result.spineIndex, resolvedIntraSpineProgress, result.hasParagraphIndex ? "yes" : "no", result.paragraphIndex,
           result.hasListItemIndex ? "yes" : "no", result.listItemIndex);
 
-  LOG_DBG("ProgressMapper", "KOReader -> CrossPoint: %.2f%% at %s -> spine=%d, page=%d (%s, exact=%s)",
-          koPos.percentage * 100, koPos.xpath.c_str(), result.spineIndex, result.pageNumber, mappingSource,
-          xpathExactMatch ? "yes" : "no");
+  // INF, not DBG: release builds log at INF, and a sync that lands on the wrong page is
+  // undiagnosable from a user's log without the mapping source.
+  LOG_INF("ProgressMapper", "KOReader -> CrossPoint: %.2f%% at %s -> spine=%d, page=%d/%d off=%u/%d (%s, exact=%s)",
+          koPos.percentage * 100, koPos.xpath.c_str(), result.spineIndex, result.pageNumber, result.totalPages,
+          result.visibleTextOffset, result.hasVisibleTextOffset, mappingSource, xpathExactMatch ? "yes" : "no");
 
   return result;
 }

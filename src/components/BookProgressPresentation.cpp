@@ -58,22 +58,24 @@ std::string bookEtaSuffix(const RecentBook& book, int progressPercent) {
 }
 }  // namespace
 
-int readPercent(const RecentBook& book) {
-  if (book.path.empty()) {
+int readPercent(const RecentBook& book) { return readPercent(book.path); }
+
+int readPercent(const std::string& bookPath) {
+  if (bookPath.empty()) {
     return -1;
   }
 
   std::string cachePath;
   int percentByteOffset = 0;  // byte index of the percent field in progress.bin
 
-  if (FsHelpers::hasEpubExtension(book.path)) {
-    cachePath = Epub(book.path, "/.crosspoint").getCachePath();
+  if (FsHelpers::hasEpubExtension(bookPath)) {
+    cachePath = Epub(bookPath, "/.crosspoint").getCachePath();
     percentByteOffset = 6;  // epub: [spineIdx(2), page(2), chapterPageCount(2), percent(1)]
-  } else if (FsHelpers::hasXtcExtension(book.path)) {
-    cachePath = Xtc(book.path, "/.crosspoint").getCachePath();
+  } else if (FsHelpers::hasXtcExtension(bookPath)) {
+    cachePath = Xtc(bookPath, "/.crosspoint").getCachePath();
     percentByteOffset = 4;  // xtc: [page(4), percent(1)]
-  } else if (FsHelpers::hasTxtExtension(book.path) || FsHelpers::hasMarkdownExtension(book.path)) {
-    cachePath = Txt(book.path, "/.crosspoint").getCachePath();
+  } else if (FsHelpers::hasTxtExtension(bookPath) || FsHelpers::hasMarkdownExtension(bookPath)) {
+    cachePath = Txt(bookPath, "/.crosspoint").getCachePath();
     percentByteOffset = 6;  // txt: [page(2), offset(4), percent(1)]
   } else {
     return -1;

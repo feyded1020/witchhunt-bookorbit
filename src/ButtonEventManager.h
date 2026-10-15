@@ -42,6 +42,9 @@ class ButtonEventManager {
   struct ButtonEvent {
     Button button;
     PressType type;
+    // When the key went down for this gesture, on the sampler's clock (the second press of a
+    // Double). A list times a double-tap from it: the loop may handle the event much later.
+    unsigned long pressMs = 0;
   };
 
   // Timing constants (milliseconds)
@@ -72,7 +75,7 @@ class ButtonEventManager {
 
   // Preserve a default event for activity processing after main loop dispatch.
   // This is used when the configured action is BTN_DEFAULT.
-  void pushEventFront(Button button, PressType type);
+  void pushEventFront(const ButtonEvent& event);
 
   // Returns true while a button's first release is waiting for the
   // double-click decision window to expire (i.e. a Short is pending).
@@ -91,6 +94,11 @@ class ButtonEventManager {
   // ButtonEventManager queries CrossPointSettings internally. Answers identically for
   // both names of an aliased pair, so one physical button always has one wait policy.
   bool hasDoubleAction(Button button) const;
+
+  // Whether a reader activity is on top. Set once from main.cpp; until it is, every configured
+  // double action is assumed to apply and its key waits out the double-click window.
+  using ReaderOnTopQuery = bool (*)();
+  void setReaderOnTopQuery(ReaderOnTopQuery query) { readerOnTopQuery = query; }
 
   // Raw record of a button's press-down edges, for code that classifies taps itself instead of
   // consuming Short/Double events — ButtonNavigator's list paging, which must keep firing on the
@@ -116,6 +124,12 @@ class ButtonEventManager {
 
   uint32_t forcedDoubleMask = 0;
 
+  ReaderOnTopQuery readerOnTopQuery = nullptr;
+
+  // The double action configured for a key. Up/Down answer with the PageBack/PageForward settings,
+  // so both names of a physical key share one wait policy.
+  static uint8_t configuredDoubleAction(Button button);
+
   enum class State { Idle, Pressed, ReleasedOnce, DoublePressed };
 
   struct PerButton {
@@ -139,7 +153,7 @@ class ButtonEventManager {
 
   MappedInputManager& input;
 
-  void pushEvent(Button button, PressType type);
+  void pushEvent(Button button, PressType type, unsigned long pressMs);
   // The other logical name for the same physical button (Up<->PageBack,
   // Down<->PageForward); the button itself when it has no alias.
   static Button pairedAlias(Button button);

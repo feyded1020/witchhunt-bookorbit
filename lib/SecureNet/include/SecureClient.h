@@ -64,6 +64,9 @@ class SecureClient : public Client {
   void setAllowCertificateDateErrors(bool allow) { _allowCertificateDateErrors = allow; }
   // True if the last successful connect() fell back to an unverified handshake.
   bool lastConnectWasInsecure() const { return _lastWasInsecure; }
+  // True if the last read() that failed hard on this connection could not allocate the buffer for
+  // a TLS record (wolfSSL MEMORY_E). Cleared by the next connect().
+  bool lastReadWasOutOfMemory() const;
 
   // Heap low-water sampled ACROSS the last handshake (free bytes / largest
   // contiguous block). Distinct from ESP.getMinFreeHeap() (all-time since boot):
@@ -102,6 +105,7 @@ class SecureClient : public Client {
   bool _allowCertificateDateErrors = false;
   bool _lastWasInsecure = false;
   int _lastConnectErr = 0;                 // wolfSSL_get_error() from the last failed handshake
+  int _lastReadErr = 0;                    // wolfSSL_get_error() from the last hard read failure
   size_t _handshakeMinFree = SIZE_MAX;     // heap trough during the last handshake
   size_t _handshakeMinLargest = SIZE_MAX;  // largest-block trough during the last handshake
   void* _ssl = nullptr;                    // WOLFSSL*      (opaque; keeps wolfSSL headers out of here)

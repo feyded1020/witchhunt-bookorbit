@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "components/themes/HintLayout.h"
+
 class GfxRenderer;
 class Epub;
 class Txt;
@@ -30,6 +32,11 @@ enum class PopupShip : uint8_t {
              // GfxRenderer::finishDisplayAsync() before it next writes the framebuffer, touches
              // the display, or frees a framebuffer — releaseSecondaryBuffer() in particular does
              // NOT drain a refresh in flight, and X3 re-reads the frame after the waveform.
+  Caller,    // Not shipped: the box is only drawn into the write buffer, and the caller's own
+             // displayBuffer() ships it with the rest of the frame. For a popup drawn inside a
+             // render that ships itself, such as UiListActivity::render() via drawFooter(): a ship
+             // here would swap the buffers, and the render's displayBuffer() would then ship the
+             // stale one. Pass overlayDisplayedFrame=false with it, since the caller composed the frame.
 };
 
 struct ThemeMetrics {
@@ -77,23 +84,7 @@ struct ThemeMetrics {
   int keyboardKeyCornerRadius = 0;
 };
 
-enum UIIcon {
-  Folder,
-  Text,
-  Image,
-  Book,
-  File,
-  Recent,
-  Settings,
-  Transfer,
-  Library,
-  Wifi,
-  Hotspot,
-  Weather,
-  Usb,
-  Stats,
-  Ellipsis
-};
+enum UIIcon { Folder, Text, Image, Book, File, Recent, Settings, Transfer, Library, Weather, Stats, Ellipsis };
 
 enum class HomeNavigation { Linear, Carousel };
 
@@ -174,6 +165,7 @@ class BaseTheme {
   // composed a full fresh frame into the write buffer (clearScreen + render, then popup in the same
   // displayBuffer) must pass overlayDisplayedFrame=false so their render is not discarded.
   // ship=Async returns while the panel paints; see PopupShip for what the caller then owes.
+  // ship=Caller draws without shipping; the caller's displayBuffer() ships the frame.
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message, bool overlayDisplayedFrame = true,
                          PopupShip ship = PopupShip::Blocking) const;
   // Screen-centred, icon-only "working on it" box: an hourglass, no words. Deliberately wordless —
@@ -253,7 +245,35 @@ class BaseTheme {
   // without a scroll bar.
   static void drawListOverflowArrows(const GfxRenderer& renderer, Rect rect);
 
-  // Ships the frame a drawPopup() override just composed, blocking or not. One place so the two
-  // popup looks cannot drift on the part that isn't a look at all.
+  // Ships the frame a drawPopup() override just composed, blocking or not, or leaves it to the
+  // caller (PopupShip::Caller). One place so the two popup looks cannot drift on the part that
+  // isn't a look at all.
   static void shipPopup(const GfxRenderer& renderer, PopupShip ship);
+
+  // ---- Hint box sizing, shared by every drawButtonHints() / drawSideButtonHints() ----
+  // See HintLayout.h for the rule: a box grows to fit its label, then the label shrinks, then
+  // it is clipped.
+
+  // Width of `label` in `fontId`; 0 for a null or empty label, which needs no room.
+  static int hintLabelWidth(const GfxRenderer& renderer, int fontId, const char* label);
+  // `label` fitted to `maxWidth`: in `fontId` if it fits, else the default-size face, clipped
+  // only if even that will not fit. A whole word a size smaller is still the word, where
+  // "Down..." is a guess at which of Down and Download the button means.
+  struct FittedHintLabel {
+    int fontId;
+    std::string text;
+  };
+  static FittedHintLabel fitHintLabel(const GfxRenderer& renderer, int fontId, const char* label, int maxWidth);
+
+  // Where each bottom box goes and how wide it is: as wide as its label needs in `fontId`, up to
+  // a fair quarter of the panel, laid out around the `tuned` positions. Empty labels keep `base`.
+  static void layOutButtonHints(const GfxRenderer& renderer, int fontId, int base, const int (&tuned)[4],
+                                const char* const (&labels)[4], int (&x)[4], int (&width)[4]);
+
+  // The stretch of the side column the side boxes may grow into, in panel coordinates. Call it
+  // BEFORE forcing the draw into the panel frame: where the header lies depends on the live
+  // orientation.
+  static HintLayout::Span sideHintSpan(const GfxRenderer& renderer);
+  // Length the longer of the two side labels needs in `fontId`, padding included.
+  static int sideHintNeededLength(const GfxRenderer& renderer, int fontId, const char* upLabel, const char* downLabel);
 };

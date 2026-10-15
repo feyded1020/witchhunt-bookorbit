@@ -107,6 +107,7 @@ std::string numberOrString(JsonObjectConst doc, const char* key, const char* fal
       const char* value = doc[k] | "";
       if (value && *value) return value;
     } else {
+      // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
       const long long value = doc[k] | 0LL;
       if (value != 0) return std::to_string(value);
     }
@@ -188,11 +189,13 @@ bool BookOrbitCatalogClient::fetchBooks(const BookOrbitBookQuery& query, const i
   JsonDocument doc;
   if (!fetchJson(url, filter, doc)) return false;
   outPage.page = doc["page"] | page;
+  // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
   outPage.total = doc["total"] | 0;
   outPage.pageSize = doc["size"] | PAGE_SIZE;
   outPage.books.reserve(doc["items"].size());
   for (JsonObjectConst item : doc["items"].as<JsonArrayConst>()) {
     BookOrbitCatalogBook book;
+    // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
     book.id = item["id"] | 0;
     book.title = std::string(item["title"] | "");
     book.author = firstAuthor(item["authors"]);
@@ -221,6 +224,7 @@ bool BookOrbitCatalogClient::fetchSectionEntries(const std::string& sectionId, c
   JsonDocument doc;
   if (!fetchJson(url, filter, doc)) return false;
   outPage.page = doc["page"] | page;
+  // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
   outPage.hasNext = doc["hasNext"] | false;
   outPage.entries.reserve(doc["items"].size());
   for (JsonObjectConst item : doc["items"].as<JsonArrayConst>()) {
@@ -229,13 +233,16 @@ bool BookOrbitCatalogClient::fetchSectionEntries(const std::string& sectionId, c
     if (item["id"].is<const char*>()) {
       entry.id = std::string(item["id"] | "");
     } else if (!item["id"].isNull()) {
+      // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
       entry.id = std::to_string(item["id"] | 0LL);
     }
     entry.title = std::string(item["title"] | entry.id.c_str());
+    // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
     entry.count = item["count"] | 0;
     if (item["seriesId"].is<const char*>()) {
       entry.seriesId = std::string(item["seriesId"] | "");
     } else if (!item["seriesId"].isNull()) {
+      // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
       entry.seriesId = std::to_string(item["seriesId"] | 0LL);
     }
     outPage.entries.push_back(std::move(entry));
@@ -282,7 +289,9 @@ bool BookOrbitCatalogClient::fetchBookDetail(const int64_t bookId, BookOrbitBook
   outDetail.publisher = firstString(root, "publisher", nullptr);
   outDetail.publishedYear = numberOrString(root, "publishedYear", nullptr);
   outDetail.readStatus = firstString(root, "readStatus", nullptr);
+  // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
   outDetail.pageCount = doc["pageCount"] | 0;
+  // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
   outDetail.rating = doc["rating"] | 0;
   if (!doc["progressPercentage"].isNull()) {
     outDetail.progressPercentage = static_cast<int>((doc["progressPercentage"] | 0.0f) + 0.5f);
@@ -297,9 +306,11 @@ bool BookOrbitCatalogClient::fetchBookDetail(const int64_t bookId, BookOrbitBook
   }
   for (JsonObjectConst file : doc["files"].as<JsonArrayConst>()) {
     BookOrbitCatalogFile entry;
+    // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
     entry.id = file["id"] | 0;
     entry.format = std::string(file["format"] | "");
     for (auto& c : entry.format) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    // cppcheck-suppress badBitmaskCheck ; ArduinoJson's | means "default if missing", not bitwise OR
     entry.sizeBytes = file["sizeBytes"] | 0;
     outDetail.files.push_back(std::move(entry));
   }

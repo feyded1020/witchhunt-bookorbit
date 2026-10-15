@@ -165,6 +165,10 @@ bool MappedInputManager::wasReleased(const Button button) const { return mapButt
 
 bool MappedInputManager::isPressed(const Button button) const { return mapButton(button, &HalGPIO::isPressed); }
 
+bool MappedInputManager::hasPendingPress(const Button button) const {
+  return mapButton(button, &HalGPIO::hasPendingPress);
+}
+
 bool MappedInputManager::wasAnyPressed() const { return gpio.wasAnyPressed(); }
 
 bool MappedInputManager::wasAnyReleased() const { return gpio.wasAnyReleased(); }
@@ -245,7 +249,7 @@ int MappedInputManager::getPressedFrontButton() const {
 // Thin interpretation layer over HalGPIO's raw passthrough: map panel-native
 // normalized coordinates into logical pixels via the renderer's live
 // orientation, then give the result app meaning. Ported from upstream/develop;
-// see docs/touch-input-migration-2026-08-14.md §1.
+// see docs/contributing/touch-architecture.md, "Layers".
 
 bool MappedInputManager::hasTouch() const { return gpio.hasTouch(); }
 
@@ -309,9 +313,11 @@ bool MappedInputManager::isScreenTouchHeld(int& x, int& y) const {
   return true;
 }
 
-void MappedInputManager::injectRawPress(const uint8_t rawButtonIndex, const bool longPress) const {
-  gpio.injectPress(rawButtonIndex, longPress);
+void MappedInputManager::injectRawPress(const uint8_t rawButtonIndex, const bool longPress, const uint32_t atMs) const {
+  gpio.injectPress(rawButtonIndex, longPress, atMs);
 }
+
+uint32_t MappedInputManager::lastTouchEventAtMs() const { return gpio.lastTouchEventAtMs(); }
 
 bool MappedInputManager::wasScreenTouchReleased() const { return rawReleased(); }
 

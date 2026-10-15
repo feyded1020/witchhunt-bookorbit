@@ -7,14 +7,14 @@
 #include "../settings/SettingInfo.h"
 #include "BookOrbitCredentialStore.h"
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "components/UITheme.h"
 
-FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                                 const std::string& filePath,
-                                                 CrossPointSettings::FILE_SORT_MODE sortMode,
-                                                 CrossPointSettings::FILE_SORT_DIRECTION sortDirection,
-                                                 const bool offerDirectoryActions, const bool searchActive,
-                                                 const bool offerGoToFolder, const bool offerFileManagement)
+FileContextMenuActivity::FileContextMenuActivity(
+    GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& filePath,
+    CrossPointSettings::FILE_SORT_MODE sortMode, CrossPointSettings::FILE_SORT_DIRECTION sortDirection,
+    const bool offerDirectoryActions, const bool searchActive, const bool offerGoToFolder,
+    const bool offerFileManagement, const bool offerViewChoice, const ListSource source, const uint8_t view)
     : MenuListActivity("FileContextMenu", renderer, mappedInput),
       filePath(filePath),
       isBrowserMode(filePath.empty()),
@@ -22,10 +22,13 @@ FileContextMenuActivity::FileContextMenuActivity(GfxRenderer& renderer, MappedIn
       searchActive(searchActive),
       offerGoToFolder(offerGoToFolder),
       offerFileManagement(offerFileManagement),
+      offerViewChoice(offerViewChoice),
+      source(source),
       sortMode(static_cast<uint8_t>(sortMode)),
       sortDirection(static_cast<uint8_t>(sortDirection)),
       showHiddenFiles(SETTINGS.showHiddenFiles),
-      showFileExtensions(SETTINGS.showFileExtensions) {
+      showFileExtensions(SETTINGS.showFileExtensions),
+      browserView(view) {
   buildMenuItems();
 }
 
@@ -38,28 +41,33 @@ void FileContextMenuActivity::buildMenuItems() {
   }
 
   // --- Display options (always shown: files, directories, unsupported types) ---
-  menuItems.push_back(SettingInfo::Separator(StrId::STR_SORT_BY));
+  const bool fixedOrder = source != ListSource::Folder;
+  if (!fixedOrder) {
+    menuItems.push_back(SettingInfo::Separator(StrId::STR_SORT_BY));
 
-  // Sort mode: single cycling item Name -> Date -> Size -> Type
-  menuItems.push_back(SettingInfo::DynamicEnumCtx(
-      StrId::STR_SORT_BY, {StrId::STR_SORT_NAME, StrId::STR_SORT_DATE, StrId::STR_SORT_SIZE, StrId::STR_SORT_TYPE},
-      self, [](const void* ctx) -> uint8_t { return static_cast<const FileContextMenuActivity*>(ctx)->sortMode; },
-      [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->sortMode = v; }));
+    // Sort mode: single cycling item Name -> Date -> Size -> Type
+    menuItems.push_back(SettingInfo::DynamicEnumCtx(
+        StrId::STR_SORT_BY, {StrId::STR_SORT_NAME, StrId::STR_SORT_DATE, StrId::STR_SORT_SIZE, StrId::STR_SORT_TYPE},
+        self, [](const void* ctx) -> uint8_t { return static_cast<const FileContextMenuActivity*>(ctx)->sortMode; },
+        [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->sortMode = v; }));
 
-  // Sort direction: single cycling item Ascending -> Descending
-  menuItems.push_back(SettingInfo::DynamicEnumCtx(
-      StrId::STR_SORT_DIR, {StrId::STR_SORT_ASC, StrId::STR_SORT_DESC}, self,
-      [](const void* ctx) -> uint8_t { return static_cast<const FileContextMenuActivity*>(ctx)->sortDirection; },
-      [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->sortDirection = v; }));
+    // Sort direction: single cycling item Ascending -> Descending
+    menuItems.push_back(SettingInfo::DynamicEnumCtx(
+        StrId::STR_SORT_DIR, {StrId::STR_SORT_ASC, StrId::STR_SORT_DESC}, self,
+        [](const void* ctx) -> uint8_t { return static_cast<const FileContextMenuActivity*>(ctx)->sortDirection; },
+        [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->sortDirection = v; }));
+  }
 
   menuItems.push_back(SettingInfo::Separator(StrId::STR_SHOW_FILES));
   // Visibility: show hidden files (OFF/ON)
-  menuItems.push_back(SettingInfo::DynamicEnumCtx(
-      StrId::STR_SHOW_HIDDEN_FILES, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON}, self,
-      [](const void* ctx) -> uint8_t {
-        return static_cast<const FileContextMenuActivity*>(ctx)->showHiddenFiles ? 1 : 0;
-      },
-      [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->showHiddenFiles = (v != 0) ? 1 : 0; }));
+  if (!fixedOrder) {
+    menuItems.push_back(SettingInfo::DynamicEnumCtx(
+        StrId::STR_SHOW_HIDDEN_FILES, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON}, self,
+        [](const void* ctx) -> uint8_t {
+          return static_cast<const FileContextMenuActivity*>(ctx)->showHiddenFiles ? 1 : 0;
+        },
+        [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->showHiddenFiles = (v != 0) ? 1 : 0; }));
+  }
 
   // Visibility: show file extensions (OFF/ON)
   menuItems.push_back(SettingInfo::DynamicEnumCtx(
@@ -69,10 +77,24 @@ void FileContextMenuActivity::buildMenuItems() {
       },
       [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->showFileExtensions = (v != 0) ? 1 : 0; }));
 
+  if (offerViewChoice) {
+    menuItems.push_back(SettingInfo::DynamicEnumCtx(
+        StrId::STR_BROWSER_VIEW, {StrId::STR_VIEW_FILENAMES, StrId::STR_VIEW_DETAILS, StrId::STR_VIEW_COVERS}, self,
+        [](const void* ctx) -> uint8_t { return static_cast<const FileContextMenuActivity*>(ctx)->browserView; },
+        [](void* ctx, uint8_t v) { static_cast<FileContextMenuActivity*>(ctx)->browserView = v; }));
+  }
+
   // Browser mode stops after the display options, except for the two things that belong to the
   // folder you are standing in rather than to any row: making one, and (for a directory)
   // deleting the one selected.
   if (isBrowserMode) {
+    if (fixedOrder) {  // nothing in the list is selected: only what belongs to the list itself
+      if (source == ListSource::Index) {
+        menuItems.push_back(SettingInfo::Separator(StrId::STR_TOOL_UTILITIES));
+        menuItems.push_back(SettingInfo::Action(StrId::STR_REFRESH_LIBRARY, SettingAction::None));
+      }
+      return;
+    }
     menuItems.push_back(SettingInfo::Separator(StrId::STR_TOOL_UTILITIES));
     // Search narrows the folder you are standing in, so it sits with the folder actions rather
     // than the row actions. Clearing only appears when there is something to clear.
@@ -128,6 +150,25 @@ void FileContextMenuActivity::buildMenuItems() {
     menuItems.push_back(SettingInfo::Action(StrId::STR_OPEN, SettingAction::None));
     menuItems.push_back(SettingInfo::Action(StrId::STR_MARK_AS_READ, SettingAction::None));
     menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
+  } else if (offerFileManagement) {
+    // Only All files lists a file the reader cannot open. Getting rid of it is most of what there
+    // is to do with one here.
+    menuItems.push_back(SettingInfo::Action(StrId::STR_REMOVE, SettingAction::None));
+  }
+
+  if (fixedOrder) {
+    // Off the list, not off the card: Recent Books swaps the file's own Remove for that.
+    if (source == ListSource::Recents) {
+      for (auto& item : menuItems) {
+        if (item.nameId == StrId::STR_REMOVE) item.nameId = StrId::STR_REMOVE_FROM_RECENTS;
+      }
+    }
+    if (offerGoToFolder) menuItems.push_back(SettingInfo::Action(StrId::STR_GO_TO_FOLDER, SettingAction::None));
+    // New and Authors: build the index again, for what was changed where the firmware did not see it.
+    if (source == ListSource::Index) {
+      menuItems.push_back(SettingInfo::Action(StrId::STR_REFRESH_LIBRARY, SettingAction::None));
+    }
+    return;
   }
 
   // Every file can be moved, whatever its type: this is a rename, and rename does not care what
@@ -155,6 +196,7 @@ void FileContextMenuActivity::finishWithDisplayOptions(Action action) {
   res.sortDirection = sortDirection;
   res.showHiddenFiles = showHiddenFiles;
   res.showFileExtensions = showFileExtensions;
+  res.browserView = browserView;
   ActivityResult result{std::move(res)};
   result.isCancelled = false;
   setResult(std::move(result));
@@ -195,6 +237,10 @@ void FileContextMenuActivity::onActionSelected(int index) {
     action = Action::NewFolder;
   } else if (nameId == StrId::STR_REMOVE) {
     action = Action::Remove;
+  } else if (nameId == StrId::STR_REMOVE_FROM_RECENTS) {
+    action = Action::RemoveFromRecents;
+  } else if (nameId == StrId::STR_REFRESH_LIBRARY) {
+    action = Action::RefreshLibrary;
   }
 
   if (action == Action::None) return;
@@ -216,24 +262,24 @@ void FileContextMenuActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect contentRect = UITheme::getContentRect(renderer, true, true);
+  const Rect contentRect = listContentRect();
 
   // Header: bare filename when a file is selected, otherwise a generic title
-  const std::string header = isBrowserMode ? std::string(tr(STR_SORT_BY)) : [&] {
-    const auto slashPos = filePath.rfind('/');
-    return (slashPos == std::string::npos) ? filePath : filePath.substr(slashPos + 1);
-  }();
-  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer), header.c_str());
+  const std::string header = isBrowserMode
+                                 ? std::string(source == ListSource::Recents ? tr(STR_MENU_RECENT_BOOKS)
+                                               : source == ListSource::Index ? tr(STR_LIBRARY)
+                                                                             : tr(STR_SORT_BY))
+                                 : [&] {
+                                     const auto slashPos = filePath.rfind('/');
+                                     return (slashPos == std::string::npos) ? filePath : filePath.substr(slashPos + 1);
+                                   }();
+  GUI.drawHeader(renderer, listHeaderRect(), header.c_str());
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = contentRect.height - contentTop - metrics.verticalSpacing;
+  const int contentTop = contentRect.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight = contentRect.y + contentRect.height - contentTop - metrics.verticalSpacing;
   drawMenuList(Rect{contentRect.x, contentTop, contentRect.width, contentHeight});
 
-  const auto hints = mappedInput.mapHints(tr(STR_BACK), tr(STR_SELECT), "", "", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, hints.front.btn1, hints.front.btn2, hints.front.btn3, hints.front.btn4);
-  // This menu can outgrow a screen, and on a board with no digitiser the side hints are the only
-  // thing that says it scrolls.
-  GUI.drawSideButtonHints(renderer, hints.side.up, hints.side.down);
+  drawListHints();
 
   renderer.displayBuffer();
 }
